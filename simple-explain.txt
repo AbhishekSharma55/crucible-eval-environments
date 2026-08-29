@@ -1,0 +1,71 @@
+The thing
+A tool that mass-produces graded test cases for AI coding agents, out of real bugs from real open-source repos.
+
+What a "test case" means here
+Think of how SWE-bench works. One item in it is:
+
+a Python repo, checked out at the exact commit before someone fixed a bug
+the issue text describing what's broken
+a hidden test that fails on that broken code and passes once the bug is correctly fixed
+You drop an AI coding agent in, let it try, then run the test. Red→green means it solved it. That's the whole grading mechanism — no human, no LLM judge, no opinion. Just a test result.
+
+Those items are what micro1 pays contractors $50–100/hour to build, and what the hackathon is implicitly asking for.
+
+Why making them is hard
+Take a real fix commit from a library like httpx. To turn it into a graded case you have to:
+
+get the repo building at a two-year-old commit with the dependencies it had then
+find which test actually covers the fix (many commits ship no test)
+confirm that test genuinely fails before and passes after — not that it's flaky, not that it passes for an unrelated reason
+confirm nothing else broke
+make sure the answer isn't sitting in a file the agent can read
+Most candidates fail somewhere in there. SWE-bench's pipeline is heuristic and discards the large majority of commits it looks at. Every discard is wasted human time — you often only find out it's unusable after you've done the work.
+
+What our agent does
+It takes the commits the heuristic pipeline rejected and tries to rescue them. That's the judgment-heavy part: figure out the build, write the missing test, decide whether a candidate is salvageable at all or should be abandoned.
+
+Then a verifier we write checks its work, deterministically:
+
+Check	Method
+Test fails at the parent commit	run it, read exit code
+Test passes at the fix commit	run it, read exit code
+Other tests pass at both	run them
+Whole thing rebuilds from scratch	docker build + pytest
+Four exit codes. No argument possible.
+
+What we measure
+Out of 100 commits the heuristic pipeline threw away, how many does the agent turn into cases that actually validate — and at what cost per case, against $50–100/hour of human time.
+
+Plus one number that makes us look worse on purpose: the agent can cheat (write a test that differs trivially between the two commits without testing the real behavior). So we keep a stricter verifier it never sees during development and publish the gap between the two scores.
+
+Why this over the alternatives
+Every other entrant will hand judges a number they have to trust. We hand them a test suite they can run. And the people scoring it build benchmarks for a living — this is their day job, submitted back to them.
+
+The one real risk is dependency hell: old repos that won't build. That's why the first hour tomorrow is hand-checking a corpus of 6–10 pure-Python repos and dropping anything that fights us. Fallback plan is in STRATEGY.md.
+
+Say the word if you'd rather build something else — this is my recommendation, not a commitment.
+
+---
+
+
+Six pieces, built in this order. The order matters more than the pieces.
+
+1. Corpus + sandbox (~4h)
+A plain script hits the GitHub API for merged PRs that close an issue, on 6–10 hand-vetted pure-Python repos. No agent — this part is deterministic, so a script does it better. One pinned Docker image that can check out any of those repos at any commit and run pytest. Split the candidates into dev and held-out immediately; never look at held-out again.
+
+2. The verifier (~4h)
+The four checks, as code, returning exit codes. Built before the agent, because it's the thing everything gets measured against. If this is wrong, every number downstream is wrong.
+
+3. Baselines (~3h)
+The heuristic pipeline (SWE-bench-style filtering), plus a retry-with-warming baseline. Run both, commit the numbers to git before writing a line of agent code. Locking the baseline in first is what makes the comparison honest — and it's checkable in the git history.
+
+4. The agent (~10h)
+Claude Code headless (claude -p) with a deliberately small tool surface: read file, edit file, run tests in the sandbox, git operations. Its system prompt lives in agents/*.md under version control, so the diffs are the changelog evidence. One capability added per iteration, full eval re-run after each, changelog row written the same hour — including the two experiments I expect to fail and remove.
+
+5. Harness + replay (~6h)
+Runner that executes baseline / agent / ablations over the same cases at k=3–5, emits results/*.json and a self-contained HTML report. Plus the fixture layer: every model call hash-cached, so make eval replays offline with no API key and reproduces the published table exactly. make eval-live for the real thing.
+
+6. Deliverables (~10h)
+README, changelog, reproduction guide, provenance — hand-written, not generated. Trajectories exported from Claude Code's own JSONL via claude-code-log. Video last, scripted to the shot list in research/02-winning-patterns.md.
+
+Stack: Python + uv (locked), Docker (digest-pinned), pytest, Claude Code headless for the agent under test, a cheap cross-family model on OpenRouter for the few qualitative judgments. Results as JSON, report as static HTML.
