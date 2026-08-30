@@ -1,0 +1,3120 @@
+{
+  "data": {
+    "rateLimit": {
+      "cost": 3,
+      "remaining": 4946,
+      "resetAt": "2026-08-29T19:51:57Z"
+    },
+    "repository": {
+      "pullRequests": {
+        "nodes": [
+          {
+            "body": "Add wording to caution the unwary reader against production use of `from tenacity import *`.\r\n\r\nThe contributor notes set the bar a little high for the casual repository browser, but this small\r\ndocfix should allow closing https://github.com/jd/tenacity/issues/214 with a relatively clear conscience.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "0f1786df4842a0c280f57c648cd4e17b8d8ea0b3",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "c5a8abb404c50bddd9881c69b995c343ab7b4991"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2020-08-25T14:18:44Z",
+            "number": 248,
+            "title": "issue-214/doc-fix",
+            "url": "https://github.com/jd/tenacity/pull/248"
+          },
+          {
+            "body": "Enhancement to the `before_sleep_log()` helper to optionally allow inclusion of traceback information in the log messages (via `logging.Logger.log(exc_info=...)`).\r\n\r\nSlightly tricky to implement due to Py2/3 differences in exceptions and consequential `Future` API differences, so I added a helper to the `compat` module.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "releasenotes/notes/before_sleep_log-improvements-d8149274dfb37d7c.yaml"
+                },
+                {
+                  "path": "tenacity/before_sleep.py"
+                },
+                {
+                  "path": "tenacity/compat.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NA",
+                "hasNextPage": false
+              },
+              "totalCount": 4
+            },
+            "mergeCommit": {
+              "oid": "c5a8abb404c50bddd9881c69b995c343ab7b4991",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "196332c1f44a8830744984438554b008f4208254"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2020-04-24T09:30:11Z",
+            "number": 227,
+            "title": "before_sleep_log: Add an exc_info option to include exception tracebacks",
+            "url": "https://github.com/jd/tenacity/pull/227"
+          },
+          {
+            "body": "**Note:**\r\nThis feature doesn't support py35 because async generators were added in py36: https://www.python.org/dev/peps/pep-0525/",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/tests/test_asyncio.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "ce63d28eb9396dd5a14e08246cc488b8e445408b",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "ea09cca3fbdf4bb1f7c4484fe5db30f2b2153802"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2020-04-17T09:21:35Z",
+            "number": 222,
+            "title": "AsyncRetrying can use an async iterator",
+            "url": "https://github.com/jd/tenacity/pull/222"
+          },
+          {
+            "body": "Hi!\r\n\r\nWe're considering retry libraries for some internal code on a well type annotated python3 codebase. Tenacity looks good, but an issue is the lack of type support, because wrapping a function in `@retry` causes its type to become degraded to `Any` (essentially untyped), losing the benefit of any type annotations on the decorated function.\r\n\r\nThis PR contains the minimal set of changes required to get the `@retry` decorator supporting typechecking properly: it defines two [overloads](https://docs.python.org/3/library/typing.html#typing.overload), one for the decorator being used without arguments and another for the decorator being used as a decorator constructor. In both cases, the type signature specifies that the resulting callable has the same signature as the wrapped function. \r\n\r\nIt adds the `typing` backport as a requirement for python 2.7, and adds the empty `py.typed` file that [PEP 561](https://www.python.org/dev/peps/pep-0561/) specifies must be included in package data to signal to code that uses a library that the library contains type annotations.\r\n\r\nI've done the type-annotations in code as comments, because I've found them much easier to keep up-to-date that way, but if you'd prefer, I could pull them out into a stub file instead.\r\n\r\nThere's more that could be done here with [protocols](https://docs.python.org/3/library/typing.html#typing.Protocol) to also provide hints on the various keyword arguments to `retry()`, but even without that, this change provides significant value for typed codebases.\r\n\r\nI validated the signatures by doing a dev install of `tenacity` and running mypy on this example file:\r\n\r\n```py\r\nfrom tenacity import retry\r\n\r\n@retry\r\ndef foo(a: str) -> str:\r\n    return a + \"foo\"\r\n\r\n@retry()\r\ndef foob(a: str) -> str:\r\n    return a + \"foob\"\r\n\r\na = foo  # sig: def (a: builtins.str) -> builtins.str\r\nb = foob  # sig: def (a: builtins.str) -> builtins.str\r\n\r\nc = foo(\"foo\")  # builtins.str\r\nd = foob(\"foo\")  # builtins.str\r\n\r\nreveal_locals()\r\n```\r\n\r\nThe `reveal_locals()` output is shown in comments next to the variables. Without this change, the revealed type of all variables is `Any`.\r\n\r\nThanks!",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "setup.cfg"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/py.typed"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "ea09cca3fbdf4bb1f7c4484fe5db30f2b2153802",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "30e77b16ebd08609cccea8754c40bf959c3f7c94"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2020-04-03T08:37:48Z",
+            "number": 221,
+            "title": "Add minimal type definitions for @retry decorator",
+            "url": "https://github.com/jd/tenacity/pull/221"
+          },
+          {
+            "body": "Resolves [5626](https://github.com/celery/celery/issues/5626) over in the celery issue tracker. Resolves [182](https://github.com/jd/tenacity/issues/182) in tenacity tracker",
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "body": "<!--\r\nPlease fill this template entirely and do not erase parts of it.\r\nWe reserve the right to close without a response\r\nbug reports which are incomplete.\r\n-->\r\n# Checklist\r\n<!--\r\nTo check an item on the list replace [ ] with [x].\r\n-->\r\n\r\n- [x] I have read the relevant section in the\r\n  [contribution guide](http://docs.celeryproject.org/en/latest/contributing.html#other-bugs)\r\n  on reporting bugs.\r\n- [x] I have checked the [issues list](https://github.com/celery/celery/issues?q=is%3Aissue+label%3A%22Issue+Type%3A+Bug+Report%22+-label%3A%22Category%3A+Documentation%22)\r\n  for similar or identical bug reports.\r\n- [x] I have checked the [pull requests list](https://github.com/celery/celery/pulls?q=is%3Apr+label%3A%22PR+Type%3A+Bugfix%22+-label%3A%22Category%3A+Documentation%22)\r\n  for existing proposed fixes.\r\n- [x] I have checked the [commit log](https://github.com/celery/celery/commits/master)\r\n  to find out if the bug was already fixed in the master branch.\r\n- [x] I have included all related issues and possible duplicate issues\r\n  in this issue (If there are none, check this box anyway).\r\n\r\n## Mandatory Debugging Information\r\n\r\n- [x] I have included the output of ``celery -A proj report`` in the issue.\r\n    (if you are not able to do this, then at least specify the Celery\r\n     version affected).\r\n- [x] I have verified that the issue exists against the `master` branch of Celery.\r\n- [x] I have included the contents of ``pip freeze`` in the issue.\r\n- [x] I have included all the versions of all the external dependencies required\r\n  to reproduce this bug.\r\n\r\n## Optional Debugging Information\r\n<!--\r\nTry some of the below if you think they are relevant.\r\nIt will help us figure out the scope of the bug and how many users it affects.\r\n-->\r\n- [x] I have tried reproducing the issue on more than one Python version\r\n  and/or implementation.\r\n- [x] I have tried reproducing the issue on more than one message broker and/or\r\n  result backend.\r\n- [ ] I have tried reproducing the issue on more than one version of the message\r\n  broker and/or result backend.\r\n- [ ] I have tried reproducing the issue on more than one operating system.\r\n- [ ] I have tried reproducing the issue on more than one workers pool.\r\n- [ ] I have tried reproducing the issue with autoscaling, retries,\r\n  ETA/Countdown & rate limits disabled.\r\n- [x] I have tried reproducing the issue after downgrading\r\n  and/or upgrading Celery and its dependencies.\r\n\r\n## Related Issues and Possible Duplicates\r\n<!--\r\nPlease make sure to search and mention any related issues\r\nor possible duplicates to this issue as requested by the checklist above.\r\n\r\nThis may or may not include issues in other repositories that the Celery project\r\nmaintains or other repositories that are dependencies of Celery.\r\n\r\nIf you don't know how to mention issues, please refer to Github's documentation\r\non the subject: https://help.github.com/en/articles/autolinked-references-and-urls#issues-and-pull-requests\r\n-->\r\n\r\n#### Related Issues\r\n\r\n- #3586\r\n\r\n#### Possible Duplicates\r\n\r\n- #3586\r\n\r\n## Environment & Settings\r\n<!-- Include the contents of celery --version below -->\r\n**Celery version**:\r\n<!-- Include the output of celery -A proj report below -->\r\n<details>\r\n<summary><b><code>celery report</code> Output:</b></summary>\r\n<p>\r\n\r\n```\r\nsoftware -> celery:4.4.0rc2 (cliffs) kombu:4.6.3 py:3.6.7\r\n            billiard:3.6.0.0 py-amqp:2.5.0\r\nplatform -> system:Linux arch:64bit\r\n            kernel version:4.9.125-linuxkit imp:CPython\r\nloader   -> celery.loaders.app.AppLoader\r\nsettings -> transport:pyamqp results:redis://redis/\r\n\r\nbroker_url: 'amqp://guest:********@rabbit:5672//'\r\nresult_backend: 'redis://redis/'\r\n```\r\n\r\n</p>\r\n</details>\r\n\r\n# Steps to Reproduce\r\n\r\n## Required Dependencies\r\n<!-- Please fill the required dependencies to reproduce this issue -->\r\n* **Minimal Python Version**: N/A or Unknown\r\n* **Minimal Celery Version**: N/A or Unknown\r\n* **Minimal Kombu Version**: N/A or Unknown\r\n* **Minimal Broker Version**: N/A or Unknown\r\n* **Minimal Result Backend Version**: N/A or Unknown\r\n* **Minimal OS and/or Kernel Version**: N/A or Unknown\r\n* **Minimal Broker Client Version**: N/A or Unknown\r\n* **Minimal Result Backend Client Version**: N/A or Unknown\r\n\r\n### Python Packages\r\n<!-- Please fill the contents of pip freeze below -->\r\n<details>\r\n<summary><b><code>pip freeze</code> Output:</b></summary>\r\n<p>\r\n\r\n```\r\nalabaster==0.7.12\r\namqp==2.5.0\r\nasn1crypto==0.24.0\r\naspy.yaml==1.3.0\r\natomicwrites==1.3.0\r\nattrs==19.1.0\r\naws-xray-sdk==0.95\r\nazure-common==1.1.5\r\nazure-nspkg==3.0.2\r\nazure-storage==0.36.0\r\nazure-storage-common==1.1.0\r\nazure-storage-nspkg==3.1.0\r\nBabel==2.7.0\r\nbasho-erlastic==2.1.1\r\nbilliard==3.6.0.0\r\nboto==2.49.0\r\nboto3==1.9.180\r\nbotocore==1.12.180\r\nbumpversion==0.5.3\r\ncase==1.5.3\r\ncassandra-driver==3.18.0\r\ncelery==4.4.0rc2\r\ncertifi==2019.6.16\r\ncffi==1.12.3\r\ncfgv==2.0.0\r\nchardet==3.0.4\r\ncodecov==2.0.15\r\ncouchbase==2.5.5\r\ncoverage==4.5.3\r\ncryptography==2.7\r\nDateTime==4.3\r\ndnspython==1.16.0\r\ndocker==4.0.2\r\ndocutils==0.14\r\necdsa==0.13.2\r\nelasticsearch==7.0.2\r\nentrypoints==0.3\r\nephem==3.7.6.0\r\neventlet==0.25.0\r\nfilelock==3.0.12\r\nflake8==3.7.7\r\nflakeplus==1.1.0\r\nfuture==0.17.1\r\ngevent==1.4.0\r\ngreenlet==0.4.15\r\nidentify==1.4.5\r\nidna==2.8\r\nimagesize==1.1.0\r\nimportlib-metadata==0.18\r\nimportlib-resources==1.0.2\r\nJinja2==2.10.1\r\njmespath==0.9.4\r\njsondiff==1.1.1\r\njsonpickle==1.2\r\nkombu==4.6.3\r\nlinecache2==1.0.0\r\nMarkupSafe==1.1.1\r\nmccabe==0.6.1\r\nmock==3.0.5\r\nmonotonic==1.5\r\nmore-itertools==7.1.0\r\nmoto==1.3.7\r\nmsgpack==0.6.1\r\nnodeenv==1.3.3\r\nnose==1.3.7\r\npackaging==19.0\r\npluggy==0.12.0\r\npre-commit==1.17.0\r\npy==1.8.0\r\npyaml==19.4.1\r\npyArango==1.3.2\r\npycodestyle==2.5.0\r\npycouchdb==1.14\r\npycparser==2.19\r\npycryptodome==3.8.2\r\npycurl==7.43.0.3\r\npydocstyle==1.1.1\r\npydocumentdb==2.3.2\r\npyflakes==2.1.1\r\nPygments==2.4.2\r\npylibmc==1.6.0\r\npymongo==3.8.0\r\npyparsing==2.4.0\r\npytest==4.6.4\r\npytest-cov==2.7.1\r\npytest-sugar==0.9.2\r\npytest-travis-fold==1.3.0\r\npython-consul==1.1.0\r\npython-dateutil==2.8.0\r\npython-jose==2.0.2\r\npython-memcached==1.59\r\npython3-protobuf==2.5.0\r\npytz==2019.1\r\nPyYAML==5.1.1\r\nredis==3.2.1\r\nrequests==2.22.0\r\nresponses==0.10.6\r\nriak==2.7.0\r\ns3transfer==0.2.1\r\nsimplejson==3.16.0\r\nsix==1.12.0\r\nsnowballstemmer==1.9.0\r\nsoftlayer-messaging==1.0.3\r\nSphinx==1.8.5\r\nsphinx-celery==1.4.6\r\nsphinx-testing==0.7.2\r\nsphinx2rst==1.1.0\r\nsphinxcontrib-websupport==1.1.2\r\nSQLAlchemy==1.3.5\r\ntblib==1.4.0\r\ntenacity==5.0.4\r\ntermcolor==1.1.0\r\ntoml==0.10.0\r\ntox==3.13.1\r\ntraceback2==1.4.0\r\ntyping==3.7.4\r\nUnipath==1.1\r\nunittest2==1.1.0\r\nurllib3==1.25.3\r\nvine==1.3.0\r\nvirtualenv==16.6.1\r\nwcwidth==0.1.7\r\nwebsocket-client==0.56.0\r\nWerkzeug==0.15.4\r\nwrapt==1.11.2\r\nxmltodict==0.12.0\r\nzipp==0.5.1\r\nzope.interface==4.6.0\r\n```\r\n\r\n</p>\r\n</details>\r\n\r\n### Other Dependencies\r\n<!--\r\nPlease provide system dependencies, configuration files\r\nand other dependency information if applicable\r\n-->\r\n<details>\r\n<p>\r\nN/A\r\n</p>\r\n</details>\r\n\r\n## Minimally Reproducible Test Case\r\n<!--\r\nPlease provide a reproducible test case.\r\nRefer to the Reporting Bugs section in our contribution guide.\r\n\r\nWe prefer submitting test cases in the form of a PR to our integration test suite.\r\nIf you can provide one, please mention the PR number below.\r\nIf not, please attach the most minimal code example required to reproduce the issue below.\r\nIf the test case is too large, please include a link to a gist or a repository below.\r\n-->\r\n\r\n<details>\r\n<p>\r\n\r\n```python\r\nfrom celery import Celery\r\nfrom tenacity import retry, stop_after_attempt, wait_fixed\r\n\r\napp = Celery('tasks', broker='pyamqp://rabbit:5672', backend='redis://redis/')\r\n\r\n@retry(reraise=False, stop=stop_after_attempt(2), wait=wait_fixed(1))\r\ndef foo(x):\r\n    print('attempt foo')\r\n    raise ValueError('this is value error')\r\n\r\n@app.task\r\ndef add(x, y):\r\n    foo(x)\r\n    return x + y\r\n```\r\n\r\n</p>\r\n</details>\r\n\r\n# Expected Behavior\r\n<!-- Describe in detail what you expect to happen -->\r\nRunning the `add` task should result in the following output\r\n\r\n``` python\r\nattempt foo\r\nattempt foo\r\nTraceback (most recent call last):\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 361, in call\r\n    result = fn(*args, **kwargs)\r\n  File \"/home/developer/celery/tasks.py\", line 15, in foo\r\n    foo(x)\r\nValueError: this is value error\r\n\r\nThe above exception was the direct cause of the following exception:\r\n\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 1, in <module>\r\n  File \"/home/developer/celery/celery/local.py\", line 191, in __call__\r\n    return self._get_current_object()(*a, **kw)\r\n  File \"/home/developer/celery/celery/app/task.py\", line 400, in __call__\r\n    return self.run(*args, **kwargs)\r\n  File \"/home/developer/celery/tasks.py\", line 21, in add\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 292, in wrapped_f\r\n    return self.call(f, *args, **kw)\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 358, in call\r\n    do = self.iter(retry_state=retry_state)\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 332, in iter\r\n    six.raise_from(retry_exc, fut.exception())\r\n  File \"<string>\", line 3, in raise_from\r\ntenacity.RetryError: RetryError[<Future at 0x7fe83b4c4240 state=finished raised ValueError>]\r\n```\r\n\r\n# Actual Behavior\r\n<!--\r\nDescribe in detail what actually happened.\r\nPlease include a backtrace and surround it with triple backticks (```).\r\nIn addition, include the Celery daemon logs, the broker logs,\r\nthe result backend logs and system logs below if they will help us debug\r\nthe issue.\r\n-->\r\n\r\nInstead, it fails to serialize the exception\r\n\r\n``` python\r\n[2019-07-01 17:47:12,837: WARNING/ForkPoolWorker-1] attempt foo\r\n[2019-07-01 17:47:13,846: WARNING/ForkPoolWorker-1] attempt foo\r\n[2019-07-01 17:47:13,866: ERROR/ForkPoolWorker-1] Task tasks.add[f303fe29-11fe-4da6-aed4-97648b0c27d1] raised unexpected: RetryError('<Future at 0x7fdf2212b710 state=finished raised ValueError>',)\r\nTraceback (most recent call last):\r\n  File \"/home/developer/celery/celery/app/trace.py\", line 385, in trace_task\r\n    R = retval = fun(*args, **kwargs)\r\n  File \"/home/developer/celery/celery/app/trace.py\", line 650, in __protected_call__\r\n    return self.run(*args, **kwargs)\r\n  File \"/home/developer/celery/tasks.py\", line 21, in add\r\n    foo(x)\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 292, in wrapped_f\r\n    return self.call(f, *args, **kw)\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 358, in call\r\n    do = self.iter(retry_state=retry_state)\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/tenacity/__init__.py\", line 332, in iter\r\n    six.raise_from(retry_exc, fut.exception())\r\n  File \"<string>\", line 3, in raise_from\r\ntenacity.RetryError: <Future at 0x7fdf2212b710 state=finished raised ValueError>\r\n[2019-07-01 17:47:13,880: ERROR/MainProcess] Task handler raised error: <MaybeEncodingError: Error sending result: '\"(1, <ExceptionInfo: RetryError('<Future at 0x7fdf2212b710 state=finished raised ValueError>',)>, None)\"'. Reason: ''PicklingError(\"Can\\'t pickle <class \\'tenacity.RetryError\\'>: it\\'s not the same object as tenacity.RetryError\",)''.>\r\nTraceback (most recent call last):\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/billiard/pool.py\", line 362, in workloop\r\n    put((READY, (job, i, result, inqW_fd)))\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/billiard/queues.py\", line 366, in put\r\n    self.send_payload(ForkingPickler.dumps(obj))\r\n  File \"/home/developer/.pyenv/versions/python3.6/lib/python3.6/site-packages/billiard/reduction.py\", line 56, in dumps\r\n    cls(buf, protocol).dump(obj)\r\nbilliard.pool.MaybeEncodingError: Error sending result: '\"(1, <ExceptionInfo: RetryError('<Future at 0x7fdf2212b710 state=finished raised ValueError>',)>, None)\"'. Reason: ''PicklingError(\"Can\\'t pickle <class \\'tenacity.RetryError\\'>: it\\'s not the same object as tenacity.RetryError\",)''.\r\n```\r\n",
+                  "number": 5626,
+                  "url": "https://github.com/celery/celery/issues/5626"
+                },
+                {
+                  "body": "Currently, RetryError is unpickleable. To ensure that exceptions raised from the tenacity library are pickle-able they should provide the original arguments it was instantiated with in its .args attribute.This affects the ability to use tenacity inside of a celery task for example. I am working on a PR for this issue.",
+                  "number": 182,
+                  "url": "https://github.com/jd/tenacity/issues/182"
+                }
+              ]
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "46df478c18088a7128eebea13da6b2768ef53ebe",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "2775f13b34b3ec67a774061a77fcd4e1e9b4157c"
+                  },
+                  {
+                    "oid": "269c95dedcb957991692903122ae1142de4590c0"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-10-28T11:04:25Z",
+            "number": 183,
+            "title": "Feature/182/pickleable exceptions",
+            "url": "https://github.com/jd/tenacity/pull/183"
+          },
+          {
+            "body": "Hi, I just saw there was a larger PR with most of these changes.\r\n\r\nThis is just isolated modern async/await syntax.\r\n\r\nI removed some code. This code doesn't bother with applying magic flags to the wrapped function to make it look like it is a coroutine. In my view, why bother with that check? The user should know what he is doing, so it should just work. \r\n\r\nI also tried to minimize asyncio dependancy to just tests and importing asyncio.sleep.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/tests/test_asyncio.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "b1c98ef7582565b3472bd4fb1bc0cc7907a30121",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "49c67bdf63d5ad61ba12d2802c7267eb767654e0"
+                  },
+                  {
+                    "oid": "d49d2dcb650fb0a2d35b1de023bcb15a67284f82"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2020-02-26T10:36:23Z",
+            "number": 215,
+            "title": "Use PEP 492 async/await syntax",
+            "url": "https://github.com/jd/tenacity/pull/215"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "49c67bdf63d5ad61ba12d2802c7267eb767654e0",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "96209e3ea41dd5abf87f7577001373e6f98e634e"
+                  },
+                  {
+                    "oid": "b0e9df1da24de41c2bc7bec6d9e6bcf3df4a87e0"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-12-13T09:42:26Z",
+            "number": 209,
+            "title": "Update Mergify badge URL",
+            "url": "https://github.com/jd/tenacity/pull/209"
+          },
+          {
+            "body": "Currently the [API reference docs](https://tenacity.readthedocs.io/en/latest/api.html) don't actually contain any API information. This should fix that.\r\n\r\nIn the [most recent build on ReadTheDocs](https://readthedocs.org/projects/tenacity/builds/9021631/), at the point where sphinx actually runs, there are lots of errors from autodoc of the form:\r\n\r\n    WARNING: autodoc: failed to import function 'retry' from module\r\n        'tenacity'; the following exception was raised:\r\n    No module named 'tenacity'\r\n\r\nThat's because Sphinx doesn't know how to find tenacity.  By adding the directory containing tenacity to `sys.path`, autodoc is able to find tenacity and create the API reference. This is based on the template created [by the sphinx-quickstart tool](https://github.com/sphinx-doc/sphinx/blob/a503ed8b781cd19f601b5294518aeb8adb9f011e/sphinx/templates/quickstart/conf.py_t#L9-L11).\r\n\r\nThis means that if you build the docs with Sphinx, you now get a working API reference.\r\n\r\nI'm not sure how you trigger new builds on ReadTheDocs \u2013 you might need to do that manually.\r\n\r\nFor #207.\r\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/api.rst"
+                },
+                {
+                  "path": "doc/source/conf.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "96209e3ea41dd5abf87f7577001373e6f98e634e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "16c76f1878dc26e4acd47cc8058b3b6441e7107d"
+                  },
+                  {
+                    "oid": "0376abe0d63dd89ca5e0599581d9b033ad479189"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-11-28T09:33:12Z",
+            "number": 208,
+            "title": "Fix the sphinx build for the API reference",
+            "url": "https://github.com/jd/tenacity/pull/208"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "16c76f1878dc26e4acd47cc8058b3b6441e7107d",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "6cb9fe14554d05494b17f47db8e85b6183f8767f"
+                  },
+                  {
+                    "oid": "1858d74a44b178cf8c22ac0be120024a4bafebe2"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-11-18T23:01:17Z",
+            "number": 206,
+            "title": "Add Python 3.8 in tox.ini",
+            "url": "https://github.com/jd/tenacity/pull/206"
+          },
+          {
+            "body": "Should implement #48 \r\n\r\nThis PR implements only synchronous retrying for now. That should be a good starting point for this use case.\r\n\r\ntenacity API is well designed, it's super easy to implement this with consistent behaviour !",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "1e2402e56b4828a3a926fc19b3ff16bfb34fba36",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "423848ce328326542a0287c609c21e3d76ef7873"
+                  },
+                  {
+                    "oid": "adf15a7be6035824887614cde751d6a9257e400d"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-11-05T15:49:48Z",
+            "number": 191,
+            "title": "Retry code block with context manager",
+            "url": "https://github.com/jd/tenacity/pull/191"
+          },
+          {
+            "body": "This is easier since tenacity dropped support for 3.4.\r\n\r\nShould fix #181 ",
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "body": "When decorating an `async` function with `@retry`, `asyncio.iscoroutinefunction(f)` unexpectedly returns `False`, because the wrapping function, in fact, is no coroutine.\r\n\r\nThis is a problem in some libraries that are using this way of determining if they are handling an async function or not (in my case: trafaret).",
+                  "number": 181,
+                  "url": "https://github.com/jd/tenacity/issues/181"
+                }
+              ]
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/tests/test_asyncio.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "423848ce328326542a0287c609c21e3d76ef7873",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "dcabb396a4b851da44d2fb6fed84d6540cc2d93c"
+                  },
+                  {
+                    "oid": "3bae79e71519ed1a34cea53dcf98903ef02eb6c7"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-11-05T14:40:19Z",
+            "number": 201,
+            "title": "Support async keyword properly",
+            "url": "https://github.com/jd/tenacity/pull/201"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "setup.cfg"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "dcabb396a4b851da44d2fb6fed84d6540cc2d93c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "2391424ed00d732be99d09bbc6aa43a7a635fd40"
+                  },
+                  {
+                    "oid": "2719a98744d43835da17f53f0853a17a9b28af64"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-11-05T08:24:43Z",
+            "number": 200,
+            "title": "Fix setup.cfg typo",
+            "url": "https://github.com/jd/tenacity/pull/200"
+          },
+          {
+            "body": "Use the same pattern of conditional importing of _compat.py as used in\r\n__init__.py to ensure that _compat.py can be compiled on Python 2.\r\n\r\nFixes jd/tenacity#88",
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "body": "I am trying to build the rpm for this project for python 2.7\r\nwhen running command:\r\n`python setup.py bdist_rpm --python /usr/bin/python`\r\n\r\nI receive the error\r\n```\r\n+ cd tenacity-4.4.1.dev1\r\n+ /usr/bin/python setup.py install --single-version-externally-managed -O1 --root=/home/jnaulty/workspace/tenacity/build/bdist.linux-x86_64/rpm/BUILDROOT/tenacity-4.4.1.dev1-1.x86_64 --record=INSTALLED_FILES\r\n  File \"/usr/lib/python2.7/site-packages/tenacity/tests/test_async.py\", line 39\r\n    yield from asyncio.sleep(0.00001)\r\n             ^\r\nSyntaxError: invalid syntax\r\n\r\n  File \"/usr/lib/python2.7/site-packages/tenacity/async.py\", line 44\r\n    result = yield from fn(*args, **kwargs)\r\n                      ^\r\nSyntaxError: invalid syntax\r\n\r\n  File \"/usr/lib/python2.7/site-packages/tenacity/tests/test_async.py\", line 39\r\n    yield from asyncio.sleep(0.00001)\r\n             ^\r\nSyntaxError: invalid syntax\r\n\r\n  File \"/usr/lib/python2.7/site-packages/tenacity/async.py\", line 44\r\n    result = yield from fn(*args, **kwargs)\r\n                      ^\r\nSyntaxError: invalid syntax\r\n\r\n+ /usr/lib/rpm/find-debuginfo.sh --strict-build-id -m --run-dwz --dwz-low-mem-die-limit 10000000 --dwz-max-die-limit 110000000 /home/jnaulty/workspace/tenacity/build/bdist.linux-x86_64/rpm/BUILD/tenacity-4.4.1.dev1\r\nfind: 'debug': No such file or directory\r\n+ /usr/lib/rpm/check-buildroot\r\n+ /usr/lib/rpm/redhat/brp-compress\r\n+ /usr/lib/rpm/redhat/brp-strip-static-archive /usr/bin/strip\r\n+ /usr/lib/rpm/brp-python-bytecompile /usr/bin/python 1\r\nerror: Bad exit status from /var/tmp/rpm-tmp.8cn8w2 (%install)\r\n    Bad exit status from /var/tmp/rpm-tmp.8cn8w2 (%install)\r\nerror: command 'rpmbuild' failed with exit status 1\r\n\r\n```\r\nWhat is the workaround for this?",
+                  "number": 88,
+                  "url": "https://github.com/jd/tenacity/issues/88"
+                }
+              ]
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/_asyncio.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "2391424ed00d732be99d09bbc6aa43a7a635fd40",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "a3e47471834715fd18e85bfa415e454534577a16"
+                  },
+                  {
+                    "oid": "8f8a5be8574da3a9f0f5aecf093bf0f28deb051c"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-10-30T12:24:02Z",
+            "number": 198,
+            "title": "Ensure that the _asyncio.py module can be compiled, even on Python 2",
+            "url": "https://github.com/jd/tenacity/pull/198"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".circleci/config.yml"
+                },
+                {
+                  "path": ".mergify.yml"
+                },
+                {
+                  "path": "setup.cfg"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "a3e47471834715fd18e85bfa415e454534577a16",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "ca4c4184b56ba635a064b3c06accd9aa376cbefd"
+                  },
+                  {
+                    "oid": "72334a7f5a5e4838d2ee7df0cca1751e79da1a3a"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-10-28T11:17:35Z",
+            "number": 194,
+            "title": "Add support for Python 3.8",
+            "url": "https://github.com/jd/tenacity/pull/194"
+          },
+          {
+            "body": "The `dict.iteritems` method has gone away in Python 3.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/compat.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "724a9ec1028c7096ecab9e58de20a0e39ac22286",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "9272357166503c62ba23406c7f38b8b208ef33c5"
+                  },
+                  {
+                    "oid": "76c3c958647f12202fa0f05d80f06651479d8bde"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-08-16T07:53:57Z",
+            "number": 189,
+            "title": "Fix Python 3 compatibility",
+            "url": "https://github.com/jd/tenacity/pull/189"
+          },
+          {
+            "body": "Looks like Travis is going to make me fix a lint error on a line I didn't modify.\r\n\r\nFixes #175 ",
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "body": "Hi there! Thank you for `tenacity`!\r\n\r\nThe first delay for `wait_exponential` is `2 * multiplier`, and to me that is unexpected. In version `5.0.4`:\r\n\r\n```\r\nIn [14]: t0 = time.time()\r\n    ...: t_last = t0\r\n    ...: @retry(wait=wait_exponential(multiplier=0.2), stop=stop_after_attempt(5))\r\n    ...: def wait():\r\n    ...:     current_time = time.time()\r\n    ...:     global t_last\r\n    ...:     print(\"%.2f - %.2f\" % (current_time - t0, current_time - t_last))\r\n    ...:     t_last = current_time\r\n    ...:     raise Exception\r\n    ...: print(\"total - delta\")\r\n    ...: wait()\r\ntotal - delta\r\n0.00 - 0.00\r\n0.40 - 0.40\r\n1.21 - 0.80\r\n2.81 - 1.60\r\n6.01 - 3.20\r\n```\r\n\r\nTo me it would make more sense for the first delay to be `1 * multiplier`. Others may expect the first retry to occur immediately with no delay, or maybe they want the sequence to be 0.1, 0.2, 0.4, 0.8, etc. which doesn't seem possible with just `wait_exponential`.\r\n\r\nCan this be considered a bug? Is this unexpected to others, or do others want to be able to create the sequence above?",
+                  "number": 175,
+                  "url": "https://github.com/jd/tenacity/issues/175"
+                }
+              ]
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "9272357166503c62ba23406c7f38b8b208ef33c5",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "531a28b921e27e916dde6346f98868c66bc4fcb2"
+                  },
+                  {
+                    "oid": "8255ac3365e01c9f4a1f245c5e7c2da650dabca1"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-06-21T04:50:44Z",
+            "number": 179,
+            "title": "Reduce wait_exponential power by 1 so first wait is equal to multiplier",
+            "url": "https://github.com/jd/tenacity/pull/179"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".circleci/config.yml"
+                },
+                {
+                  "path": ".mergify.yml"
+                },
+                {
+                  "path": ".travis.yml"
+                },
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Ng",
+                "hasNextPage": false
+              },
+              "totalCount": 6
+            },
+            "mergeCommit": {
+              "oid": "531a28b921e27e916dde6346f98868c66bc4fcb2",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "55aa17c8cc018aecda1828e8fbc64840165549fe"
+                  },
+                  {
+                    "oid": "4dbc9fec13cb41bdb5bdc697ca0c5a729b608873"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-06-21T04:48:18Z",
+            "number": 180,
+            "title": "Switch to CircleCI",
+            "url": "https://github.com/jd/tenacity/pull/180"
+          },
+          {
+            "body": "Added _assert_inclusive_delta to more easily verify statistical averages are within a delta of a target\r\nReplaced tests that used old-style retry state with calls to make_retry_state\r\nRemoved tests that checked the 0th attempt as the first wait uses attempt 1\r\n\r\nThis makes it more clear that the upper bound of the first `wait_random_exponential` is twice the `multiplier`. The values here and for `wait_exponential` will change with my next PR that offsets the exponent by -1.\r\n\r\nI changed the bounds for the statistical verification. The previous values didn't completely follow a pattern and I thought it made sense for the bound to expand exponentially. I wrapped the test in an extra `for` loop with 1000 iterations to verify the bounds are good.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "55aa17c8cc018aecda1828e8fbc64840165549fe",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "54e600255b1649624eeb60c3f54d3e0a28f1102d"
+                  },
+                  {
+                    "oid": "04f9762b6e80c7da980c1a5041c29d624508d851"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-06-20T07:47:52Z",
+            "number": 178,
+            "title": "Corrections and improvements to wait_random_exponential tests",
+            "url": "https://github.com/jd/tenacity/pull/178"
+          },
+          {
+            "body": "Addresses #175 \r\n\r\nThe only apprehension I have about this is that it changes everyone's timing without them realizing.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "615109177b2d495a074837e2a0757942e3f7e78d",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "a54a5594e993197cc1fb71a086d1c50e854c7827"
+                  },
+                  {
+                    "oid": "d194c4895f90e92b5ba3a019642135b4cf3a904d"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-06-19T09:31:16Z",
+            "number": 176,
+            "title": "Reduce wait_exponential power by 1 so first wait is equal to multiplier",
+            "url": "https://github.com/jd/tenacity/pull/176"
+          },
+          {
+            "body": "Addresses #83 \r\n\r\nI defer to you on particulars on configuration, formatting, process, etc. This is to just get the system up and running to start.\r\n\r\nI'm not sure how to configure the Travis parts. reno [recommends tweaking the setup](https://docs.openstack.org/reno/latest/user/usage.html#within-travis-ci) for the build, but I don't think that's necessary for every tox-env that'll run. Just whatever is the env's docs will actually be uploaded.\r\n\r\n![screenshot from 2018-10-26 22-49-34](https://user-images.githubusercontent.com/29210237/47600146-75760200-d971-11e8-9c15-26be1853e74b.png)\r\n![screenshot from 2018-10-26 22-49-40](https://user-images.githubusercontent.com/29210237/47600147-773fc580-d971-11e8-92da-62d3d8764273.png)\r\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".travis.yml"
+                },
+                {
+                  "path": "doc/source/changelog.rst"
+                },
+                {
+                  "path": "doc/source/conf.py"
+                },
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "releasenotes/notes/add-reno-d1ab5710f272650a.yaml"
+                },
+                {
+                  "path": "reno.yaml"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Nw",
+                "hasNextPage": false
+              },
+              "totalCount": 7
+            },
+            "mergeCommit": {
+              "oid": "8a3b2cb2d07c82ff90c34b89b5087bf7bb92d245",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "d71bbf82cdec81fb9ad83db352664a6b21eb1cd8"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-04-08T15:22:21Z",
+            "number": 149,
+            "title": "Add reno (changelog system)",
+            "url": "https://github.com/jd/tenacity/pull/149"
+          },
+          {
+            "body": "Fixes #163",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/compat.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "a7b83aeb487bf8de6b8f601d5b2e35f7141e8a4e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "bd3211786a0d23d4e889e6238ac99f0b253f0867"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2019-04-08T15:16:23Z",
+            "number": 164,
+            "title": "compat: fix Python 2 method compat calling",
+            "url": "https://github.com/jd/tenacity/pull/164"
+          },
+          {
+            "body": "They still need to be fixed, but if they spam too much, Travis will\r\nabort the build. An Ode to Software Systems!\r\n\r\nBefore:\r\n```\r\n$ ~/c/tenacity> tox -e py27 > log.txt\r\n$ ~/c/tenacity> ll log.txt\r\n-rw-r--r-- 1 me me 12M Nov  2 11:37 log.txt\r\n```\r\n\r\nAfter:\r\n```\r\n$ ~/c/tenacity> tox -e py27 > log.txt\r\n$ ~/c/tenacity> ll log.txt\r\n-rw-r--r-- 1 me me 4.5K Nov  2 11:37 log.txt\r\n```\r\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "setup.cfg"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "fdddfe3ba3e2713eb815ff7a420d759f88739526",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "92bb8aa99c744c2974a528773dd719885c2c3500"
+                  },
+                  {
+                    "oid": "b9d4dd062af60e4cefa591f17ba07b66fc9e1156"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-11-05T08:53:08Z",
+            "number": 151,
+            "title": "Tweak pytest - only show DeprecationWarnings once",
+            "url": "https://github.com/jd/tenacity/pull/151"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".mergify.yml"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "5f3d822c22ef435a57081a314bcb61b1c9f7b326",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "fdddfe3ba3e2713eb815ff7a420d759f88739526"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-11-05T13:19:47Z",
+            "number": 152,
+            "title": "Update Mergify to v2",
+            "url": "https://github.com/jd/tenacity/pull/152"
+          },
+          {
+            "body": "Fixes https://github.com/jd/tenacity/issues/141.\r\n\r\nPython 3.7 requires a little workaround with Xenial and sudo, see \r\nhttps://github.com/travis-ci/travis-ci/issues/9815 for more info.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".travis.yml"
+                },
+                {
+                  "path": "setup.cfg"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "39961f75a5fe3908ed76fba65094b8bcf2c4fd72",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "b21083b4bc8b5ded86f2fb6ecbdc8727450296c4"
+                  },
+                  {
+                    "oid": "ab21f9856b0910d9c830c5d1bda1a980d8f7ed78"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-09-10T07:03:24Z",
+            "number": 146,
+            "title": "Add support for Python 3.7",
+            "url": "https://github.com/jd/tenacity/pull/146"
+          },
+          {
+            "body": "Hi.  Thanks for the awesome library.  Here's a correction for an error I found in the docs.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "b21083b4bc8b5ded86f2fb6ecbdc8727450296c4",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5ec1e6a897a9468feb526192a5300f65440d553d"
+                  },
+                  {
+                    "oid": "b618507c79756c04e22fb89495242c80a25902f4"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-09-07T09:15:35Z",
+            "number": 145,
+            "title": "Fix documentation error",
+            "url": "https://github.com/jd/tenacity/pull/145"
+          },
+          {
+            "body": "This test should seal the uncertainty in #93 for interleaved asynchronous tasks. ",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_asyncio.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "53d29e6dc1e96c73615d8bdf962b8d045e0477d3",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "2614cb5f573a76ee37996eb67bc44ee14157adc8"
+                  },
+                  {
+                    "oid": "e189aab94284f4b3b1e2c529d9f16c923937c1ff"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-08-27T11:21:37Z",
+            "number": 144,
+            "title": "Add test for attempt numbers in interleaved async coroutines",
+            "url": "https://github.com/jd/tenacity/pull/144"
+          },
+          {
+            "body": "Hello!\r\n\r\nBoth `AsyncRetrying.call` and `TornadoRetrying.call` incremented `RetryCallState.attempt_number` twice, which led to the following behavior:\r\n\r\n```python\r\n@retry(stop=stop_after_attempt(5), before=before_log(logger, logging.ERROR), reraise=True)\r\nasync def f():\r\n    async with aiohttp.ClientSession() as s:\r\n        await s.request('get', 'goo.coom')\r\n\r\nasyncio.run(f())\r\n\r\n...\r\n\r\nStarting call to '__main__.f', this is the 1st time calling it.\r\nStarting call to '__main__.f', this is the 3rd time calling it.\r\nStarting call to '__main__.f', this is the 5th time calling it.\r\nTraceback (most recent call last):\r\n...\r\n```\r\n\r\nSeems like a bug.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/tests/test_asyncio.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tornado.py"
+                },
+                {
+                  "path": "tenacity/tornadoweb.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NA",
+                "hasNextPage": false
+              },
+              "totalCount": 4
+            },
+            "mergeCommit": {
+              "oid": "2614cb5f573a76ee37996eb67bc44ee14157adc8",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "239638163e18e56bb36991656d605232957c5e09"
+                  },
+                  {
+                    "oid": "0d401efca5fe3d24346330f09bece4851a957c56"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-08-27T07:17:01Z",
+            "number": 143,
+            "title": "Remove extra increments of RetryCallState.attempt_number",
+            "url": "https://github.com/jd/tenacity/pull/143"
+          },
+          {
+            "body": "see: https://github.com/jd/tenacity/issues/134",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "239638163e18e56bb36991656d605232957c5e09",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "1d05520276766d8c53fbb35b2b8368cc43a6c52c"
+                  },
+                  {
+                    "oid": "8ed5195241cd9b01fdde1e00b41bff53919e9ab3"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-08-23T15:13:41Z",
+            "number": 135,
+            "title": "Added min to exponential backoff.",
+            "url": "https://github.com/jd/tenacity/pull/135"
+          },
+          {
+            "body": "They can be called side-stepping the \"primary\" backward compatibility shim\r\nprovided by BaseRetrying class, for example when an inherited class uses an old\r\nsignature in a \"return super().__call__\"\r\n\r\nThis should fix #139 ",
+            "closingIssuesReferences": {
+              "nodes": [
+                {
+                  "body": "```\r\ngabbi.suitemaker.test_gabbi_resource_create_archive_policy.test_request\r\n-----------------------------------------------------------------------\r\nCaptured traceback:\r\n~~~~~~~~~~~~~~~~~~~\r\n    Traceback (most recent call last):\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/gabbi/suite.py\", line 52, in run\r\n        with fixture.nest([fix() for fix in fixtures]):\r\n      File \"/usr/lib/python2.7/contextlib.py\", line 17, in __enter__\r\n        return self.gen.next()\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/gabbi/fixture.py\", line 100, in nest\r\n        six.reraise(exc[0], exc[1], exc[2])\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/gabbi/fixture.py\", line 86, in nest\r\n        contexts.append(enter_func())\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/gabbi/fixture.py\", line 45, in __enter__\r\n        self.start_fixture()\r\n      File \"gnocchi/tests/functional/fixtures.py\", line 168, in start_fixture\r\n        index = indexer.get_driver(conf)\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/tenacity/__init__.py\", line 292, in wrapped_f\r\n        return self.call(f, *args, **kw)\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/tenacity/__init__.py\", line 358, in call\r\n        do = self.iter(retry_state=retry_state)\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/tenacity/__init__.py\", line 318, in iter\r\n        if not (is_explicit_retry or self.retry(retry_state)):\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/tenacity/compat.py\", line 161, in wrapped_retry_func\r\n        return retry_func(retry_state.outcome)\r\n      File \"gnocchi/utils.py\", line 354, in __call__\r\n        return super(_retry_on_exception_and_log, self).__call__(attempt)\r\n      File \"/home/tester/src/.tox/py27-mysql/local/lib/python2.7/site-packages/tenacity/retry.py\", line 67, in __call__\r\n        if retry_state.outcome.failed:\r\n    AttributeError: 'Future' object has no attribute 'outcome'\r\n```\r\n\r\nI've deleted the release from PyPI for the time being",
+                  "number": 139,
+                  "url": "https://github.com/jd/tenacity/issues/139"
+                }
+              ]
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/compat.py"
+                },
+                {
+                  "path": "tenacity/retry.py"
+                },
+                {
+                  "path": "tenacity/stop.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "1d05520276766d8c53fbb35b2b8368cc43a6c52c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "4baff6e26be044d8132262d89a78e969d0a52cea"
+                  },
+                  {
+                    "oid": "a181af81d01a866935de5bb9772e88e8ec19df6c"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-08-20T13:35:15Z",
+            "number": 140,
+            "title": "stop, retry: add compatibility wrappers for __call__ methods",
+            "url": "https://github.com/jd/tenacity/pull/140"
+          },
+          {
+            "body": "This is a continuation to work done in #124 and #122 adding support for `retry_state` (previously called `call_state`) to `before=`, `after=`, `stop=`, `retry=` and `retry_error_callback=` callbacks.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/after.py"
+                },
+                {
+                  "path": "tenacity/before.py"
+                },
+                {
+                  "path": "tenacity/before_sleep.py"
+                },
+                {
+                  "path": "tenacity/compat.py"
+                },
+                {
+                  "path": "tenacity/retry.py"
+                },
+                {
+                  "path": "tenacity/stop.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/tornadoweb.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MTM",
+                "hasNextPage": false
+              },
+              "totalCount": 13
+            },
+            "mergeCommit": {
+              "oid": "4baff6e26be044d8132262d89a78e969d0a52cea",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "3dacdd5147942f3c8c647ce2833a23b3353b1cef"
+                  },
+                  {
+                    "oid": "7b7a3e6068ddd7d2b2ff4a02df2e36124ac4899e"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-25T09:25:40Z",
+            "number": 126,
+            "title": "Make before, after and stop, retry and retry_error_callback accept retry state",
+            "url": "https://github.com/jd/tenacity/pull/126"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "3dacdd5147942f3c8c647ce2833a23b3353b1cef",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5c05ebcb1c057496d68cf06d855c8fab7b67a779"
+                  },
+                  {
+                    "oid": "8392d3c89c8e003ebda57c5eaad4150497da6fba"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-25T09:01:58Z",
+            "number": 131,
+            "title": "Add some more context to the reasons for forking",
+            "url": "https://github.com/jd/tenacity/pull/131"
+          },
+          {
+            "body": "This PR fixes a bug in wait_chain that made it change the behaviour of subsequent retries with every attempt.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "5c05ebcb1c057496d68cf06d855c8fab7b67a779",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "80ef8d9e9f91f6a4ecaa9268be831274ef6282ea"
+                  },
+                  {
+                    "oid": "00fc4d744da86e4666207fd9cf67ccbf867e6c90"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-23T14:53:00Z",
+            "number": 130,
+            "title": "Fix wait_chain to be runnable multiple times",
+            "url": "https://github.com/jd/tenacity/pull/130"
+          },
+          {
+            "body": "The fix is rather trivial. Without it the new test fails with the following error:\r\n```\r\n    def update_wrapper(wrapper,\r\n                       wrapped,\r\n                       assigned = WRAPPER_ASSIGNMENTS,\r\n                       updated = WRAPPER_UPDATES):\r\n        \"\"\"Update a wrapper function to look like the wrapped function\r\n    \r\n           wrapper is the function to be updated\r\n           wrapped is the original function\r\n           assigned is a tuple naming the attributes assigned directly\r\n           from the wrapped function to the wrapper function (defaults to\r\n           functools.WRAPPER_ASSIGNMENTS)\r\n           updated is a tuple naming the attributes of the wrapper that\r\n           are updated with the corresponding attribute from the wrapped\r\n           function (defaults to functools.WRAPPER_UPDATES)\r\n        \"\"\"\r\n        for attr in assigned:\r\n>           setattr(wrapper, attr, getattr(wrapped, attr))\r\nE           AttributeError: 'Hello' object has no attribute '__name__'\r\n```\r\nThis was fixed in Py3 (https://bugs.python.org/issue3445), but was never backported to Py2 or six.\r\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "80ef8d9e9f91f6a4ecaa9268be831274ef6282ea",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "ef9a0acd11b8dfa0aad579561011ad2597a6aac4"
+                  },
+                  {
+                    "oid": "ad33fff0858750a845c9eed974361df951e3cb31"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-23T14:42:51Z",
+            "number": 129,
+            "title": "Fix six.wraps having a problem with __name__ attr on Py2",
+            "url": "https://github.com/jd/tenacity/pull/129"
+          },
+          {
+            "body": "From issue #125.\r\n\r\nAdd retry classes for exception messages.\r\n\r\nI'm very open to name suggestions. Specifically wondering if `retry_if_not_exception_message` or `retry_until_exception_message` is best.\r\n\r\n`retry_if_exception_message` and it's complement act different out of necessity. The normal class can end if there is no exception whereas it's inverse needs to retry if there is no exception message.\r\n\r\nIt's worth noting in my branch unit tests are intermittently failing on [wait class backwards incompatibility](https://travis-ci.org/Brian-Williams/tenacity/jobs/405236070#L470). I don't believe this is caused by any of my changes, but it's worth noting.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/retry.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "ef9a0acd11b8dfa0aad579561011ad2597a6aac4",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "1fe47143346cd24809dca783eae72cb25281cc9e"
+                  },
+                  {
+                    "oid": "5130623de634305ceb960b3ec61ea33ae40a4682"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-20T07:12:49Z",
+            "number": 127,
+            "title": "Add retry_if_exception_message",
+            "url": "https://github.com/jd/tenacity/pull/127"
+          },
+          {
+            "body": "This PR continues work started in #122 adding support for call_state in `before_sleep` and opening a possibility to improve logging even further as requested in comments in #77.\r\n\r\nBefore this is getting merged I'd like to update the documentation and fix `before_sleep_log` function to log non-exceptions as well.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".gitignore"
+                },
+                {
+                  "path": "doc/source/conf.py"
+                },
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/before_sleep.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/tornadoweb.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MTA",
+                "hasNextPage": false
+              },
+              "totalCount": 10
+            },
+            "mergeCommit": {
+              "oid": "1fe47143346cd24809dca783eae72cb25281cc9e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "8b9295ead1901f7018ca1219d87cb138259d8326"
+                  },
+                  {
+                    "oid": "020e7a7ae2cf9b46b2c7e553f18a76da6e2d012b"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-07-09T12:20:34Z",
+            "number": 124,
+            "title": "Make before_sleep accept call_state",
+            "url": "https://github.com/jd/tenacity/pull/124"
+          },
+          {
+            "body": "This is to share some initial work regarding #77, where I suggested to attach all metadata related to the current retry call into a \"retry call state\" object from where it could be logged using any field available to other callbacks.\r\n\r\nIdeally, all callbacks would use that \"retry call state\" object, but that's probably something for the next major release that breaks compatibility. Or if it is OK performance-wise, the code could detect whether or not the callback accepts the call state.\r\n\r\nI have intentionally not touched `statistics` although they seem quite related and probably could be dropped if \"retry call state\" approach is accepted.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_asyncio.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/tornadoweb.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Ng",
+                "hasNextPage": false
+              },
+              "totalCount": 6
+            },
+            "mergeCommit": {
+              "oid": "8b9295ead1901f7018ca1219d87cb138259d8326",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "0002ba33fb9658a20e2324cb36a73b24ab616807"
+                  },
+                  {
+                    "oid": "abf23295ae033f41b3d1ffec9851928623b77d10"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-06-27T07:26:26Z",
+            "number": 122,
+            "title": "Add RetryCallState class",
+            "url": "https://github.com/jd/tenacity/pull/122"
+          },
+          {
+            "body": "A couple of small things to make the docs easier to read.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "0002ba33fb9658a20e2324cb36a73b24ab616807",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "99468c8ef50b3f7bbdd695065f099492ff463458"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-05-21T14:34:08Z",
+            "number": 121,
+            "title": "Improve docs",
+            "url": "https://github.com/jd/tenacity/pull/121"
+          },
+          {
+            "body": "Being able to call a custom function when all retries have failed (without necessarily raising an exception) is useful for a few applications.\r\n\r\n* Do nothing (raise no exception without repeated try/except boilerplate or extra function wrapper)\r\n* Return a default value\r\n* Return the value of the last attempt (if `retry_if_result` for example)\r\n* Really anything you can think to do with the last `Future` object\r\n\r\nA couple of these uses were issues on the `retrying` module, which I made a PR to (rholder/retrying#78) before realizing this is probably a better place for it.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "723ba6acfa00df769d2f14cce2ad257652ab41d9",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "1c0b57231269c9a4cbc7692ef0cb865ffe5197c4"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-05-01T10:17:04Z",
+            "number": 119,
+            "title": "Add optional retry_error_callback param",
+            "url": "https://github.com/jd/tenacity/pull/119"
+          },
+          {
+            "body": "This PR arose from the wish to have the result and the future wait seconds in the ``after`` logging handler. It turned out that modifying this handler is not straight-forward because the wait seconds will only be calculated later.\r\n\r\nTo ensure backwards compatibility wrt to the ``wait`` function, I propose another handler ``before_sleep`` that will be called whenever a sleep is scheduled and the function will be retried later. For me, this logging hook is essential because I can be informed about the seconds tenacity will wait before retrying.\r\n\r\nRelated to jd/tenacity#77",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/before_sleep.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "3aacb41738f04852ba153d9a5ec4e21fa71b996a",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "036c7e9ebe397a8127fbee37c2acc0bcb4fc7f11"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-04-24T06:48:57Z",
+            "number": 118,
+            "title": "Implement before_sleep logging hook",
+            "url": "https://github.com/jd/tenacity/pull/118"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "1c4ed22935a65178f411966e461d468a13273780",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "69a8bd982420d63919a1ba3550e3eb37b1f1d006"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-04-11T07:49:33Z",
+            "number": 114,
+            "title": "Document how to use Trio/curio.",
+            "url": "https://github.com/jd/tenacity/pull/114"
+          },
+          {
+            "body": "Although it duplicates with the license classifier, the lacking key causes some API to fail to retrieve the package license. The most notable is  [**shields.io**](https://shields.io/): here's how the PyPI version badge looks for your project: \r\n\r\n![PyPI - License](https://img.shields.io/pypi/l/tenacity.svg)\r\n\r\nHere's how it should look after this commit is applied:\r\n\r\n![PyPI - License](https://img.shields.io/pypi/l/kelctl.svg)",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "setup.cfg"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "4bcdd9bcc79fbca38f8836c10a89765f83085239",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "e71f5c827944406787404f96c75ea2d8fdd4600a"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-03-26T07:45:00Z",
+            "number": 113,
+            "title": "Add `license` key to `setup.cfg`",
+            "url": "https://github.com/jd/tenacity/pull/113"
+          },
+          {
+            "body": "`inspect.getargspec()` was deprecated in Python 3. Use `inspect.getfullargspec()` in Python 3.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "e71f5c827944406787404f96c75ea2d8fdd4600a",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "97cde0d423ce71fb4fef69a2e2958aea462acb2e"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-03-05T07:14:03Z",
+            "number": 108,
+            "title": "Avoid inspect.getargspec deprecation warning",
+            "url": "https://github.com/jd/tenacity/pull/108"
+          },
+          {
+            "body": "Related to issue #99 -- even if we don't properly support old versions of tornado, we can do better than raise an `AttributeError` if an old version *just happens* to be installed.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tornado.py"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "97cde0d423ce71fb4fef69a2e2958aea462acb2e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5dd4c194a3a3a96cb61638e152f7babd472c2d07"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2018-01-18T08:07:58Z",
+            "number": 107,
+            "title": "Don't fall over if an old version of tornado is installed",
+            "url": "https://github.com/jd/tenacity/pull/107"
+          },
+          {
+            "body": "This will help implement the desire listed at issue #101\r\nby allowing for waiter functions/classes/other to recieve\r\nthe last result and do smart things with it.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "69cf4a74549b0820e6baaa188d0e72ced5ed58ad",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "058200d40e828e292772560d01683d75d4752776"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-12-09T09:28:04Z",
+            "number": 102,
+            "title": "Allow waiters to introspect last result",
+            "url": "https://github.com/jd/tenacity/pull/102"
+          },
+          {
+            "body": "Don't make me import from stop module itself ;)",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "058200d40e828e292772560d01683d75d4752776",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "fccbedf5b2392b3df3c9fc58c8f61033a0293326"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-11-29T07:43:53Z",
+            "number": 100,
+            "title": "Missed top level import of stop_when_event_set",
+            "url": "https://github.com/jd/tenacity/pull/100"
+          },
+          {
+            "body": "The retry_unless_exception_type tests were misnamed to the old function\nname of retry_until_exception_type.\n\nAlso added a test to explicitly test the no input functionality. This\nuse case has been exposed in #94 so shouldn't be changed.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "daaaebe80c58784996dbdbc63ee9e14bae333446",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "290c0dce0b51236667324cea7184c2f00f22ab25"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-11-13T09:48:42Z",
+            "number": 97,
+            "title": "Fix retry_unless_exception_type test names & add no input test",
+            "url": "https://github.com/jd/tenacity/pull/97"
+          },
+          {
+            "body": "Resolves #95 ",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tornado.py"
+                },
+                {
+                  "path": "tenacity/tornadoweb.py"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "290c0dce0b51236667324cea7184c2f00f22ab25",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "14fae9e0dabd98595fdde7f20d0b1abcdaf4097c"
+                  },
+                  {
+                    "oid": "700d540ab0a6f9847332532e704010be5968149e"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-11-12T13:31:06Z",
+            "number": 96,
+            "title": "Add Tornado support",
+            "url": "https://github.com/jd/tenacity/pull/96"
+          },
+          {
+            "body": "I am addressing issue #8. I added the sphinx doctest extension.\r\n\r\nThere was one case I left out, namely the async case, because I am not sure\r\nhow to get doctest to run on specific python versions without using\r\n`.. doctest` blocks.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".gitignore"
+                },
+                {
+                  "path": "doc/source/conf.py"
+                },
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "setup.cfg"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "73ff6ec7b9412e0c7dd8df339f3dcd482cbf9eb0",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5e2e8c7460a77c7f558cbd578309597e75eca5a1"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-09-23T13:16:07Z",
+            "number": 89,
+            "title": "Issue-8: Make sure doc examples run",
+            "url": "https://github.com/jd/tenacity/pull/89"
+          },
+          {
+            "body": "The `wait_full_jitter` strategy is very widely useful (it turns out that I was [implementing the same thing](https://review.openstack.org/#/c/328613/12/heat/engine/sync_point.py) at roughly the same time as the author), but it is not documented in the README and the name requires context to make sense of.\r\n\r\nThis PR renames the strategy to the hopefully self-explanatory `wait_random_exponential` and documents it better.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NA",
+                "hasNextPage": false
+              },
+              "totalCount": 4
+            },
+            "mergeCommit": {
+              "oid": "319168f18ecb7d95ead91f3d7aaada23dabe1161",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "bd52c579e5ac384b016d532f431487fa89ef1eb8"
+                  },
+                  {
+                    "oid": "0bcf66dc1885c6d5e4994031b2982d3de18ac30d"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-07-26T07:45:22Z",
+            "number": 82,
+            "title": "Document random exponential backoff strategy",
+            "url": "https://github.com/jd/tenacity/pull/82"
+          },
+          {
+            "body": "Add complement for retry_if_exception_type, which performs the inverse operation of ignoring all results and exceptions until an exception is hit.\r\n\r\nFeel free to change name of the class. Also, I understand if this is superfluous and is closed. I needed it in a very specific use case and it may not be useful to others.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/retry.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "bd52c579e5ac384b016d532f431487fa89ef1eb8",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "fad5e64b9ca23416ab5b44d4a56fc22867abe87f"
+                  },
+                  {
+                    "oid": "2a75895bdc84d396771d042ead09319af09e4f34"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-07-10T16:57:35Z",
+            "number": 79,
+            "title": "Retry until exception type",
+            "url": "https://github.com/jd/tenacity/pull/79"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "fad5e64b9ca23416ab5b44d4a56fc22867abe87f",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "222c202638fa50f95e70a3b79375df39a5c34e55"
+                  },
+                  {
+                    "oid": "5385e58b6c7a2dcda7707043d53cd581430928d0"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-07-07T07:31:26Z",
+            "number": 80,
+            "title": "Add missing ')' to README.rst",
+            "url": "https://github.com/jd/tenacity/pull/80"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/nap.py"
+                },
+                {
+                  "path": "tenacity/stop.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "dc009e7fc59195419e2e1347b3f1e5c0cca58a2a",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "dd0c50a540785fd67daf726eec84cfe373b26a0c"
+                  },
+                  {
+                    "oid": "35cdb55b427263319f6198981c229d4f7d8450bc"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-06-16T10:02:55Z",
+            "number": 69,
+            "title": "Add new event based sleep and stop",
+            "url": "https://github.com/jd/tenacity/pull/69"
+          },
+          {
+            "body": "Hi,\r\n\r\nI've implemented a wait strategy based on the results of this Amazon Architecture Blog:\r\n\r\nhttps://www.awsarchitectureblog.com/2015/03/backoff.html\r\n\r\nThe Full Jitter strategy attempts to prevent synchronous clusters\r\nfrom forming in distributed systems by combining exponential backoff\r\nwith random jitter. This differs from other strategies as jitter isn't\r\nadded to the exponentially increasing sleep time, rather the time is\r\ncomputed is uniformly random between zero and the exponential point.\r\n\r\nExcerpted from the above blog:\r\n\r\n      sleep = random_between(0, min(cap, base * 2 ** attempt))\r\n\r\nA competing algorithm called \"Decorrelated Jitter\" is competitive\r\nand in some circumstances may be better. c.f. the above blog for\r\ndetails.\r\n\r\nThis is a little bit of a hack because it would be possible to implement this by\r\nmaking `wait_random` take a function or integer instead of only integers. That would\r\nallow for composing `wait_exponential` and `wait_random` to achieve this effect.\r\n\r\nHope you find this helpful!\r\nWill\r\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "dd0c50a540785fd67daf726eec84cfe373b26a0c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "8253e90a73576a7895afa7f97c617c9aea6cca34"
+                  },
+                  {
+                    "oid": "8c586639e280e64b40fdf530b3bfe45ebffdd9fb"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2017-06-16T10:02:02Z",
+            "number": 70,
+            "title": "feat: added wait_full_jitter",
+            "url": "https://github.com/jd/tenacity/pull/70"
+          },
+          {
+            "body": "Hi,\r\n\r\nThis PR ports https://github.com/rholder/retrying/pull/64 to tenacity. Thanks for the fork. The codebase is really clean.\r\n\r\nIt's a bit tricky to implement retry on coroutines. I did this by extracting the calling (aka attempt) and sleep logic from the retry control loop. This is done by using a generator. The control loop generate instructions (attempt, sleep or return), it's up to the wrapping code to do the actual IO, asynchronously or not.\r\n\r\nI'm actually not very proud of this. Supporting old python versions and sync/async is a bit hackish. I'd be glad to hear your opinion on this contribution. Until it's mergeable, i wish :)\r\n\r\nRegards,",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/async.py"
+                },
+                {
+                  "path": "tenacity/tests/test_async.py"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "c3b02ab8aa532f0b1c8d1bda94856114dc45c223",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "e9e72941f36a45836ebd42f8891e95d20d785302"
+                  },
+                  {
+                    "oid": "d408c40b505bce4b0d9e30ae74378edc594255bb"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-12-13T14:49:01Z",
+            "number": 37,
+            "title": "Retry coroutines",
+            "url": "https://github.com/jd/tenacity/pull/37"
+          },
+          {
+            "body": "Hi,\r\n\r\nI suggest to run flake8 with latest python version. This mean we do not use flake8 to check py2 compatibility, but only nosetests.\r\n\r\nThis allow to decouple validation of compatibility and code style.\r\n\r\nExtracted from #37 ",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "e9e72941f36a45836ebd42f8891e95d20d785302",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "8a233bfec3f0d85b44b87cd79b097f77f8e76a4e"
+                  },
+                  {
+                    "oid": "c95baa3dc409751d34bcc580f4bbff6605778eca"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-12-13T13:36:21Z",
+            "number": 43,
+            "title": "Run flake8 only with latest python",
+            "url": "https://github.com/jd/tenacity/pull/43"
+          },
+          {
+            "body": "First step to implement switch to async implementation in decorator.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "8a233bfec3f0d85b44b87cd79b097f77f8e76a4e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "7952f8e1d3504ec80dc1912ec9c273129d53982e"
+                  },
+                  {
+                    "oid": "fea726ace40edbf770c98de824f2f1ba1b0ee385"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-12-13T09:29:51Z",
+            "number": 42,
+            "title": "Deduplicate retry decorator logic",
+            "url": "https://github.com/jd/tenacity/pull/42"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "7952f8e1d3504ec80dc1912ec9c273129d53982e",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "8f96a9ff383e0521723c131fd908551b55b5ed4d"
+                  },
+                  {
+                    "oid": "3f40fcf0ecd92184c913b15981fb273bdc90ed03"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-12-12T20:54:45Z",
+            "number": 40,
+            "title": "Split marshall of retries from IOs",
+            "url": "https://github.com/jd/tenacity/pull/40"
+          },
+          {
+            "body": "I'm fighting with tox and travis in #37 . Let's clean this a bit here.",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".travis.yml"
+                },
+                {
+                  "path": "tox.ini"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "2e483a72e76c416726fd4f97b53d42104c6b1822",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "950b931bb59a881096cd61a025fa40987ad9018c"
+                  },
+                  {
+                    "oid": "d77dc9504541e99cd9e10242ce74c8836ade1377"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-11-24T11:13:47Z",
+            "number": 38,
+            "title": "Align tox and travis settings",
+            "url": "https://github.com/jd/tenacity/pull/38"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "950b931bb59a881096cd61a025fa40987ad9018c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "45411905dbcd1b3a34cf57ff6699028990ce8370"
+                  },
+                  {
+                    "oid": "6df406806edaa4f1f96e35332c4721f8cd12e585"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-11-16T13:10:16Z",
+            "number": 36,
+            "title": "Fix README typo",
+            "url": "https://github.com/jd/tenacity/pull/36"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/after.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "d78b8f35c417637a048e9219602e01770c17a756",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "abf94483502de69189632671651cfc7f48c9a9c6"
+                  },
+                  {
+                    "oid": "9fb0ed78532b6b0d313119ed8f0ab0434e02b55e"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-27T17:43:22Z",
+            "number": 34,
+            "title": "This is using floating point seconds (not milliseconds)",
+            "url": "https://github.com/jd/tenacity/pull/34"
+          },
+          {
+            "body": "This shouldn't be describing exponential\nbackoff when its applying a fixed wait with\njitter (so fix the description to talk about\nthe right things).\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "abf94483502de69189632671651cfc7f48c9a9c6",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "d9c284d26dff1a210d978bcd9843bae2e9635038"
+                  },
+                  {
+                    "oid": "5a6d9a80ec090d95b4af088ad623dd6cc9f99ec8"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-27T17:42:42Z",
+            "number": 35,
+            "title": "Fix README.rst wrong description",
+            "url": "https://github.com/jd/tenacity/pull/35"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "d9c284d26dff1a210d978bcd9843bae2e9635038",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "4f9e4951dad1bf72cb376af411a9e1887199d03d"
+                  },
+                  {
+                    "oid": "a844483c161229d20a75e2643cef26b2a7bd7476"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-26T16:02:20Z",
+            "number": 33,
+            "title": "Some small docstring updates",
+            "url": "https://github.com/jd/tenacity/pull/33"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "4f9e4951dad1bf72cb376af411a9e1887199d03d",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "144125b92b17acf86ce27763d502fe84c66d4d22"
+                  },
+                  {
+                    "oid": "630937636dce85d6a9feff71dd8ebb9eae29eee0"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-26T12:12:00Z",
+            "number": 32,
+            "title": "Use py3.x compat print in README.rst",
+            "url": "https://github.com/jd/tenacity/pull/32"
+          },
+          {
+            "body": "Besides the change, which is trivial, I have an additional question: in the print statement within the only_raise_retry_error_when_not_io_error function (lines 143-145) it is mentioned, that the function wraps in RetryError any other errors, but it seems to be incorrect, isn't it? As my experiments show, errors are not wrapped. By the way, is there currently any way to use something similar to wrap_exception as in retrying.retry?\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "144125b92b17acf86ce27763d502fe84c66d4d22",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "879590e590f8e57f6678cab38f7ed7d7f538e9bc"
+                  },
+                  {
+                    "oid": "ed467284de046bfca88d5070eb6f165c0ba6a545"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-25T14:15:16Z",
+            "number": 31,
+            "title": "Fix typo in retry_if_exception example",
+            "url": "https://github.com/jd/tenacity/pull/31"
+          },
+          {
+            "body": "The commit tries to close the issue #26\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "879590e590f8e57f6678cab38f7ed7d7f538e9bc",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "2c7ab553d287ae4ce3ec8c684c86543ff2e277fe"
+                  },
+                  {
+                    "oid": "9a1b4b7459f9862249ab7f47bed7b104c35e6adc"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-10-22T16:58:11Z",
+            "number": 30,
+            "title": "Implement '+' operator for wait strategies",
+            "url": "https://github.com/jd/tenacity/pull/30"
+          },
+          {
+            "body": "https://github.com/jd/tenacity/pull/27 introduced a bug\nwhereupon if a retry callable doesn't raise and Retrying has\nits self.reraise set to True, a TypeError will be raised because\nwe try to raise something that's not an exception class.\n\nThis fixes that issue and adds a UT for it.\n\n[1] https://github.com/jd/tenacity/pull/27\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "3ca87fab537246ed3e5085c74ae9a4f7cf851e3c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "bed881719af36d5db13ba58963cf908c80ed303f"
+                  },
+                  {
+                    "oid": "2318710e4713e2bb967f7bdb4b1c692eb4af61fb"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-09-23T11:02:09Z",
+            "number": 28,
+            "title": "Fix reraise when no exception",
+            "url": "https://github.com/jd/tenacity/pull/28"
+          },
+          {
+            "body": "Add support for reraise as per https://github.com/jd/tenacity/issues/24\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "bed881719af36d5db13ba58963cf908c80ed303f",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "395659933fb4eadd1825ab27a1139bcb0311535b"
+                  },
+                  {
+                    "oid": "f6535ce0aa5b1303bcff0e5c4ba5ee52dc2c205c"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-09-16T10:36:05Z",
+            "number": 27,
+            "title": "Add support for reraise",
+            "url": "https://github.com/jd/tenacity/pull/27"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "ec366904b8c4b4e04b763c6ee0f6a28c0609a2e9",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5a66d389ac3c90c80c8bc9ad7694b810c392d39b"
+                  },
+                  {
+                    "oid": "ee008560554ec4bf458d60aee981b844d8815d50"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-29T07:47:17Z",
+            "number": 21,
+            "title": "Add a useful __repr__",
+            "url": "https://github.com/jd/tenacity/pull/21"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/after.py"
+                },
+                {
+                  "path": "tenacity/before.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "ca318ba10b21d36325ee179509b7292c6ab45c84",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "d2bb605f5e9adf094e3d5736813781c71a6b92c7"
+                  },
+                  {
+                    "oid": "2aa46b3ab5c36d377fdf7108fbdf2bc882c9bd74"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-22T20:19:47Z",
+            "number": 18,
+            "title": "Add and use a nice ordinal func when logging before/after",
+            "url": "https://github.com/jd/tenacity/pull/18"
+          },
+          {
+            "body": "One PR I had in retrying [1] proposed to support the notion of\n\"stepped wait\". This patch adds stepping support by introducing\na new combined step function that wraps 1 or more wait fns to\nproduced a \"stepped queue\" of wait fns.\n\nThis approach solves [1] and also is reusable.\n\n[1] https://github.com/rholder/retrying/pull/51\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "doc/source/index.rst"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NA",
+                "hasNextPage": false
+              },
+              "totalCount": 4
+            },
+            "mergeCommit": {
+              "oid": "d2bb605f5e9adf094e3d5736813781c71a6b92c7",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "de94b6a89a04a975529e97179c6420bd0ce4baea"
+                  },
+                  {
+                    "oid": "fe16371add197d5e3f655f8f90604271caab721a"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-22T20:19:17Z",
+            "number": 13,
+            "title": "Add  wait_chain()",
+            "url": "https://github.com/jd/tenacity/pull/13"
+          },
+          {
+            "body": "Make these before and after functions more official\nby providing some basic ones and a no-op ones that\nwill be used by default.\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/after.py"
+                },
+                {
+                  "path": "tenacity/before.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "NQ",
+                "hasNextPage": false
+              },
+              "totalCount": 5
+            },
+            "mergeCommit": {
+              "oid": "de94b6a89a04a975529e97179c6420bd0ce4baea",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "ba53576ab2dd3f5dcd21a20c4d656fc4f5c63d21"
+                  },
+                  {
+                    "oid": "5c30f37ca3c8f061f6a54fcad7d96671b11b807c"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-20T20:59:53Z",
+            "number": 15,
+            "title": "Add before/after strategies",
+            "url": "https://github.com/jd/tenacity/pull/15"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/retry.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "ba53576ab2dd3f5dcd21a20c4d656fc4f5c63d21",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "9ea6df04d68e12b2dd59eef05c80f186a03e4d61"
+                  },
+                  {
+                    "oid": "5b8e6183d0d500d61a3085d24521a38fb13c96d5"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-20T08:41:06Z",
+            "number": 14,
+            "title": "Fix comment stating rejection",
+            "url": "https://github.com/jd/tenacity/pull/14"
+          },
+          {
+            "body": "Fixes issue #6\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity/__init__.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "9ea6df04d68e12b2dd59eef05c80f186a03e4d61",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "5b4fc5f0ee37a4e8c831c2c8c36025651881d275"
+                  },
+                  {
+                    "oid": "5efb3780c14aee1ae83618901fa3f6d736b7e664"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-20T08:37:43Z",
+            "number": 16,
+            "title": "Add basic stats",
+            "url": "https://github.com/jd/tenacity/pull/16"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity.py"
+                },
+                {
+                  "path": "tenacity/__init__.py"
+                },
+                {
+                  "path": "tenacity/_utils.py"
+                },
+                {
+                  "path": "tenacity/reject.py"
+                },
+                {
+                  "path": "tenacity/stop.py"
+                },
+                {
+                  "path": "tenacity/tests/__init__.py"
+                },
+                {
+                  "path": "tenacity/tests/test_tenacity.py"
+                },
+                {
+                  "path": "tenacity/wait.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "OA",
+                "hasNextPage": false
+              },
+              "totalCount": 8
+            },
+            "mergeCommit": {
+              "oid": "6759b3ca36b31f8d46ad1f7a1080ebd2b42f1b08",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "3059c468e0e464d36096df238c5a904586003119"
+                  },
+                  {
+                    "oid": "74ba03f34d3531d90705e1d6bdf248a0fe1c8cc3"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-18T07:52:56Z",
+            "number": 12,
+            "title": "Folders are good",
+            "url": "https://github.com/jd/tenacity/pull/12"
+          },
+          {
+            "body": "The less pytho versions we have to\ntry to think about supporting (and\ndealing with there edge-cases) the\nbetter.\n\nFixes issue #4\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": ".travis.yml"
+                },
+                {
+                  "path": "setup.cfg"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "3059c468e0e464d36096df238c5a904586003119",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "80fe9586e76eae6f57a46a6e5304c79cd8b99dd1"
+                  },
+                  {
+                    "oid": "ab1bceab37f07d92875db38576d3b9545e2d48e3"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-18T07:50:55Z",
+            "number": 10,
+            "title": "Remove dead versions of py 3.x",
+            "url": "https://github.com/jd/tenacity/pull/10"
+          },
+          {
+            "body": "Monotonic time has the nice benefit of never\ngoing backwards or getting messed up by NTPd\nso use it instead of time.time for computing\ndurations (its a built-in on py3.x so we might\nas well).\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "requirements.txt"
+                },
+                {
+                  "path": "tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mg",
+                "hasNextPage": false
+              },
+              "totalCount": 2
+            },
+            "mergeCommit": {
+              "oid": "a5ee033ba449a75abf0d2afdd67de19ad6bdc58b",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "b4d7732e86dbd6a9ddf73c3363de156218e66bf4"
+                  },
+                  {
+                    "oid": "3e9c6402c1dd19f14c9d5117d1c6af80986281f4"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-16T08:18:12Z",
+            "number": 2,
+            "title": "Use monotonic time",
+            "url": "https://github.com/jd/tenacity/pull/2"
+          },
+          {
+            "body": "The futures class is pretty much equivalent to the\nattempt class here, so instead of using our ow\ncustomized version of it, we might as well just use\nit in the first place.\n",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "requirements.txt"
+                },
+                {
+                  "path": "tenacity.py"
+                },
+                {
+                  "path": "test_tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "Mw",
+                "hasNextPage": false
+              },
+              "totalCount": 3
+            },
+            "mergeCommit": {
+              "oid": "fe25dbfdee37227aeebc5b7dfcb9902725a1ab7c",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "1f9aa665175e31918cfc31a52b49c6a1a41cb747"
+                  },
+                  {
+                    "oid": "6ff10c2c4b82a83e4cae3b2112f80431c1275a79"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-15T07:11:49Z",
+            "number": 3,
+            "title": "Use futures",
+            "url": "https://github.com/jd/tenacity/pull/3"
+          },
+          {
+            "body": "",
+            "closingIssuesReferences": {
+              "nodes": []
+            },
+            "files": {
+              "nodes": [
+                {
+                  "path": "tenacity.py"
+                }
+              ],
+              "pageInfo": {
+                "endCursor": "MQ",
+                "hasNextPage": false
+              },
+              "totalCount": 1
+            },
+            "mergeCommit": {
+              "oid": "1f9aa665175e31918cfc31a52b49c6a1a41cb747",
+              "parents": {
+                "nodes": [
+                  {
+                    "oid": "48194e2c9ce60948464a65fa47066eb922b57dcd"
+                  },
+                  {
+                    "oid": "e7d21053e9c05dc852de52098aea02323cfd37b9"
+                  }
+                ]
+              }
+            },
+            "mergedAt": "2016-08-15T07:09:04Z",
+            "number": 1,
+            "title": "Add docstring on wait_jitter",
+            "url": "https://github.com/jd/tenacity/pull/1"
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "Y3Vyc29yOnYyOpK0MjAxNi0wOC0xNVQwNzowOTowNVrOBNgdPQ==",
+          "hasNextPage": false
+        }
+      }
+    }
+  }
+}

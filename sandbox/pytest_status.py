@@ -10,6 +10,16 @@ from pathlib import Path
 _reports: dict[str, dict[str, str]] = {}
 
 
+def outcome_for_phases(phases: dict[str, str]) -> str:
+    if phases.get("collect") == "failed" or phases.get("setup") == "failed" or phases.get("teardown") == "failed":
+        return "error"
+    if phases.get("call") == "failed":
+        return "failed"
+    if "skipped" in set(phases.values()):
+        return "skipped"
+    return "passed"
+
+
 def pytest_runtest_logreport(report):  # type: ignore[no-untyped-def]
     phases = _reports.setdefault(report.nodeid, {})
     phases[report.when] = report.outcome
@@ -24,13 +34,7 @@ def pytest_sessionfinish(session, exitstatus):  # type: ignore[no-untyped-def]
     del session
     statuses = []
     for nodeid, phases in sorted(_reports.items()):
-        values = set(phases.values())
-        if "failed" in values:
-            outcome = "failed"
-        elif "skipped" in values:
-            outcome = "skipped"
-        else:
-            outcome = "passed"
+        outcome = outcome_for_phases(phases)
         statuses.append({"nodeid": nodeid, "outcome": outcome, "phases": phases})
     path = Path(os.environ["CRUCIBLE_STATUS_FILE"])
     path.write_text(

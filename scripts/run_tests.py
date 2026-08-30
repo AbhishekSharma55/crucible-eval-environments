@@ -15,6 +15,7 @@ def run_tests(
     *,
     image: str = "crucible-sandbox:phase1",
     timeout_s: int = 1200,
+    test_patch_from: str | None = None,
 ) -> dict[str, Any]:
     """Run tests without network access and return the sandbox's JSON result."""
     command = [
@@ -28,6 +29,8 @@ def run_tests(
         commit,
         *(test_selector or []),
     ]
+    if test_patch_from is not None:
+        command.extend(["--test-patch-from", test_patch_from])
     try:
         completed = subprocess.run(
             command,
@@ -72,8 +75,16 @@ def main() -> int:
     parser.add_argument("test_selector", nargs="*")
     parser.add_argument("--image", default="crucible-sandbox:phase1")
     parser.add_argument("--timeout", type=int, default=1200)
+    parser.add_argument("--test-patch-from")
     args = parser.parse_args()
-    result = run_tests(args.repo, args.commit, args.test_selector, image=args.image, timeout_s=args.timeout)
+    result = run_tests(
+        args.repo,
+        args.commit,
+        args.test_selector,
+        image=args.image,
+        timeout_s=args.timeout,
+        test_patch_from=args.test_patch_from,
+    )
     print(json.dumps(result, sort_keys=True))
     return int(result["exit_code"])
 

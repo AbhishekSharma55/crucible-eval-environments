@@ -32,13 +32,13 @@ python3 -m scripts.run_tests OWNER/REPO COMMIT [PYTEST_SELECTOR ...]
 It emits one JSON object containing `exit_code`, `stdout`, `stderr`,
 `duration_s`, and `per_test_status`. The process exit code matches pytest.
 
-`make harvest` never calls GitHub. It reconstructs 700 candidates from the
+`make harvest` never calls GitHub. It reconstructs 3,073 candidates from the
 committed `data/github-api/` GraphQL snapshots and committed dynamic-validation
 records, with `GITHUB_TOKEN` explicitly removed from its environment. Refreshing
 the API cache is a separate, deliberate operation:
 
 ```sh
-GITHUB_TOKEN=... python3 -m scripts.github_cache --pages 1
+GITHUB_TOKEN=... python3 -m scripts.github_cache --pages 5
 ```
 
 The refresh code applies bounded exponential backoff and never persists the
@@ -57,11 +57,13 @@ boundary. The held-out directory is reserved for final evaluation.
 
 ## Online construction versus offline replay
 
-The committed corpus is the reproducible artifact. API refresh and creation of
-new dynamic validation records are online/setup operations. Test execution
-itself is always offline. Candidate validation repeats changed-test runs twice
-at each revision and records clean transitions, no-transition failures, build
-failures, and nondeterministic outcomes as data.
+The committed corpus is the reproducible artifact. API refresh is an explicit
+online setup operation. Dynamic validation is offline: it builds a test-only
+patch from the git mirror cached in the image, applies that patch to the PR's
+first parent, and runs the same selected tests at the parent and merge commit.
+Each endpoint is run twice. Per-test maps distinguish assertion failures from
+setup or collection errors, and validation records clean transitions,
+patch-application failures, build failures, and nondeterministic outcomes.
 
 See `research/phase-1-report.md` for measured results, drops, limitations, and
 the substrate recommendation.

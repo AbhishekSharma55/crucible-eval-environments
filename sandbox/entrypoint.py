@@ -23,11 +23,32 @@ def invoke(args: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Comple
     return subprocess.run(args, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
+def build_patch(checkout: Path, parent: str, fix: str, paths: list[str]) -> subprocess.CompletedProcess[bytes]:
+    """Build one path-partitioned PR patch entirely from the cached git mirror."""
+    return subprocess.run(
+        ["git", "diff", "--binary", "--no-ext-diff", parent, fix, "--", *paths],
+        cwd=checkout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def apply_patch(checkout: Path, patch: bytes) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        cwd=checkout,
+        input=patch,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run pytest at a historical commit")
     parser.add_argument("repo")
     parser.add_argument("commit")
     parser.add_argument("test_selector", nargs="*", help="pytest node IDs or paths")
+    parser.add_argument("--test-patch-from", help="fix commit used to build and transplant the selected test-only patch")
     args = parser.parse_args()
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -54,6 +75,34 @@ def main() -> int:
         if checkout_result.returncode:
             print(json.dumps({"exit_code": checkout_result.returncode, "stdout": checkout_result.stdout, "stderr": checkout_result.stderr, "duration_s": time.monotonic() - started, "per_test_status": []}, sort_keys=True))
             return checkout_result.returncode
+
+        if args.test_patch_from:
+            patch_result = build_patch(checkout, args.commit, args.test_patch_from, args.test_selector)
+            if patch_result.returncode:
+                print(json.dumps({
+                    "repo": args.repo,
+                    "commit": args.commit,
+                    "exit_code": patch_result.returncode,
+                    "stdout": patch_result.stdout.decode(errors="replace"),
+                    "stderr": patch_result.stderr.decode(errors="replace"),
+                    "duration_s": round(time.monotonic() - started, 3),
+                    "per_test_status": [],
+                    "stage": "test_patch_build",
+                }, sort_keys=True))
+                return patch_result.returncode
+            applied = apply_patch(checkout, patch_result.stdout)
+            if applied.returncode:
+                print(json.dumps({
+                    "repo": args.repo,
+                    "commit": args.commit,
+                    "exit_code": applied.returncode,
+                    "stdout": applied.stdout.decode(errors="replace"),
+                    "stderr": applied.stderr.decode(errors="replace"),
+                    "duration_s": round(time.monotonic() - started, 3),
+                    "per_test_status": [],
+                    "stage": "test_patch_apply",
+                }, sort_keys=True))
+                return applied.returncode
 
         env = os.environ.copy()
         env.update({
