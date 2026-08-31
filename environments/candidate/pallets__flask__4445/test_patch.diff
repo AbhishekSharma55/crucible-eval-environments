@@ -1,0 +1,33 @@
+diff --git a/tests/test_override_open_redirect.py b/tests/test_override_open_redirect.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_override_open_redirect.py
+@@ -0,0 +1,27 @@
++import pytest
++from flask import Flask, redirect, url_for
++from flask.testing import FlaskClient
++
++
++def test_override_open_with_redirect():
++    """Overriding FlaskClient.open with extra kwargs works with redirects."""
++    app = Flask(__name__)
++    app.testing = True
++
++    class CustomClient(FlaskClient):
++        def open(self, *args, **kwargs):
++            kwargs.setdefault("headers", {"X-Extra": "extra value"})
++            return super().open(*args, **kwargs)
++
++    @app.route("/")
++    def home():
++        return redirect(url_for("test"))
++
++    @app.route("/test")
++    def test():
++        return "Hello, World!"
++
++    app.test_client_class = CustomClient
++    c = app.test_client()
++    rv = c.get("/", follow_redirects=True)
++    assert rv.data == b"Hello, World!"
+\ No newline at end of file

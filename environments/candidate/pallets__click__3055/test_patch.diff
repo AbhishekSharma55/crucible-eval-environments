@@ -1,0 +1,54 @@
+diff --git a/tests/test_pager_args.py b/tests/test_pager_args.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_pager_args.py
+@@ -0,0 +1,48 @@
++import os
++import subprocess
++from functools import partial
++from io import StringIO
++from pathlib import Path
++from tempfile import tempdir
++from unittest.mock import patch
++
++import pytest
++
++import click
++import click._termui_impl
++from click._compat import WIN
++
++
++@pytest.mark.skipif(WIN, reason="Different behavior on windows.")
++def test_pager_with_arguments(monkeypatch, capfd):
++    """Test that pager command arguments are passed correctly.
++
++    When the pager command includes arguments (e.g., ``cat -n``), they
++    should be passed to the pager program, not to the shell. Using
++    ``shell=True`` with a list argument causes arguments after the
++    first to be treated as shell arguments instead of command
++    arguments.
++    """
++    monkeypatch.setitem(os.environ, "PAGER", "cat -n")
++    monkeypatch.setattr(click._termui_impl, "isatty", lambda x: True)
++
++    pager_out_tmp = Path(tempdir) / "pager_out_args.txt"
++    pager_out_tmp.unlink(missing_ok=True)
++    with pager_out_tmp.open("w") as f:
++        force_subprocess_stdout = patch.object(
++            subprocess,
++            "Popen",
++            partial(subprocess.Popen, stdout=f),
++        )
++        with force_subprocess_stdout:
++            click.echo_via_pager("line1\nline2\nline3")
++
++    out, err = capfd.readouterr()
++    pager = pager_out_tmp.read_text()
++
++    # With ``cat -n``, each line should be prefixed with a line number.
++    # If arguments are swallowed by the shell, line numbers will be
++    # absent.
++    assert pager == "     1\tline1\n     2\tline2\n     3\tline3\n", (
++        f"Expected numbered lines but got: {pager!r}"
++    )
+\ No newline at end of file

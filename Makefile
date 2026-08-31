@@ -1,7 +1,7 @@
 PYTHON ?= python3
 IMAGE ?= crucible-sandbox:phase1
 
-.PHONY: demo sandbox probe harvest split validate-candidates validate-rescue sample baselines review-set review-labels review-metrics solvability-set solvability verify-split phase3-sandbox validate-b sample-b baselines-b replay-b agent-c replay-c report-c test
+.PHONY: demo sandbox probe harvest split validate-candidates validate-rescue sample baselines review-set review-labels review-metrics solvability-set solvability verify-split phase3-sandbox validate-b sample-b baselines-b replay-b agent-c replay-c report-c export-environments review-environments promote-environments test
 
 # Offline reproduction. No API key, no GitHub token, no network, no Docker.
 # Rebuilds the candidate corpus from committed snapshots, re-verifies the
@@ -88,6 +88,20 @@ replay-c:
 
 report-c:
 	$(PYTHON) -m scripts.report_phase4
+
+# Emit the artifact the work is for: one self-contained evaluation environment
+# per case that passed all five gates. Reads committed results only.
+export-environments:
+	$(PYTHON) -m scripts.export_environments
+
+# The human gate. Nothing reaches environments/approved/ without an explicit
+# accept typed by a person here.
+review-environments:
+	@test -n "$(REVIEWER)" || (echo "usage: make review-environments REVIEWER='your name'" && exit 2)
+	$(PYTHON) -m scripts.review_environments review --reviewer "$(REVIEWER)"
+
+promote-environments:
+	$(PYTHON) -m scripts.review_environments promote
 
 test:
 	docker run --rm --entrypoint /opt/venvs/pallets--click--head/bin/python \

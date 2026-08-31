@@ -11,9 +11,9 @@ make demo        # no API key, no network, under a minute
 
 ## Who needs this
 
-An engineer building evaluation environments for coding agents. micro1's own
+An engineer building evaluation environments for coding agents. Public contractor
 listings for that role pay $50–100/hour, output-based, against a weekly quota.
-The same job exists at every lab that trains or evaluates code models.
+The job exists at every lab that trains or evaluates code models.
 
 The work looks like this. Find a real bug fix in a real repository. Rebuild the
 project at the commit *before* the fix, with the dependencies it had then. Confirm
@@ -73,10 +73,24 @@ demonstrate a dev/held-out gap for any arm. What it demonstrates is the *absence
 of a large one* for the agent — which is the claim worth making, and the weaker
 of the two.
 
-Separately: **zero of the accepted held-out tests carried a gaming flag.** Six
-intermediate revisions were flagged and all six were read by hand — two were
-genuine evasion attempts, four false positives, and every one was abandoned by
-the agent before validation, in cases that went on to fail.
+### Gate gaming
+
+A scanner flags tests that look like they satisfy a gate without doing the work —
+skips, expected-failure markers, assertions on incidental state.
+
+On held-out, **zero accepted tests were flagged.** Six intermediate revisions
+were, and all six were read by hand: two genuine evasion attempts, four false
+positives, every one abandoned by the agent before validation in a case that went
+on to fail.
+
+On development, **8 of the 26 accepted tests are flagged** — marshmallow#2153,
+click#1737, #1839, #1942, #2944, #3055, flask#4445 and #5242, with click#3055
+carrying a `skip_or_expected_failure` marker.
+
+A flag is not a verdict; the scanner is deliberately over-sensitive. But eight
+flagged accepts is exactly why the five gates are treated as necessary and not
+sufficient, and why nothing reaches `environments/approved/` without a person
+looking at it. See below.
 
 Full breakdown in [`research/phase-4-report.md`](research/phase-4-report.md) and
 [`research/phase-5-report.md`](research/phase-5-report.md).
@@ -135,6 +149,34 @@ tests that failed at both endpoints** — broken, and a single execution would h
 shown it — and **17 passed at the parent**, meaning they never reproduced the bug.
 Nine more wrote to the wrong place. All three are visible to something that runs
 its own output and reads the result.
+
+## The output, and the person who signs it off
+
+The point of all this is not a results table. It is environments an eval engineer
+can actually use.
+
+```sh
+make export-environments                        # 31 environments: 26 dev, 5 held-out
+make review-environments REVIEWER='your name'   # a human decides, one at a time
+make promote-environments                       # copies only explicit accepts
+```
+
+Each environment is self-contained: the linked issue as `problem_statement.md`,
+the authored test as `test_patch.diff`, full gate evidence and coverage fraction
+in `metadata.json`, and a `verify.sh` that re-checks all five gates. `verify.sh`
+runs offline against recorded evidence by default, or `--mode live` to re-execute
+both endpoints in the sandbox. All 31 pass both ways.
+
+**Nothing reaches `environments/approved/` without a person typing an accept.**
+`make promote-environments` refuses the lot until someone has reviewed them, and
+refuses any accept whose test hash no longer matches. Approvals are recorded with
+reviewer identity and a UTC timestamp in `environments/approvals.jsonl`.
+
+That gate is not decoration. The five gates prove mechanical facts — fails before,
+passes after, touches the changed lines, breaks nothing else. They cannot tell you
+whether a test captures *the behaviour the issue describes* or merely something
+the fix happened to alter. Eight of the twenty-six accepted development tests
+carry a gaming flag. A machine can raise that flag; only a person can settle it.
 
 ## Reproducing this
 
@@ -228,6 +270,7 @@ README.md                  this file
 CHANGELOG-IMPROVEMENT.md   how it evolved, including what was removed and why
 REPRODUCE.md               clean-environment setup, commands, runtime, cost
 PROVENANCE.md              what existed before the competition, tools disclosed
+environments/              the product: 31 exported environments + the human approval gate
 agents/                    agent system prompts and tool schemas, version controlled
 scripts/                   harvest, verifier, baselines, agent runner
 sandbox/                   Docker sandbox and test entrypoint

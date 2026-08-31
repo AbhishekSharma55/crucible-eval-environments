@@ -1,0 +1,26 @@
+diff --git a/tests/test_cli_key_error_message.py b/tests/test_cli_key_error_message.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_cli_key_error_message.py
+@@ -0,0 +1,20 @@
++import ssl
++import sys
++
++import click
++import pytest
++
++from flask.cli import run_command
++
++
++def test_run_key_error_message(monkeypatch):
++    """Test that the error message for --key with SSLContext has
++    proper quoting around --key.
++    """
++    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
++    monkeypatch.setitem(sys.modules, "ssl_context", ssl_context)
++
++    with pytest.raises(click.BadParameter) as exc_info:
++        run_command.make_context("run", ["--cert", "ssl_context", "--key", __file__])
++
++    assert '"--key" is not used.' in exc_info.value.format_message()
+\ No newline at end of file

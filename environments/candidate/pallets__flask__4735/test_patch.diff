@@ -1,0 +1,97 @@
+diff --git a/tests/test_json_encoder_deprecation.py b/tests/test_json_encoder_deprecation.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_json_encoder_deprecation.py
+@@ -0,0 +1,91 @@
++import json
++import warnings
++
++import pytest
++
++from flask import Flask
++
++
++def test_json_encoder_default_is_not_none(app: Flask) -> None:
++    """Accessing ``json_encoder`` on the app should return a valid encoder
++    class, not ``None``. Previously it was a class attribute set to ``None``,
++    which caused ``TypeError`` when external code tried to subclass it.
++    """
++    with warnings.catch_warnings():
++        warnings.simplefilter("ignore", DeprecationWarning)
++        encoder = app.json_encoder
++    assert encoder is not None
++    assert issubclass(encoder, json.JSONEncoder)
++
++
++def test_json_decoder_default_is_not_none(app: Flask) -> None:
++    """Accessing ``json_decoder`` on the app should return a valid decoder
++    class, not ``None``.
++    """
++    with warnings.catch_warnings():
++        warnings.simplefilter("ignore", DeprecationWarning)
++        decoder = app.json_decoder
++    assert decoder is not None
++    assert issubclass(decoder, json.JSONDecoder)
++
++
++def test_json_encoder_setter(app: Flask) -> None:
++    """Setting ``json_encoder`` should work and the value should be
++    returned when accessed.
++    """
++    class CustomEncoder(json.JSONEncoder):
++        pass
++
++    with warnings.catch_warnings(record=True) as w:
++        warnings.simplefilter("always")
++        app.json_encoder = CustomEncoder
++
++    assert len(w) == 1
++    assert issubclass(w[0].category, DeprecationWarning)
++    assert "json_encoder" in str(w[0].message)
++
++    with warnings.catch_warnings(record=True) as w2:
++        warnings.simplefilter("always")
++        result = app.json_encoder
++
++    assert len(w2) == 1
++    assert issubclass(w2[0].category, DeprecationWarning)
++    assert result is CustomEncoder
++
++
++def test_json_decoder_setter(app: Flask) -> None:
++    """Setting ``json_decoder`` should work and the value should be
++    returned when accessed.
++    """
++    class CustomDecoder(json.JSONDecoder):
++        pass
++
++    with warnings.catch_warnings(record=True) as w:
++        warnings.simplefilter("always")
++        app.json_decoder = CustomDecoder
++
++    assert len(w) == 1
++    assert issubclass(w[0].category, DeprecationWarning)
++    assert "json_decoder" in str(w[0].message)
++
++    with warnings.catch_warnings(record=True) as w2:
++        warnings.simplefilter("always")
++        result = app.json_decoder
++
++    assert len(w2) == 1
++    assert issubclass(w2[0].category, DeprecationWarning)
++    assert result is CustomDecoder
++
++
++def test_json_encoder_can_be_subclassed(app: Flask) -> None:
++    """The value returned by ``app.json_encoder`` should be a class that
++    can be subclassed. This is the regression test for issue #4732.
++    """
++    with warnings.catch_warnings():
++        warnings.simplefilter("ignore", DeprecationWarning)
++        encoder = app.json_encoder
++
++    class CustomEncoder(encoder):  # type: ignore
++        pass
++
++    assert issubclass(CustomEncoder, json.JSONEncoder)
+\ No newline at end of file

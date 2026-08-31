@@ -1,0 +1,65 @@
+diff --git a/tests/test_pager_symlink.py b/tests/test_pager_symlink.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_pager_symlink.py
+@@ -0,0 +1,59 @@
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++from unittest.mock import patch
++
++import pytest
++
++import click._termui_impl
++
++
++def test_pipepager_preserves_symlink_name(tmp_path, monkeypatch):
++    """_pipepager should use the symlink name, not the resolved target name,
++    for multi-call binaries like busybox where the symlink determines behavior.
++    """
++    # Create a "multi-call" script that reports its argv[0] name
++    multicall = tmp_path / "multicall"
++    multicall.write_text(
++        "#!/usr/bin/env python\n"
++        "import sys\n"
++        "sys.stdout.write(sys.argv[0])\n"
++        "sys.stdout.flush()\n"
++    )
++    multicall.chmod(0o755)
++
++    # Create a symlink "less" -> "multicall"
++    less_symlink = tmp_path / "less"
++    less_symlink.symlink_to(multicall)
++
++    # Monkeypatch shutil.which to return the symlink path
++    monkeypatch.setattr(shutil, "which", lambda cmd: str(less_symlink) if cmd == "less" else None)
++
++    # Capture what subprocess.Popen is called with
++    popen_args = []
++    original_popen = subprocess.Popen
++
++    def tracking_popen(*args, **kwargs):
++        popen_args.append(args)
++        return original_popen(*args, **kwargs)
++
++    monkeypatch.setattr(subprocess, "Popen", tracking_popen)
++
++    # Call _pipepager with a simple generator
++    result = click._termui_impl._pipepager(["hello\n"], ["less"], color=None)
++
++    assert result is True, "_pipepager should return True when command is found"
++
++    # The first argument to Popen should be the symlink path, not the resolved path
++    assert len(popen_args) >= 1
++    cmd_list = popen_args[0][0]
++    assert len(cmd_list) >= 1
++    cmd_path = Path(cmd_list[0])
++    # The command path should be the symlink (less), not the resolved target (multicall)
++    assert cmd_path.name == "less", (
++        f"Expected command name 'less' (the symlink), got '{cmd_path.name}'. "
++        "The fix should use .absolute() instead of .resolve() so multi-call "
++        "binaries keep their symlink identity."
++    )
+\ No newline at end of file

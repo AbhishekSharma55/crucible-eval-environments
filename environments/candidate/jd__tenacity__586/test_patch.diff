@@ -1,0 +1,41 @@
+diff --git a/tests/test_logger_protocol.py b/tests/test_logger_protocol.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_logger_protocol.py
+@@ -0,0 +1,35 @@
++import inspect
++import logging
++
++from tenacity import _utils
++
++
++def test_logger_protocol_log_signature() -> None:
++    """Verify that LoggerProtocol.log() does not use positional-only marker.
++
++    Regression test for https://github.com/jd/tenacity/issues/554.
++    LoggerProtocol.log() had a positional-only marker (/) on msg,
++    which made mypy reject logging.Logger as incompatible.
++    """
++    proto_sig = inspect.signature(_utils.LoggerProtocol.log)
++    log_sig = inspect.signature(logging.Logger.log)
++
++    # The msg parameter in LoggerProtocol.log should NOT be positional-only
++    # (i.e., it should behave like logging.Logger.log where msg is a regular param)
++    proto_params = list(proto_sig.parameters.values())
++    log_params = list(log_sig.parameters.values())
++
++    # Both should have level, msg as first two params
++    assert len(proto_params) >= 2
++    assert len(log_params) >= 2
++
++    proto_msg = proto_params[1]
++    log_msg = log_params[1]
++
++    # msg should not be positional-only in LoggerProtocol
++    assert proto_msg.kind != inspect.Parameter.POSITIONAL_ONLY, (
++        "LoggerProtocol.log() msg parameter should not be positional-only"
++    )
++
++    # msg in logging.Logger.log is POSITIONAL_OR_KEYWORD
++    assert log_msg.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+\ No newline at end of file

@@ -1,0 +1,36 @@
+diff --git a/tests/test_version.py b/tests/test_version.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_version.py
+@@ -0,0 +1,30 @@
++import warnings
++
++import marshmallow
++
++
++class TestVersionInfo:
++    def test_no_distutils_deprecation_warning(self):
++        # The fix replaces distutils.version.LooseVersion with
++        # packaging.version.Version to avoid DeprecationWarning.
++        # Re-importing marshmallow should not produce a DeprecationWarning.
++        import importlib
++
++        # Clear the module to force re-import
++        importlib.invalidate_caches()
++        # Use a fresh import
++        import sys
++
++        if "marshmallow" in sys.modules:
++            del sys.modules["marshmallow"]
++
++        with warnings.catch_warnings(record=True) as w:
++            warnings.simplefilter("always")
++            import marshmallow  # noqa: F811
++
++            deprecation_warnings = [
++                x for x in w if issubclass(x.category, DeprecationWarning)
++            ]
++            assert len(deprecation_warnings) == 0, (
++                f"Got DeprecationWarning(s): {[str(x.message) for x in deprecation_warnings]}"
++            )
+\ No newline at end of file

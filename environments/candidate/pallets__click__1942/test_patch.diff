@@ -1,0 +1,42 @@
+diff --git a/tests/test_bash_version.py b/tests/test_bash_version.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_bash_version.py
+@@ -0,0 +1,36 @@
++import subprocess
++
++import pytest
++
++from click.shell_completion import BashComplete
++
++
++def test_bash_version_locale_independent(monkeypatch):
++    """Test that Bash version detection works regardless of locale.
++
++    The ``bash --version`` output can vary by locale (e.g. "Version" vs
++    "version" in German). The fix uses ``echo ${BASH_VERSION}`` instead,
++    which always returns a locale-independent numeric string.
++    """
++
++    def _mock_run(cmd, **kwargs):
++        # Simulate a German-locale bash --version output where "Version"
++        # is capitalized, which would cause the old regex to fail.
++        if cmd == ["bash", "--version"]:
++            out = (
++                "GNU bash, Version 5.1.4(1)-release (x86_64-pc-linux-gnu)\n"
++                "Copyright (C) 2020 Free Software Foundation, Inc.\n"
++                "Lizenz GPLv3+: GNU GPL Version 3 oder jünger\n"
++            )
++        elif cmd == ["bash", "-c", "echo ${BASH_VERSION}"]:
++            out = "5.1.4(1)-release\n"
++        else:
++            raise ValueError(f"unexpected command: {cmd}")
++
++        return subprocess.CompletedProcess(cmd, 0, out.encode(), b"")
++
++    monkeypatch.setattr("subprocess.run", _mock_run)
++
++    comp = BashComplete(None, {}, "test", "_TEST_COMPLETE")
++    # _check_version should not raise for a supported version
++    comp._check_version()
+\ No newline at end of file
