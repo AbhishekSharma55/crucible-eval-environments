@@ -1,0 +1,74 @@
+{
+  "latency_s": 5.77,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfix: remove __iter__ from AsyncRetring\n\nPR body:\nThis method doesn't make sense for AsyncRetrying. And it's even more\nvicious as:\n\n```\nfor attempts in AsyncRetrying():\n    with attempts:\n        await do_for_a_while()\n```\n\nwill work, but sleep(XXX) coroutine will never be awaited and the call is\nretried instantly.\n\nThis change removes the __iter__ method from AsyncRetrying.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/no-async-iter-6132a42e52348a75.yaml b/releasenotes/notes/no-async-iter-6132a42e52348a75.yaml\nnew file mode 100644\nindex 0000000..7a92c1b\n--- /dev/null\n+++ b/releasenotes/notes/no-async-iter-6132a42e52348a75.yaml\n@@ -0,0 +1,7 @@\n+---\n+fixes:\n+  - |\n+    `AsyncRetrying` was erroneously implementing `__iter__()`, making tenacity\n+    retrying mechanism working but in a synchronous fashion and not waiting as\n+    expected. This interface has been removed, `__aiter__()` should be used\n+    instead.\ndiff --git a/tenacity/_asyncio.py b/tenacity/_asyncio.py\nindex 0b0f876..ab88d26 100644\n--- a/tenacity/_asyncio.py\n+++ b/tenacity/_asyncio.py\n@@ -62,6 +62,9 @@ class AsyncRetrying(BaseRetrying):\n             else:\n                 return do  # type: ignore[no-any-return]\n \n+    def __iter__(self) -> typing.Generator[AttemptManager, None, None]:\n+        raise TypeError(\"AsyncRetrying object is not iterable\")\n+\n     def __aiter__(self) -> \"AsyncRetrying\":\n         self.begin()\n         self._retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "318a34c11f4cc56c81c1784f1760213a6843a473ef682ca67f2a2238dcdf3e83",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Using `AsyncRetrying` in a synchronous `for` loop (e.g., `for attempts in AsyncRetrying():`) would not await the sleep coroutine, causing retries to happen instantly without the intended delay.",
+          "reasoning": "We need to write a concise problem statement describing the externally observable bug or missing behavior, without revealing implementation details, patch syntax, etc. The PR title and body indicate that AsyncRetrying had an __iter__ method that made it work in a synchronous for loop, but the sleep coroutine was never awaited, causing retries to happen instantly without waiting. The gold patch shows that __iter__ was removed and replaced with raising TypeError. So the bug is that using AsyncRetrying in a synchronous for loop (e.g., `for attempts in AsyncRetrying():`) would not actually await the sleep, leading to immediate retries instead of waiting. The problem statement should describe that behavior.\n\nThus: \"Using `AsyncRetrying` in a synchronous `for` loop (e.g., `for attempts in AsyncRetrying():`) would not await the sleep coroutine, causing retries to happen instantly without the intended delay.\"",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing the externally observable bug or missing behavior, without revealing implementation details, patch syntax, etc. The PR title and body indicate that AsyncRetrying had an __iter__ method that made it work in a synchronous for loop, but the sleep coroutine was never awaited, causing retries to happen instantly without waiting. The gold patch shows that __iter__ was removed and replaced with raising TypeError. So the bug is that using AsyncRetrying in a synchronous for loop (e.g., `for attempts in AsyncRetrying():`) would not actually await the sleep, leading to immediate retries instead of waiting. The problem statement should describe that behavior.\n\nThus: \"Using `AsyncRetrying` in a synchronous `for` loop (e.g., `for attempts in AsyncRetrying():`) would not await the sleep coroutine, causing retries to happen instantly without the intended delay.\"",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078153,
+    "id": "gen-1788078153-Y0Z6gkJfv7k1o9ltmdex",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 233,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 186
+      },
+      "cost": 8.112384e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.757824e-05,
+        "upstream_inference_cost": 8.112384e-05,
+        "upstream_inference_prompt_cost": 4.35456e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 540,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 773
+    }
+  },
+  "schema_version": 1
+}

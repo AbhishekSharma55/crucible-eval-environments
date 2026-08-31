@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.591,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nInfer type annotations from converters\n\nPR body:\n- [x] Added **tests** for changed code.\r\n- [x] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/master/tests/strategies.py).\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [x] ...and used in the stub test file `tests/typing_example.py`.\r\n- [x] Updated **documentation** for changed code.\r\n    - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [x] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).  Find the appropriate next version in our [``__init__.py``](https://github.com/python-attrs/attrs/blob/master/src/attr/__init__.py) file.\r\n- [x] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [x] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/master/changelog.d).\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/787.change.rst b/changelog.d/787.change.rst\nnew file mode 100644\nindex 00000000..a60e9b84\n--- /dev/null\n+++ b/changelog.d/787.change.rst\n@@ -0,0 +1,2 @@\n+If present, type annotations of the ``converter`` argument to ``attr.ib`` are now used to give type annotations to ``__init__``.\n+``attr.converters.pipe`` and ``attr.converters.optional`` also infer type annotations based on the passed converters.\ndiff --git a/docs/init.rst b/docs/init.rst\nindex c65e545d..696b1617 100644\n--- a/docs/init.rst\n+++ b/docs/init.rst\n@@ -301,6 +301,20 @@ Arguably, you can abuse converters as one-argument validators:\n    ValueError: invalid literal for int() with base 10: 'x'\n \n \n+If a converter's first argument has a type annotation, that type will appear in the signature for ``__init__``.\n+A converter will override an explicit type annotation or ``type`` argument.\n+\n+.. doctest::\n+\n+   >>> def str2int(x: str) -> int:\n+   ...     return int(x)\n+   >>> @attr.s\n+   ... class C(object):\n+   ...     x = attr.ib(converter=str2int)\n+   >>> C.__init__.__annotations__\n+   {'return': None, 'x': <class 'str'>}\n+\n+\n Post-Init Hook\n --------------\n \ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 49484f93..64af3cca 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1,6 +1,7 @@\n from __future__ import absolute_import, division, print_function\n \n import copy\n+import inspect\n import linecache\n import sys\n import threading\n@@ -28,6 +29,10 @@ from .exceptions import (\n )\n \n \n+if not PY2:\n+    import typing\n+\n+\n # This is used at least twice, so cache it here.\n _obj_setattr = object.__setattr__\n _init_converter_pat = \"__attr_converter_%s\"\n@@ -2210,8 +2215,24 @@ def _attrs_to_init_script(\n             else:\n                 lines.append(fmt_setter(attr_name, arg_name, has_on_setattr))\n \n-        if a.init is True and a.converter is None and a.type is not None:\n-            annotations[arg_name] = a.type\n+        if a.init is True:\n+            if a.type is not None and a.converter is None:\n+                annotations[arg_name] = a.type\n+            elif a.converter is not None and not PY2:\n+                # Try to get the type from the converter.\n+                sig = None\n+                try:\n+                    sig = inspect.signature(a.converter)\n+                except (ValueError, TypeError):  # inspect failed\n+                    pass\n+                if sig:\n+                    sig_params = list(sig.parameters.values())\n+                    if (\n+                        sig_params\n+                        and sig_params[0].annotation\n+                        is not inspect.Parameter.empty\n+                    ):\n+                        annotations[arg_name] = sig_params[0].annotation\n \n     if attrs_to_validate:  # we can skip this if there are no validators.\n         names_for_globals[\"_config\"] = _config\n@@ -2751,6 +2772,9 @@ def pipe(*converters):\n     When called on a value, it runs all wrapped converters, returning the\n     *last* value.\n \n+    Type annotations will be inferred from the wrapped converters', if\n+    they have any.\n+\n     :param callables converters: Arbitrary number of converters.\n \n     .. versionadded:: 20.1.0\n@@ -2762,4 +2786,36 @@ def pipe(*converters):\n \n         return val\n \n+    if not PY2:\n+        if not converters:\n+            # If the converter list is empty, pipe_converter is the identity.\n+            A = typing.TypeVar(\"A\")\n+            pipe_converter.__annotations__ = {\"val\": A, \"return\": A}\n+        else:\n+            # Get parameter type.\n+            sig = None\n+            try:\n+                sig = inspect.signature(converters[0])\n+            except (ValueError, TypeError):  # inspect failed\n+                pass\n+            if sig:\n+                params = list(sig.parameters.values())\n+                if (\n+                    params\n+                    and params[0].annotation is not inspect.Parameter.empty\n+                ):\n+                    pipe_converter.__annotations__[\"val\"] = params[\n+                        0\n+                    ].annotation\n+            # Get return type.\n+            sig = None\n+            try:\n+                sig = inspect.signature(converters[-1])\n+            except (ValueError, TypeError):  # inspect failed\n+                pass\n+            if sig and sig.return_annotation is not inspect.Signature().empty:\n+                pipe_converter.__annotations__[\n+                    \"return\"\n+                ] = sig.return_annotation\n+\n     return pipe_converter\ndiff --git a/src/attr/converters.py b/src/attr/converters.py\nindex 715ce178..9a32353c 100644\n--- a/src/attr/converters.py\n+++ b/src/attr/converters.py\n@@ -4,9 +4,15 @@ Commonly useful converters.\n \n from __future__ import absolute_import, division, print_function\n \n+from ._compat import PY2\n from ._make import NOTHING, Factory, pipe\n \n \n+if not PY2:\n+    import inspect\n+    import typing\n+\n+\n __all__ = [\n     \"pipe\",\n     \"optional\",\n@@ -19,6 +25,9 @@ def optional(converter):\n     A converter that allows an attribute to be optional. An optional attribute\n     is one which can be set to ``None``.\n \n+    Type annotations will be inferred from the wrapped converter's, if it\n+    has any.\n+\n     :param callable converter: the converter that is used for non-``None``\n         values.\n \n@@ -30,6 +39,23 @@ def optional(converter):\n             return None\n         return converter(val)\n \n+    if not PY2:\n+        sig = None\n+        try:\n+            sig = inspect.signature(converter)\n+        except (ValueError, TypeError):  # inspect failed\n+            pass\n+        if sig:\n+            params = list(sig.parameters.values())\n+            if params and params[0].annotation is not inspect.Parameter.empty:\n+                optional_converter.__annotations__[\"val\"] = typing.Optional[\n+                    params[0].annotation\n+                ]\n+            if sig.return_annotation is not inspect.Signature.empty:\n+                optional_converter.__annotations__[\"return\"] = typing.Optional[\n+                    sig.return_annotation\n+                ]\n+\n     return optional_converter\n \n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "ceb4d6f9463076c72ff6e434a4ce13e48513b7e629348efb16678a750c66f9d2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a converter is specified for an attribute, the generated `__init__` method's type annotations do not reflect the converter's input type, and `attr.converters.pipe` and `attr.converters.optional` do not propagate type annotations from their wrapped converters.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078559,
+    "id": "gen-1788078559-WueHd9FKYeJ19t2gVx1O",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 58,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001744848,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.37048e-06,
+        "upstream_inference_cost": 0.0001744848,
+        "upstream_inference_prompt_cost": 0.00016511432
+      },
+      "is_byok": false,
+      "prompt_tokens": 2044,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2102
+    }
+  },
+  "schema_version": 1
+}

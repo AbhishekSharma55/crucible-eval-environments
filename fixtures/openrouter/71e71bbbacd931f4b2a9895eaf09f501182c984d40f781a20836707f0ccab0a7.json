@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.497,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFirst pass over generics\n\nPR body:\nSupport generic classes for `has` and `fields`.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/src/attr/_compat.py b/src/attr/_compat.py\nindex 35a85a3f..cc6327ec 100644\n--- a/src/attr/_compat.py\n+++ b/src/attr/_compat.py\n@@ -9,6 +9,7 @@ import types\n import warnings\n \n from collections.abc import Mapping, Sequence  # noqa\n+from typing import _GenericAlias\n \n \n PYPY = platform.python_implementation() == \"PyPy\"\n@@ -174,3 +175,10 @@ set_closure_cell = make_set_closure_cell()\n # don't have a direct reference to the thread-local in their globals dict.\n # If they have such a reference, it breaks cloudpickle.\n repr_context = threading.local()\n+\n+\n+def get_generic_base(cl):\n+    \"\"\"If this is a generic class (A[str]), return the generic base for it.\"\"\"\n+    if cl.__class__ is _GenericAlias:\n+        return cl.__origin__\n+    return None\ndiff --git a/src/attr/_funcs.py b/src/attr/_funcs.py\nindex 518be16e..6fa2456d 100644\n--- a/src/attr/_funcs.py\n+++ b/src/attr/_funcs.py\n@@ -3,6 +3,7 @@\n \n import copy\n \n+from ._compat import get_generic_base\n from ._make import NOTHING, _obj_setattr, fields\n from .exceptions import AttrsAttributeNotFoundError\n \n@@ -296,7 +297,19 @@ def has(cls):\n \n     :rtype: bool\n     \"\"\"\n-    return getattr(cls, \"__attrs_attrs__\", None) is not None\n+    attrs = getattr(cls, \"__attrs_attrs__\", None)\n+    if attrs is not None:\n+        return True\n+\n+    # No attrs, maybe it's a specialized generic (A[str])?\n+    generic_base = get_generic_base(cls)\n+    if generic_base is not None:\n+        generic_attrs = getattr(generic_base, \"__attrs_attrs__\", None)\n+        if generic_attrs is not None:\n+            # Stick it on here for speed next time.\n+            cls.__attrs_attrs__ = generic_attrs\n+        return generic_attrs is not None\n+    return False\n \n \n def assoc(inst, **changes):\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 014b7bc2..d72f738e 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -12,7 +12,12 @@ from operator import itemgetter\n # We need to import _compat itself in addition to the _compat members to avoid\n # having the thread-local in the globals here.\n from . import _compat, _config, setters\n-from ._compat import PY310, _AnnotationExtractor, set_closure_cell\n+from ._compat import (\n+    PY310,\n+    _AnnotationExtractor,\n+    get_generic_base,\n+    set_closure_cell,\n+)\n from .exceptions import (\n     DefaultAlreadySetError,\n     FrozenInstanceError,\n@@ -1918,12 +1923,26 @@ def fields(cls):\n \n     .. versionchanged:: 16.2.0 Returned tuple allows accessing the fields\n        by name.\n+    .. versionchanged:: 23.1.0 Add support for generic classes.\n     \"\"\"\n-    if not isinstance(cls, type):\n+    generic_base = get_generic_base(cls)\n+\n+    if generic_base is None and not isinstance(cls, type):\n         raise TypeError(\"Passed object must be a class.\")\n+\n     attrs = getattr(cls, \"__attrs_attrs__\", None)\n+\n     if attrs is None:\n+        if generic_base is not None:\n+            attrs = getattr(generic_base, \"__attrs_attrs__\", None)\n+            if attrs is not None:\n+                # Even though this is global state, stick it on here to speed\n+                # it up. We rely on `cls` being cached for this to be\n+                # efficient.\n+                cls.__attrs_attrs__ = attrs\n+                return attrs\n         raise NotAnAttrsClassError(f\"{cls!r} is not an attrs-decorated class.\")\n+\n     return attrs\n \n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "71e71bbbacd931f4b2a9895eaf09f501182c984d40f781a20836707f0ccab0a7",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `has()` and `fields()` functions do not work with generic classes (e.g., `A[str]`), incorrectly reporting that they are not attrs-decorated classes.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078592,
+    "id": "gen-1788078592-49sRb7Y5m7BCVUFwIrLG",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Parasail",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 39,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001645,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.092e-05,
+        "upstream_inference_cost": 0.0001645,
+        "upstream_inference_prompt_cost": 0.00015358
+      },
+      "is_byok": false,
+      "prompt_tokens": 1097,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1136
+    }
+  },
+  "schema_version": 1
+}

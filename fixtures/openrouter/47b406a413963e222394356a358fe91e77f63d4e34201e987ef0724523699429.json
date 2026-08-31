@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.456,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nRemove FieldABC and the base module\n\nPR body:\nrefactors the code so that `FieldABC` and the entire `base` module are no longer needed.\r\n\r\n\r\nnote: this is technically backwards incompatible because `resolve_field_instance` and `FieldInstanceResolutionError` are privatized but I wouldn't expect anyone to actually be using those\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 7df60c2b..e25d93be 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -53,6 +53,7 @@ Deprecations/Removals:\n - *Backwards-incompatible*: Remove implicit field creation, i.e. using the ``fields`` or ``additional`` class Meta options with undeclared fields (:issue:`1356`).\n - The `ordered` class Meta option is removed  (:issue:`2146`). Field order is already preserved by default.\n   Set `Schema.dict_class` to `OrderedDict` to maintain the previous behavior.\n+- The `marshmallow.base` module is removed (:pr:`2722`).\n \n Previously-deprecated API have been removed, including:\n \n@@ -75,7 +76,7 @@ Features:\n \n Bug fixes:\n \n-- Typing: Fix type hint for ``nested`` parameter of `Nested <marshmallow.fields.Nested>`.\n+- Typing: Fix type hint for ``nested`` parameter of `Nested <marshmallow.fields.Nested>` (:pr:`2721`).\n \n \n 3.23.3 (2025-01-03)\ndiff --git a/src/marshmallow/base.py b/src/marshmallow/base.py\ndeleted file mode 100644\nindex fd05fccd..00000000\n--- a/src/marshmallow/base.py\n+++ /dev/null\n@@ -1,33 +0,0 @@\n-\"\"\"Abstract base classes.\n-\n-These are necessary to avoid circular imports between schema.py and fields.py.\n-\n-.. warning::\n-\n-    This module is treated as private API.\n-    Users should not need to use this module directly.\n-\"\"\"\n-\n-from __future__ import annotations\n-\n-from abc import ABC, abstractmethod\n-\n-\n-class FieldABC(ABC):\n-    \"\"\"Abstract base class from which all Field classes inherit.\"\"\"\n-\n-    @abstractmethod\n-    def serialize(self, attr, obj, accessor=None):\n-        pass\n-\n-    @abstractmethod\n-    def deserialize(self, value):\n-        pass\n-\n-    @abstractmethod\n-    def _serialize(self, value, attr, obj, **kwargs):\n-        pass\n-\n-    @abstractmethod\n-    def _deserialize(self, value, attr, data, **kwargs):\n-        pass\ndiff --git a/src/marshmallow/exceptions.py b/src/marshmallow/exceptions.py\nindex 096b6bd0..7554d479 100644\n--- a/src/marshmallow/exceptions.py\n+++ b/src/marshmallow/exceptions.py\n@@ -67,5 +67,5 @@ class StringNotCollectionError(MarshmallowError, TypeError):\n     \"\"\"Raised when a string is passed when a list of strings is expected.\"\"\"\n \n \n-class FieldInstanceResolutionError(MarshmallowError, TypeError):\n-    \"\"\"Raised when schema to instantiate is neither a Schema class nor an instance.\"\"\"\n+class _FieldInstanceResolutionError(MarshmallowError, TypeError):\n+    \"\"\"Raised when an argument is passed to a field class that cannot be resolved to a Field instance.\"\"\"\ndiff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py\nindex 76157f7c..985bd234 100644\n--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -26,16 +26,14 @@ else:\n     MonkeyPatch.patch_fromisoformat()\n \n from marshmallow import class_registry, types, utils, validate\n-from marshmallow.base import FieldABC\n from marshmallow.exceptions import (\n-    FieldInstanceResolutionError,\n     StringNotCollectionError,\n     ValidationError,\n+    _FieldInstanceResolutionError,\n )\n from marshmallow.utils import (\n     is_aware,\n     is_collection,\n-    resolve_field_instance,\n )\n from marshmallow.utils import (\n     missing as missing_,\n@@ -105,7 +103,22 @@ class _BaseFieldKwargs(typing.TypedDict, total=False):\n     metadata: typing.Mapping[str, typing.Any] | None\n \n \n-class Field(FieldABC):\n+def _resolve_field_instance(cls_or_instance: Field | type[Field]) -> Field:\n+    \"\"\"Return a Field instance from a Field class or instance.\n+\n+    :param cls_or_instance: Field class or instance.\n+    \"\"\"\n+    if isinstance(cls_or_instance, type):\n+        if not issubclass(cls_or_instance, Field):\n+            raise _FieldInstanceResolutionError\n+        return cls_or_instance()\n+    else:\n+        if not isinstance(cls_or_instance, Field):\n+            raise _FieldInstanceResolutionError\n+        return cls_or_instance\n+\n+\n+class Field:\n     \"\"\"Basic field from which other fields should extend. It applies no\n     formatting by default, and should only be used in cases where\n     data does not need to be formatted before being serialized or deserialized.\n@@ -361,7 +374,7 @@ class Field(FieldABC):\n         self.parent = self.parent or parent\n         self.name = self.name or field_name\n         self.root = self.root or (\n-            self.parent.root if isinstance(self.parent, FieldABC) else self.parent\n+            self.parent.root if isinstance(self.parent, Field) else self.parent\n         )\n \n     def _serialize(\n@@ -689,11 +702,11 @@ class List(Field):\n     ):\n         super().__init__(**kwargs)\n         try:\n-            self.inner = resolve_field_instance(cls_or_instance)\n-        except FieldInstanceResolutionError as error:\n+            self.inner = _resolve_field_instance(cls_or_instance)\n+        except _FieldInstanceResolutionError as error:\n             raise ValueError(\n                 \"The list elements must be a subclass or instance of \"\n-                \"marshmallow.base.FieldABC.\"\n+                \"marshmallow.fields.Field.\"\n             ) from error\n         if isinstance(self.inner, Nested):\n             self.only = self.inner.only\n@@ -764,13 +777,13 @@ class Tuple(Field):\n \n         try:\n             self.tuple_fields = [\n-                resolve_field_instance(cls_or_instance)\n+                _resolve_field_instance(cls_or_instance)\n                 for cls_or_instance in tuple_fields\n             ]\n-        except FieldInstanceResolutionError as error:\n+        except _FieldInstanceResolutionError as error:\n             raise ValueError(\n                 'Elements of \"tuple_fields\" must be subclasses or '\n-                \"instances of marshmallow.base.FieldABC.\"\n+                \"instances of marshmallow.fields.Field.\"\n             ) from error\n \n         self.validate_length = Length(equal=len(self.tuple_fields))\n@@ -1510,22 +1523,22 @@ class Mapping(Field):\n             self.key_field = None\n         else:\n             try:\n-                self.key_field = resolve_field_instance(keys)\n-            except FieldInstanceResolutionError as error:\n+                self.key_field = _resolve_field_instance(keys)\n+            except _FieldInstanceResolutionError as error:\n                 raise ValueError(\n                     '\"keys\" must be a subclass or instance of '\n-                    \"marshmallow.base.FieldABC.\"\n+                    \"marshmallow.fields.Field.\"\n                 ) from error\n \n         if values is None:\n             self.value_field = None\n         else:\n             try:\n-                self.value_field = resolve_field_instance(values)\n-            except FieldInstanceResolutionError as error:\n+                self.value_field = _resolve_field_instance(values)\n+            except _FieldInstanceResolutionError as error:\n                 raise ValueError(\n                     '\"values\" must be a subclass or instance of '\n-                    \"marshmallow.base.FieldABC.\"\n+                    \"marshmallow.fields.Field.\"\n                 ) from error\n             if isinstance(self.value_field, Nested):\n                 self.only = self.value_field.only\n@@ -1844,11 +1857,11 @@ class Enum(Field):\n                 self.field = Field()\n             else:\n                 try:\n-                    self.field = resolve_field_instance(by_value)\n-                except FieldInstanceResolutionError as error:\n+                    self.field = _resolve_field_instance(by_value)\n+                except _FieldInstanceResolutionError as error:\n                     raise ValueError(\n                         '\"by_value\" must be either a bool or a subclass or instance of '\n-                        \"marshmallow.base.FieldABC.\"\n+                        \"marshmallow.fields.Field.\"\n                     ) from error\n             self.choices_text = \", \".join(\n                 str(self.field._serialize(m.value, None, None)) for m in enum\ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex 111145e9..82031e00 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -13,7 +13,7 @@ from abc import ABCMeta\n from collections import defaultdict\n from collections.abc import Mapping\n \n-from marshmallow import base, class_registry, types\n+from marshmallow import class_registry, types\n from marshmallow import fields as ma_fields\n from marshmallow.decorators import (\n     POST_DUMP,\n@@ -47,7 +47,7 @@ def _get_fields(attrs):\n     return [\n         (field_name, field_value)\n         for field_name, field_value in attrs.items()\n-        if is_instance_or_subclass(field_value, base.FieldABC)\n+        if is_instance_or_subclass(field_value, ma_fields.Field)\n     ]\n \n \n@@ -988,7 +988,7 @@ class Schema(metaclass=SchemaMeta):\n             # Field declared as a class, not an instance. Ignore type checking because\n             # we handle unsupported arg types, i.e. this is dead code from\n             # the type checker's perspective.\n-            if isinstance(field_obj, type) and issubclass(field_obj, base.FieldABC):\n+            if isinstance(field_obj, type) and issubclass(field_obj, ma_fields.Field):\n                 msg = (\n                     f'Field for \"{field_name}\" must be declared as a '\n                     \"Field instance, not a class. \"\ndiff --git a/src/marshmallow/utils.py b/src/marshmallow/utils.py\nindex b50fc029..70b556d2 100644\n--- a/src/marshmallow/utils.py\n+++ b/src/marshmallow/utils.py\n@@ -9,9 +9,6 @@ import typing\n from collections.abc import Mapping\n from email.utils import format_datetime, parsedate_to_datetime\n \n-from marshmallow.base import FieldABC\n-from marshmallow.exceptions import FieldInstanceResolutionError\n-\n EXCLUDE = \"exclude\"\n INCLUDE = \"include\"\n RAISE = \"raise\"\n@@ -257,21 +254,6 @@ def get_func_args(func: typing.Callable) -> list[str]:\n     return _signature(func)\n \n \n-def resolve_field_instance(cls_or_instance):\n-    \"\"\"Return a Schema instance from a Schema class or instance.\n-\n-    :param type|Schema cls_or_instance: Marshmallow Schema class or instance.\n-    \"\"\"\n-    if isinstance(cls_or_instance, type):\n-        if not issubclass(cls_or_instance, FieldABC):\n-            raise FieldInstanceResolutionError\n-        return cls_or_instance()\n-    else:\n-        if not isinstance(cls_or_instance, FieldABC):\n-            raise FieldInstanceResolutionError\n-        return cls_or_instance\n-\n-\n def timedelta_to_microseconds(value: dt.timedelta) -> int:\n     \"\"\"Compute the total microseconds of a timedelta.\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "47b406a413963e222394356a358fe91e77f63d4e34201e987ef0724523699429",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `marshmallow.base` module and `FieldABC` class have been removed, and the `FieldInstanceResolutionError` exception has been renamed to `_FieldInstanceResolutionError`, making it private.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078368,
+    "id": "gen-1788078368-eSbZKHRC5FgyaMEFG6Bc",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Alibaba",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 43,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000373726,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.1524e-05,
+        "upstream_inference_cost": 0.000373726,
+        "upstream_inference_prompt_cost": 0.000362202
+      },
+      "is_byok": false,
+      "prompt_tokens": 2703,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2746
+    }
+  },
+  "schema_version": 1
+}

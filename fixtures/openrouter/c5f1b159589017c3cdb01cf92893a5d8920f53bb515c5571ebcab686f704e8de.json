@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.273,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFix validators.disabled() to save/restore state on nesting\n\nPR body:\n## Summary\n\n`validators.disabled()` unconditionally re-enables validators in its `finally` block instead of restoring the previous state. This breaks nested usage \u2014 the inner context manager prematurely re-enables validators when it exits.\n\n```python\nwith disabled():\n    with disabled():\n        pass\n    # BUG: validators are now ENABLED even though we're still in the outer disabled()\n    C(x=\"not_int\")  # raises TypeError unexpectedly\n```\n\nThe fix saves the current state with `get_run_validators()` before disabling, then restores it in `finally`. This is a one-line semantic change.\n\nThe same pattern of nesting breakage also applies when `set_run_validators(False)` was called before entering `disabled()` \u2014 the context manager would unexpectedly override that.\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1513.change.md b/changelog.d/1513.change.md\nnew file mode 100644\nindex 00000000..8cbc63c7\n--- /dev/null\n+++ b/changelog.d/1513.change.md\n@@ -0,0 +1 @@\n+The `attrs.validators.disabled()` contextmanager can now be nested.\ndiff --git a/src/attr/validators.py b/src/attr/validators.py\nindex 837e003b..0b1a2944 100644\n--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -79,12 +79,14 @@ def disabled():\n         This context manager is not thread-safe!\n \n     .. versionadded:: 21.3.0\n+    .. versionchanged:: 26.1.0 The contextmanager is nestable.\n     \"\"\"\n+    prev = get_run_validators()\n     set_run_validators(False)\n     try:\n         yield\n     finally:\n-        set_run_validators(True)\n+        set_run_validators(prev)\n \n \n @attrs(repr=False, slots=True, unsafe_hash=True)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "c5f1b159589017c3cdb01cf92893a5d8920f53bb515c5571ebcab686f704e8de",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `validators.disabled()` context manager does not properly restore the previous validator state when nested, causing validators to be unexpectedly re-enabled inside an outer `disabled()` block.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078637,
+    "id": "gen-1788078637-k0Dq6JKUx7UnsLqBKomN",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 37,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 4.911424e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.97772e-06,
+        "upstream_inference_cost": 4.911424e-05,
+        "upstream_inference_prompt_cost": 4.313652e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 534,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 571
+    }
+  },
+  "schema_version": 1
+}

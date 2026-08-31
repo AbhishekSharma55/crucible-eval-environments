@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.291,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\ngetting default value doesn't perform type cast\n\nPR body:\nfixes #2085 \n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex c6094b77..7c6e4a70 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -22,6 +22,8 @@ Unreleased\n     adding underline. :pr:`2058`\n -   An option with ``count=True`` will not show \"[x>=0]\" in help text.\n     :issue:`2072`\n+-   Default values are not cast to the parameter type twice during\n+    processing. :issue:`2085`\n \n \n Version 8.0.1\ndiff --git a/src/click/core.py b/src/click/core.py\nindex 52b30221..6cdba37d 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -2192,6 +2192,9 @@ class Parameter:\n         :param call: If the default is a callable, call it. Disable to\n             return the callable instead.\n \n+        .. versionchanged:: 8.0.2\n+            Type casting is no longer performed when getting a default.\n+\n         .. versionchanged:: 8.0.1\n             Type casting can fail in resilient parsing mode. Invalid\n             defaults will not prevent showing help text.\n@@ -2207,20 +2210,10 @@ class Parameter:\n         if value is None:\n             value = self.default\n \n-        if callable(value):\n-            if not call:\n-                # Don't type cast the callable.\n-                return value\n-\n+        if call and callable(value):\n             value = value()\n \n-        try:\n-            return self.type_cast_value(ctx, value)\n-        except BadParameter:\n-            if ctx.resilient_parsing:\n-                return value\n-\n-            raise\n+        return value\n \n     def add_to_parser(self, parser: OptionParser, ctx: Context) -> None:\n         raise NotImplementedError()\n@@ -2305,8 +2298,7 @@ class Parameter:\n         return False\n \n     def process_value(self, ctx: Context, value: t.Any) -> t.Any:\n-        if value is not None:\n-            value = self.type_cast_value(ctx, value)\n+        value = self.type_cast_value(ctx, value)\n \n         if self.required and self.value_is_missing(value):\n             raise MissingParameter(ctx=ctx, param=self)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "592c39e77df0ac0a85e88cf8bd838e8ff69d7ad4934295bae14d958223c83809",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a parameter has a default value, that default is not type-cast to the parameter's expected type.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078468,
+    "id": "gen-1788078468-k7LdCFyzPYHgAASBynLM",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 23,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 5.549586e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.71588e-06,
+        "upstream_inference_cost": 5.549586e-05,
+        "upstream_inference_prompt_cost": 5.177998e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 641,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 664
+    }
+  },
+  "schema_version": 1
+}

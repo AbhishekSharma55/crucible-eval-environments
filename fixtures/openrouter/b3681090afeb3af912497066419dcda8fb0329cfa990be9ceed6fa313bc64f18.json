@@ -1,0 +1,69 @@
+{
+  "latency_s": 20.085,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nOnly try to set flag_value if is_flag is true\n\nPR body:\nThis statement:\r\n\r\n    flag_value = not self.default\r\n\r\nrequires the class to have a working `__bool__` method. However, there are some classes that explicitly disable this method:\r\n\r\n- [`numpy.ndarray`](https://numpy.org/doc/stable/reference/arrays.ndarray.html) raises `ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()`\r\n- [`astropy.units.Quantity`](https://docs.astropy.org/en/stable/api/astropy.units.Quantity.html) raises `ValueError: Quantity truthiness is ambiguous, especially for logarithmic units and temperatures. Use explicit  comparisons.`\r\n\r\nMove this statement so that it is only executed if `is_flag` is true.\r\n\r\n<!--\r\nBefore opening a PR, open a ticket describing the issue or feature the\r\nPR will address. An issue is not required for fixing typos in\r\ndocumentation, or other simple non-code changes.\r\n\r\nReplace this comment with a description of the change. Describe how it\r\naddresses the linked ticket.\r\n-->\r\n\r\n<!--\r\nLink to relevant issues or previous PRs, one per line. Use \"fixes\" to\r\nautomatically close an issue.\r\n\r\nfixes #<issue number>\r\n-->\r\n\r\n<!--\r\nEnsure each step in CONTRIBUTING.rst is complete, especially the following:\r\n\r\n- Add tests that demonstrate the correct behavior of the change. Tests\r\n  should fail without the change.\r\n- Add or update relevant docs, in the docs folder and in code.\r\n- Add an entry in CHANGES.rst summarizing the change and linking to the issue.\r\n- Add `.. versionchanged::` entries in any relevant code docs.\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 1a38be8c..bebfef23 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -91,6 +91,9 @@ Unreleased\n -   Add a ``catch_exceptions`` parameter to :class:`CliRunner`. If\n     ``catch_exceptions`` is not passed to :meth:`CliRunner.invoke`,\n     the value from :class:`CliRunner`. :issue:`2817` :pr:`2818`\n+-   ``Option.flag_value`` will no longer have a default value set based on\n+    ``Option.default`` if ``Option.is_flag`` is ``False``. This results in\n+    ``Option.default`` not needing to implement `__bool__`. :pr:`2829`\n \n Version 8.1.8\n -------------\ndiff --git a/src/click/core.py b/src/click/core.py\nindex 1c1a4671..e783729c 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -2597,11 +2597,10 @@ class Option(Parameter):\n             else:\n                 self.default = False\n \n-        if flag_value is None:\n-            flag_value = not self.default\n-\n         self.type: types.ParamType\n         if is_flag and type is None:\n+            if flag_value is None:\n+                flag_value = not self.default\n             # Re-guess the type from the flag value instead of the\n             # default.\n             self.type = types.convert_type(None, flag_value)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "b3681090afeb3af912497066419dcda8fb0329cfa990be9ceed6fa313bc64f18",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When an `Option` is not a flag (i.e., `is_flag=False`), setting `flag_value = not self.default` previously required the default value to have a valid boolean conversion, which could fail for objects like `numpy.ndarray` that raise an exception on truthiness evaluation.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078498,
+    "id": "gen-1788078498-7JR6U34i8A9eCLzeclyW",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 62,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 7.02359e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.0416e-05,
+        "upstream_inference_cost": 7.02359e-05,
+        "upstream_inference_prompt_cost": 5.98199e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 881,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 943
+    }
+  },
+  "schema_version": 1
+}

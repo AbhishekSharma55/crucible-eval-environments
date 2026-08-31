@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.906,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nNew attr.cmp_using helper function\n\nPR body:\n# Pull Request Check List\r\n\r\nThis is just a friendly reminder about the most common mistakes.  Please make sure that you tick all boxes.  But please read our [contribution guide](https://www.attrs.org/en/latest/contributing.html) at least once, it will save you unnecessary review cycles!\r\n\r\nIf an item doesn't apply to your pull request, **check it anyway** to make it apparent that there's nothing left to do.  If your pull request is a documentation fix or a trivial typo, feel free to delete the whole thing.\r\n\r\n- [X] Added **tests** for changed code.\r\n- [ ] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [X] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [?] ...and used in the stub test file `tests/typing_example.py`.\r\n- [ ] Updated **documentation** for changed code.\r\n    - [ ] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [ ] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [ ] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).  Find the appropriate next version in our [``__init__.py``](https://github.com/python-attrs/attrs/blob/main/src/attr/__init__.py) file.\r\n- [ ] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [ ] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!  This checklist is here to *help* you, not to deter you from contributing!\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/src/attr/__init__.py b/src/attr/__init__.py\nindex 88f544bb..b575347d 100644\n--- a/src/attr/__init__.py\n+++ b/src/attr/__init__.py\n@@ -5,6 +5,7 @@ import sys\n from functools import partial\n \n from . import converters, exceptions, filters, setters, validators\n+from ._cmp import cmp_using\n from ._config import get_run_validators, set_run_validators\n from ._funcs import asdict, assoc, astuple, evolve, has, resolve_types\n from ._make import (\n@@ -52,6 +53,7 @@ __all__ = [\n     \"attrib\",\n     \"attributes\",\n     \"attrs\",\n+    \"cmp_using\",\n     \"converters\",\n     \"evolve\",\n     \"exceptions\",\ndiff --git a/src/attr/_cmp.py b/src/attr/_cmp.py\nnew file mode 100644\nindex 00000000..89670bb4\n--- /dev/null\n+++ b/src/attr/_cmp.py\n@@ -0,0 +1,150 @@\n+from __future__ import absolute_import, division, print_function\n+\n+import functools\n+\n+from ._compat import new_class\n+from ._make import _make_ne\n+\n+\n+_operation_names = {\"eq\": \"==\", \"lt\": \"<\", \"le\": \"<=\", \"gt\": \">\", \"ge\": \">=\"}\n+\n+\n+def cmp_using(\n+    eq=None,\n+    lt=None,\n+    le=None,\n+    gt=None,\n+    ge=None,\n+    require_same_type=True,\n+    class_name=\"Comparable\",\n+):\n+    \"\"\"\n+    Utility function that creates a class with customized equality and\n+    ordering methods.\n+\n+    The resulting class will have a full set of ordering methods if\n+    at least one of ``{lt, le, gt, ge}`` and ``eq``  are provided.\n+\n+    :param Optional[callable] eq: `callable` used to evaluate equality\n+        of two objects.\n+    :param Optional[callable] lt: `callable` used to evaluate whether\n+        one object is less than another object.\n+    :param Optional[callable] le: `callable` used to evaluate whether\n+        one object is less than or equal to another object.\n+    :param Optional[callable] gt: `callable` used to evaluate whether\n+        one object is greater than another object.\n+    :param Optional[callable] ge: `callable` used to evaluate whether\n+        one object is greater than or equal to another object.\n+\n+    :param bool require_same_type: When `True`, equality and ordering methods\n+        will return `NotImplemented` if objects are not of the same type.\n+\n+    :param Optional[str] class_name: Name of class. Defaults to 'Comparable'.\n+\n+    .. versionadded:: 21.1.0\n+    \"\"\"\n+\n+    body = {\n+        \"__slots__\": [\"value\"],\n+        \"__init__\": _make_init(),\n+        \"_requirements\": [],\n+        \"_is_comparable_to\": _is_comparable_to,\n+    }\n+\n+    # Add operations.\n+    num_order_functions = 0\n+    has_eq_function = False\n+\n+    if eq is not None:\n+        has_eq_function = True\n+        body[\"__eq__\"] = _make_operator(\"eq\", eq)\n+        body[\"__ne__\"] = _make_ne()\n+\n+    if lt is not None:\n+        num_order_functions += 1\n+        body[\"__lt__\"] = _make_operator(\"lt\", lt)\n+\n+    if le is not None:\n+        num_order_functions += 1\n+        body[\"__le__\"] = _make_operator(\"le\", le)\n+\n+    if gt is not None:\n+        num_order_functions += 1\n+        body[\"__gt__\"] = _make_operator(\"gt\", gt)\n+\n+    if ge is not None:\n+        num_order_functions += 1\n+        body[\"__ge__\"] = _make_operator(\"ge\", ge)\n+\n+    type_ = new_class(class_name, (object,), {}, lambda ns: ns.update(body))\n+\n+    # Add same type requirement.\n+    if require_same_type:\n+        type_._requirements.append(_check_same_type)\n+\n+    # Add total ordering if at least one operation was defined.\n+    if 0 < num_order_functions < 4:\n+        if not has_eq_function:\n+            # functools.total_ordering requires __eq__ to be defined,\n+            # so raise early error here to keep a nice stack.\n+            raise ValueError(\n+                \"eq must be define is order to complete ordering from \"\n+                \"lt, le, gt, ge.\"\n+            )\n+        type_ = functools.total_ordering(type_)\n+\n+    return type_\n+\n+\n+def _make_init():\n+    \"\"\"\n+    Create __init__ method.\n+    \"\"\"\n+\n+    def __init__(self, value):\n+        \"\"\"\n+        Initialize object with *value*.\n+        \"\"\"\n+        self.value = value\n+\n+    return __init__\n+\n+\n+def _make_operator(name, func):\n+    \"\"\"\n+    Create operator method.\n+    \"\"\"\n+\n+    def method(self, other):\n+        if not self._is_comparable_to(other):\n+            return NotImplemented\n+\n+        result = func(self.value, other.value)\n+        if result is NotImplemented:\n+            return NotImplemented\n+\n+        return result\n+\n+    method.__name__ = \"__%s__\" % (name,)\n+    method.__doc__ = \"Return a %s b.  Computed by attrs.\" % (\n+        _operation_names[name],\n+    )\n+\n+    return method\n+\n+\n+def _is_comparable_to(self, other):\n+    \"\"\"\n+    Check whether `other` is comparable to `self`.\n+    \"\"\"\n+    for func in self._requirements:\n+        if not func(self, other):\n+            return False\n+    return True\n+\n+\n+def _check_same_type(self, other):\n+    \"\"\"\n+    Return True if *self* and *other* are of the same type, False otherwise.\n+    \"\"\"\n+    return other.value.__class__ is self.value.__class__\ndiff --git a/src/attr/_cmp.pyi b/src/attr/_cmp.pyi\nnew file mode 100644\nindex 00000000..7093550f\n--- /dev/null\n+++ b/src/attr/_cmp.pyi\n@@ -0,0 +1,14 @@\n+from typing import Type\n+\n+from . import _CompareWithType\n+\n+\n+def cmp_using(\n+    eq: Optional[_CompareWithType],\n+    lt: Optional[_CompareWithType],\n+    le: Optional[_CompareWithType],\n+    gt: Optional[_CompareWithType],\n+    ge: Optional[_CompareWithType],\n+    require_same_type: bool,\n+    class_name: str,\n+) -> Type: ...\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "ad7147aff712bdd2bfff3b8caf65cf3ac4ebf5cf9c4d8d1c0981027f1a2d39b4",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attrs` library lacks a built-in utility for creating simple comparable wrapper classes with custom comparison functions.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078564,
+    "id": "gen-1788078564-acMDOQEDQBjhriPb4vLy",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Mancer 2",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 22,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000385,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.1278746154972903e-05,
+        "upstream_inference_cost": 0.000385,
+        "upstream_inference_prompt_cost": 0.0003737212538450271
+      },
+      "is_byok": false,
+      "prompt_tokens": 2209,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2231
+    }
+  },
+  "schema_version": 1
+}

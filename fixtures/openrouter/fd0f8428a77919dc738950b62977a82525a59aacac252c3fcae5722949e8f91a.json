@@ -1,0 +1,69 @@
+{
+  "latency_s": 103.824,
+  "request": {
+    "max_tokens": 2000,
+    "messages": [
+      {
+        "content": "You are a software repair agent. Produce a minimal unified diff that fixes the reported behavior. Return only the diff. You have one step and cannot use the network.",
+        "role": "system"
+      },
+      {
+        "content": "Problem statement:\nWhen using the `@retry` decorator with Trio, the retry mechanism does not work automatically and requires manually passing `sleep=trio.sleep`.\n\nParent source files:\n--- tenacity/asyncio/__init__.py ---\n# Copyright 2016 \u00c9tienne Bersac\n# Copyright 2016 Julien Danjou\n# Copyright 2016 Joshua Harlow\n# Copyright 2013-2014 Ray Holder\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n# http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n\nimport functools\nimport sys\nimport typing as t\n\nimport tenacity\nfrom tenacity import AttemptManager\nfrom tenacity import BaseRetrying\nfrom tenacity import DoAttempt\nfrom tenacity import DoSleep\nfrom tenacity import RetryCallState\nfrom tenacity import RetryError\nfrom tenacity import after_nothing\nfrom tenacity import before_nothing\nfrom tenacity import _utils\n\n# Import all built-in retry strategies for easier usage.\nfrom .retry import RetryBaseT\nfrom .retry import retry_all  # noqa\nfrom .retry import retry_any  # noqa\nfrom .retry import retry_if_exception  # noqa\nfrom .retry import retry_if_result  # noqa\nfrom ..retry import RetryBaseT as SyncRetryBaseT\n\nif t.TYPE_CHECKING:\n    from tenacity.stop import StopBaseT\n    from tenacity.wait import WaitBaseT\n\nWrappedFnReturnT = t.TypeVar(\"WrappedFnReturnT\")\nWrappedFn = t.TypeVar(\"WrappedFn\", bound=t.Callable[..., t.Awaitable[t.Any]])\n\n\ndef asyncio_sleep(duration: float) -> t.Awaitable[None]:\n    # Lazy import asyncio as it's expensive (responsible for 25-50% of total import overhead).\n    import asyncio\n\n    return asyncio.sleep(duration)\n\n\nclass AsyncRetrying(BaseRetrying):\n    def __init__(\n        self,\n        sleep: t.Callable[\n            [t.Union[int, float]], t.Union[None, t.Awaitable[None]]\n        ] = asyncio_sleep,\n        stop: \"StopBaseT\" = tenacity.stop.stop_never,\n        wait: \"WaitBaseT\" = tenacity.wait.wait_none(),\n        retry: \"t.Union[SyncRetryBaseT, RetryBaseT]\" = tenacity.retry_if_exception_type(),\n        before: t.Callable[\n            [\"RetryCallState\"], t.Union[None, t.Awaitable[None]]\n        ] = before_nothing,\n        after: t.Callable[\n            [\"RetryCallState\"], t.Union[None, t.Awaitable[None]]\n        ] = after_nothing,\n        before_sleep: t.Optional[\n            t.Callable[[\"RetryCallState\"], t.Union[None, t.Awaitable[None]]]\n        ] = None,\n        reraise: bool = False,\n        retry_error_cls: t.Type[\"RetryError\"] = RetryError,\n        retry_error_callback: t.Optional[\n            t.Callable[[\"RetryCallState\"], t.Union[t.Any, t.Awaitable[t.Any]]]\n        ] = None,\n    ) -> None:\n        super().__init__(\n            sleep=sleep,  # type: ignore[arg-type]\n            stop=stop,\n            wait=wait,\n            retry=retry,  # type: ignore[arg-type]\n            before=before,  # type: ignore[arg-type]\n            after=after,  # type: ignore[arg-type]\n            before_sleep=before_sleep,  # type: ignore[arg-type]\n            reraise=reraise,\n            retry_error_cls=retry_error_cls,\n            retry_error_callback=retry_error_callback,\n        )\n\n    async def __call__(  # type: ignore[override]\n        self, fn: WrappedFn, *args: t.Any, **kwargs: t.Any\n    ) -> WrappedFnReturnT:\n        self.begin()\n\n        retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\n        while True:\n            do = await self.iter(retry_state=retry_state)\n            if isinstance(do, DoAttempt):\n                try:\n                    result = await fn(*args, **kwargs)\n                except BaseException:  # noqa: B902\n                    retry_state.set_exception(sys.exc_info())  # type: ignore[arg-type]\n                else:\n                    retry_state.set_result(result)\n            elif isinstance(do, DoSleep):\n                retry_state.prepare_for_next_attempt()\n                await self.sleep(do)  # type: ignore[misc]\n            else:\n                return do  # type: ignore[no-any-return]\n\n    def _add_action_func(self, fn: t.Callable[..., t.Any]) -> None:\n        self.iter_state.actions.append(_utils.wrap_to_async_func(fn))\n\n    async def _run_retry(self, retry_state: \"RetryCallState\") -> None:  # type: ignore[override]\n        self.iter_state.retry_run_result = await _utils.wrap_to_async_func(self.retry)(\n            retry_state\n        )\n\n    async def _run_wait(self, retry_state: \"RetryCallState\") -> None:  # type: ignore[override]\n        if self.wait:\n            sleep = await _utils.wrap_to_async_func(self.wait)(retry_state)\n        else:\n            sleep = 0.0\n\n        retry_state.upcoming_sleep = sleep\n\n    async def _run_stop(self, retry_state: \"RetryCallState\") -> None:  # type: ignore[override]\n        self.statistics[\"delay_since_first_attempt\"] = retry_state.seconds_since_start\n        self.iter_state.stop_run_result = await _utils.wrap_to_async_func(self.stop)(\n            retry_state\n        )\n\n    async def iter(\n        self, retry_state: \"RetryCallState\"\n    ) -> t.Union[DoAttempt, DoSleep, t.Any]:  # noqa: A003\n        self._begin_iter(retry_state)\n        result = None\n        for action in self.iter_state.actions:\n            result = await action(retry_state)\n        return result\n\n    def __iter__(self) -> t.Generator[AttemptManager, None, None]:\n        raise TypeError(\"AsyncRetrying object is not iterable\")\n\n    def __aiter__(self) -> \"AsyncRetrying\":\n        self.begin()\n        self._retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n        return self\n\n    async def __anext__(self) -> AttemptManager:\n        while True:\n            do = await self.iter(retry_state=self._retry_state)\n            if do is None:\n                raise StopAsyncIteration\n            elif isinstance(do, DoAttempt):\n                return AttemptManager(retry_state=self._retry_state)\n            elif isinstance(do, DoSleep):\n                self._retry_state.prepare_for_next_attempt()\n                await self.sleep(do)  # type: ignore[misc]\n            else:\n                raise StopAsyncIteration\n\n    def wraps(self, fn: WrappedFn) -> WrappedFn:\n        fn = super().wraps(fn)\n        # Ensure wrapper is recognized as a coroutine function.\n\n        @functools.wraps(\n            fn, functools.WRAPPER_ASSIGNMENTS + (\"__defaults__\", \"__kwdefaults__\")\n        )\n        async def async_wrapped(*args: t.Any, **kwargs: t.Any) -> t.Any:\n            return await fn(*args, **kwargs)\n\n        # Preserve attributes\n        async_wrapped.retry = fn.retry  # type: ignore[attr-defined]\n        async_wrapped.retry_with = fn.retry_with  # type: ignore[attr-defined]\n\n        return async_wrapped  # type: ignore[return-value]\n\n\n__all__ = [\n    \"retry_all\",\n    \"retry_any\",\n    \"retry_if_exception\",\n    \"retry_if_result\",\n    \"WrappedFn\",\n    \"AsyncRetrying\",\n]\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "fd0f8428a77919dc738950b62977a82525a59aacac252c3fcae5722949e8f91a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "```diff\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -20,6 +20,7 @@\n import typing as t\n\n import tenacity\n+from tenacity import after_nothing as sync_after_nothing\n from tenacity import AttemptManager\n from tenacity import BaseRetrying\n from tenacity import DoAttempt\n@@ -37,6 +38,9 @@\n from .retry import retry_if_result  # noqa\n from ..retry import RetryBaseT as SyncRetryBaseT\n\n+if t.TYPE_CHECKING:\n+    import trio\n+\n if t.TYPE_CHECKING:\n     from tenacity.stop import StopBaseT\n     from tenacity.wait import WaitBaseT\n@@ -49,6 +53,12 @@\n     import asyncio\n\n     return asyncio.sleep(duration)\n+\n+\n+def _trio_sleep(duration: float) -> t.Awaitable[None]:\n+    import trio\n+\n+    return trio.sleep(duration)\n\n\n class AsyncRetrying(BaseRetrying):\n@@ -70,6 +80,10 @@\n             t.Optional[\n                 t.Callable[[\"RetryCallState\"], t.Union[t.Any, t.Awaitable[t.Any]]]\n             ] = None,\n+        sleep: t.Callable[\n+            [t.Union[int, float]], t.Union[None, t.Awaitable[None]]\n+        ] = _trio_sleep if t.TYPE_CHECKING else asyncio_sleep,\n+        # Allow Trio usage without manual sleep parameter\n     ) -> None:\n         super().__init__(\n             sleep=sleep,  # type: ignore[arg-type]\n```",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788079445,
+    "id": "gen-1788079445-ouocsffQhZAeRddHR9Zt",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 378,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001957053,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.3504e-05,
+        "upstream_inference_cost": 0.0001957053,
+        "upstream_inference_prompt_cost": 0.0001322013
+      },
+      "is_byok": false,
+      "prompt_tokens": 1947,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2325
+    }
+  },
+  "schema_version": 1
+}

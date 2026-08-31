@@ -1,0 +1,69 @@
+{
+  "latency_s": 3.231,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd optional namespace arguments for `make_class`\n\nPR body:\nSigned-off-by: Aaron <29749331+aarnphm@users.noreply.github.com>\r\n\r\n# Summary\r\n\r\nAdd an optional `namespaces` argument to `attr.make_class` to allow users to inject addtional namespaces attributes into newly created attrs class.\r\n\r\nI think this is pretty useful for cases where a derivation of the base class is needed with additional functionalities. Since `make_class` use `types.new_class` under the hood this is possible.\r\n\r\nCurrently, if users want to derivate from a attrs classes, one might do:\r\n\r\n```python\r\nimport attr\r\n\r\n@attr.define\r\nclass Base:\r\n    def a(self): ...\r\n\r\ndef b(self: type[Base], something_else: int) -> int: return something_else + 1\r\n\r\nnew_class = types.new_class(\"NewClass\", (Base,), exec_body=lambda ns: ns.update({\"b\": b}))\r\n```\r\n\r\nThis will lose types information and therefore users might need to provide additional stubs for the new class. With this PR, users can do:\r\n\r\n```python\r\nimport attrs\r\n\r\n@attr.define\r\nclass Base:\r\n    def a(self): ...\r\n\r\ndef b(self: type[Base], something_else: int) -> int: return something_else + 1\r\n\r\nnew_class = attr.make_class(\"NewClass\", bases=(Base,), namespaces={\"b\": b})\r\n```\r\n\r\nWhich is nice, but might not be a good idea.\r\n\r\n# Pull Request Check List\r\n\r\n<!--\r\nThis is just a friendly reminder about the most common mistakes.\r\nPlease make sure that you tick all boxes.\r\nBut please read our [contribution guide](https://github.com/python-attrs/attrs/blob/main/.github/CONTRIBUTING.md) at least once, it will save you unnecessary review cycles!\r\n\r\nIf an item doesn't apply to your pull request, **check it anyway** to make it apparent that there's nothing left to do.\r\nIf your pull request is a documentation fix or a trivial typo, feel free to delete the whole thing.\r\n-->\r\n\r\n- [x] Do **not** open pull requests from your `main` branch \u2013 **use a separate branch**!\r\n  - There's a ton of footguns waiting if you don't heed this warning. You can still go back to your project, create a branch from your main branch, push it, and open the pull request from the new branch.\r\n  - This is not a pre-requisite for your your pull request to be accepted, but **you have been warned**.\r\n- [x] Added **tests** for changed code.\r\n      Our CI fails if coverage is not 100%.\r\n- [ ] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in `.pyi`).\r\n  - [ ] ...and used in the stub test file `tests/typing_example.py`.\r\n  - [x] If they've been added to `attr/__init__.pyi`, they've _also_ been re-imported in `attrs/__init__.pyi`.\r\n- [x] Updated **documentation** for changed code.\r\n  - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n  - [ ] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n  - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n        The next version is the second number in the current release + 1.\r\n        The first number represents the current year.\r\n        So if the current version on PyPI is 22.2.0, the next version is gonna be 22.3.0.\r\n        If the next version is the first in the new year, it'll be 23.1.0.\r\n- [x] Documentation in `.rst` and `.md` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [ ] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n- [ ] Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\r\n\r\n<!--\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!\r\nThis checklist is here to *help* you, not to deter you from contributing!\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1203.change.md b/changelog.d/1203.change.md\nnew file mode 100644\nindex 00000000..38c5c9f8\n--- /dev/null\n+++ b/changelog.d/1203.change.md\n@@ -0,0 +1,2 @@\n+Added *class_body* argument to `attrs.make_class()` to provide additional attributes for newly created classes.\n+It is, for example, now possible to attach methods.\ndiff --git a/src/attr/__init__.pyi b/src/attr/__init__.pyi\nindex 0f641501..37a20873 100644\n--- a/src/attr/__init__.pyi\n+++ b/src/attr/__init__.pyi\n@@ -490,6 +490,7 @@ def make_class(\n     name: str,\n     attrs: Union[List[str], Tuple[str, ...], Dict[str, Any]],\n     bases: Tuple[type, ...] = ...,\n+    class_body: Optional[Dict[str, Any]] = ...,\n     repr_ns: Optional[str] = ...,\n     repr: bool = ...,\n     cmp: Optional[_EqOrderType] = ...,\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 9dd0e2e3..8a4e6581 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -2867,7 +2867,9 @@ _f = [\n Factory = _add_hash(_add_eq(_add_repr(Factory, attrs=_f), attrs=_f), attrs=_f)\n \n \n-def make_class(name, attrs, bases=(object,), **attributes_arguments):\n+def make_class(\n+    name, attrs, bases=(object,), class_body=None, **attributes_arguments\n+):\n     r\"\"\"\n     A quick way to create a new class called *name* with *attrs*.\n \n@@ -2883,6 +2885,8 @@ def make_class(name, attrs, bases=(object,), **attributes_arguments):\n \n     :param tuple bases: Classes that the new class will subclass.\n \n+    :param dict class_body: An optional dictionary of class attributes for the new class.\n+\n     :param attributes_arguments: Passed unmodified to `attr.s`.\n \n     :return: A new class with *attrs*.\n@@ -2890,6 +2894,7 @@ def make_class(name, attrs, bases=(object,), **attributes_arguments):\n \n     .. versionadded:: 17.1.0 *bases*\n     .. versionchanged:: 18.1.0 If *attrs* is ordered, the order is retained.\n+    .. versionchanged:: 23.2.0 *class_body*\n     \"\"\"\n     if isinstance(attrs, dict):\n         cls_dict = attrs\n@@ -2904,6 +2909,8 @@ def make_class(name, attrs, bases=(object,), **attributes_arguments):\n     user_init = cls_dict.pop(\"__init__\", None)\n \n     body = {}\n+    if class_body is not None:\n+        body.update(class_body)\n     if pre_init is not None:\n         body[\"__attrs_pre_init__\"] = pre_init\n     if post_init is not None:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "b24d8fed65d4bf5b7d14fdfb96cdec8c6fa8af37246d7b2ea93325e077816024",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attr.make_class` function lacks the ability to inject additional class attributes (such as methods) when creating new classes, forcing users to use lower-level mechanisms like `types.new_class` that lose type information.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078610,
+    "id": "gen-1788078610-AqmHZ9u8ttkZKxQ8Cfs3",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "GMICloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 43,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000235312,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.632e-06,
+        "upstream_inference_cost": 0.000235312,
+        "upstream_inference_prompt_cost": 0.00022568
+      },
+      "is_byok": false,
+      "prompt_tokens": 2015,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2058
+    }
+  },
+  "schema_version": 1
+}

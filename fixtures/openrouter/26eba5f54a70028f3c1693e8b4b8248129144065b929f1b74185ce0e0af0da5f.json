@@ -1,0 +1,69 @@
+{
+  "latency_s": 7.338,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #1957:\nThe release property added to Version was added in [v17.0](https://packaging.pypa.io/en/latest/changelog.html#id20) so any packaging versions being used earlier than this are no longer compatible with the library.\r\n\r\nThis commit that added use of Version https://github.com/marshmallow-code/marshmallow/commit/a63c28edde1e3f1f522aab8a7de231230786ebc1 only specified that the packaging library is needed so there were no dependency resolve issues for projects using older versions.\r\n\r\nThe version requirements should be updated to\r\n`install_requires=[\"packaging>=17.0\"],`\r\nSo that other projects pulling in the library can correctly resolve the dependencies needed.\n\nPR title:\nSet lower bound for `packaging` requirement\n\nPR body:\nSet this at 17.0 as the first version which added the `release` property to `Version` objects.\r\n\r\ncloses #1957\r\n\r\n---\r\n\r\nLooking at open issues for \"easy wins\". This is a one-line change to package data and seems pretty safe.\n\nGold patch:\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 7c8215b2..77922a0a 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,14 @@\n Changelog\n ---------\n \n+(unreleased)\n+************\n+\n+Other changes:\n+\n+- Set lower bound for `packaging` requirement (:issue:`1957`).\n+  Thanks :user:`MatthewNicolTR` for reporting and thanks :user:`sirosen` for the PR.\n+\n 3.15.0 (2022-03-12)\n *******************\n \ndiff --git a/setup.py b/setup.py\nindex 35efdcdc..a0d9188e 100644\n--- a/setup.py\n+++ b/setup.py\n@@ -58,7 +58,7 @@ setup(\n     package_dir={\"\": \"src\"},\n     package_data={\"marshmallow\": [\"py.typed\"]},\n     include_package_data=True,\n-    install_requires=[\"packaging\"],\n+    install_requires=[\"packaging>=17.0\"],\n     extras_require=EXTRAS_REQUIRE,\n     license=\"MIT\",\n     zip_safe=False,\n\n\nRelevant source files at the broken parent:\n\n--- setup.py ---\nimport re\nfrom setuptools import setup, find_packages\n\nEXTRAS_REQUIRE = {\n    \"tests\": [\"pytest\", \"pytz\", \"simplejson\"],\n    \"lint\": [\n        \"mypy==0.950\",\n        \"flake8==4.0.1\",\n        \"flake8-bugbear==22.4.25\",\n        \"pre-commit~=2.4\",\n    ],\n    \"docs\": [\n        \"sphinx==4.4.0\",\n        \"sphinx-issues==3.0.1\",\n        \"alabaster==0.7.12\",\n        \"sphinx-version-warning==1.1.2\",\n        \"autodocsumm==0.2.8\",\n    ],\n}\nEXTRAS_REQUIRE[\"dev\"] = EXTRAS_REQUIRE[\"tests\"] + EXTRAS_REQUIRE[\"lint\"] + [\"tox\"]\n\n\ndef find_version(fname):\n    \"\"\"Attempts to find the version number in the file names fname.\n    Raises RuntimeError if not found.\n    \"\"\"\n    version = \"\"\n    with open(fname) as fp:\n        reg = re.compile(r'__version__ = [\\'\"]([^\\'\"]*)[\\'\"]')\n        for line in fp:\n            m = reg.match(line)\n            if m:\n                version = m.group(1)\n                break\n    if not version:\n        raise RuntimeError(\"Cannot find version information\")\n    return version\n\n\ndef read(fname):\n    with open(fname) as fp:\n        content = fp.read()\n    return content\n\n\nsetup(\n    name=\"marshmallow\",\n    version=find_version(\"src/marshmallow/__init__.py\"),\n    description=(\n        \"A lightweight library for converting complex \"\n        \"datatypes to and from native Python datatypes.\"\n    ),\n    long_description=read(\"README.rst\"),\n    author=\"Steven Loria\",\n    author_email=\"sloria1@gmail.com\",\n    url=\"https://github.com/marshmallow-code/marshmallow\",\n    packages=find_packages(\"src\", exclude=(\"test*\", \"examples\")),\n    package_dir={\"\": \"src\"},\n    package_data={\"marshmallow\": [\"py.typed\"]},\n    include_package_data=True,\n    install_requires=[\"packaging\"],\n    extras_require=EXTRAS_REQUIRE,\n    license=\"MIT\",\n    zip_safe=False,\n    keywords=[\n        \"serialization\",\n        \"rest\",\n        \"json\",\n        \"api\",\n        \"marshal\",\n        \"marshalling\",\n        \"deserialization\",\n        \"validation\",\n        \"schema\",\n    ],\n    python_requires=\">=3.7\",\n    classifiers=[\n        \"Development Status :: 5 - Production/Stable\",\n        \"Intended Audience :: Developers\",\n        \"License :: OSI Approved :: MIT License\",\n        \"Programming Language :: Python :: 3\",\n        \"Programming Language :: Python :: 3.7\",\n        \"Programming Language :: Python :: 3.8\",\n        \"Programming Language :: Python :: 3.9\",\n        \"Programming Language :: Python :: 3.10\",\n    ],\n    test_suite=\"tests\",\n    project_urls={\n        \"Changelog\": \"https://marshmallow.readthedocs.io/en/latest/changelog.html\",\n        \"Issues\": \"https://github.com/marshmallow-code/marshmallow/issues\",\n        \"Funding\": \"https://opencollective.com/marshmallow\",\n        \"Tidelift\": \"https://tidelift.com/subscription/pkg/pypi-marshmallow?utm_source=pypi-marshmallow&utm_medium=pypi\",  # noqa\n    },\n)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.375
+  },
+  "request_hash": "26eba5f54a70028f3c1693e8b4b8248129144065b929f1b74185ce0e0af0da5f",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_packaging_version.py\",\n  \"content\": \"import subprocess\\nimport sys\\n\\ndef test_packaging_lower_bound():\\n    # Ensure that packaging>=17.0 is required by checking that\\n    # an older packaging version (e.g., 16.8) would not satisfy\\n    # the dependency if it were installed.\\n    result = subprocess.run(\\n        [sys.executable, \\\"-m\\\", \\\"pip\\\", \\\"install\\\", \\\"packaging==16.8\\\", \\\"--dry-run\\\", \\\"--quiet\\\"],\\n        capture_output=True,\\n        text=True,\\n    )\\n    # If packaging 16.8 can be installed without conflict, the test fails\\n    # because the requirement should prevent it.\\n    assert result.returncode != 0, \\\"packaging>=17.0 should be required, but 16.8 is installable\\\"\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788098727,
+    "id": "gen-1788098727-ZZP0eOd2vnaM19BrmJRI",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Mancer 2",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 204,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000355,
+      "cost_details": {
+        "upstream_inference_completions_cost": 0.00010147689375893283,
+        "upstream_inference_cost": 0.000355,
+        "upstream_inference_prompt_cost": 0.0002535231062410672
+      },
+      "is_byok": false,
+      "prompt_tokens": 1499,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1703
+    }
+  },
+  "schema_version": 1
+}

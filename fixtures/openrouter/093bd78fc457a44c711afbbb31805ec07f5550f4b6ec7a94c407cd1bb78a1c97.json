@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.824,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd attr.define/mutable/frozen\n\nPR body:\nPrepare for import attrs y'all!\r\n\r\nThis is basically what we kinda agreed on in #408 and #487.\r\n\r\nI'm open to comments and suggestions.\r\n\r\nAlso suggestions how to supply type stubs without a major copy/paste operation. \ud83d\ude33\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/.github/workflows/main.yml b/.github/workflows/main.yml\nindex d97a8869..07220075 100644\n--- a/.github/workflows/main.yml\n+++ b/.github/workflows/main.yml\n@@ -35,9 +35,16 @@ jobs:\n       - name: \"Run tox targets for ${{ matrix.python-version }}\"\n         run: \"python -m tox\"\n \n+      # We always use a modern Python version for combining coverage to prevent\n+      # parsing errors in older versions for modern code.\n+      - uses: \"actions/setup-python@v2\"\n+        with:\n+          python-version: \"3.8\"\n+\n       - name: \"Combine coverage\"\n         run: |\n           set -xe\n+          python -m pip install coverage[toml]\n           python -m coverage combine\n           python -m coverage xml\n         if: \"contains(env.USING_COVERAGE, matrix.python-version)\"\ndiff --git a/changelog.d/408.deprecation.rst b/changelog.d/408.deprecation.rst\nindex f2e3cbb9..e1beea7c 100644\n--- a/changelog.d/408.deprecation.rst\n+++ b/changelog.d/408.deprecation.rst\n@@ -6,3 +6,6 @@ If this is a problem for you for some reason, please report it to our bug tracke\n \n The old ``attr`` namespace isn't going anywhere and its defaults are not changing \u2013 this is a purely additive measure.\n Please check out the linked issue for more details.\n+\n+These new APIs have been added *provisionally* as part of `#666 <https://github.com/python-attrs/attrs/pull/666>`_ so you can try them out today and provide feedback.\n+Learn more in the `API docs <https://www.attrs.org/en/stable/api.html#provisional-apis>`_.\ndiff --git a/changelog.d/666.change.rst b/changelog.d/666.change.rst\nnew file mode 100644\nindex 00000000..747612b0\n--- /dev/null\n+++ b/changelog.d/666.change.rst\n@@ -0,0 +1,8 @@\n+**Provisional** APIs called ``attr.define()``, ``attr.mutable()``, and ``attr.frozen()`` have been added.\n+\n+They are only available on Python 3.6 and later, and call ``attr.s()`` with different default values.\n+\n+If nothing comes up, they will become the official way for creating classes in 20.2.0 (see above).\n+\n+**Please note** that it may take some time until mypy \u2013 and other tools that have dedicated support for ``attrs`` \u2013 recognize these new APIs.\n+Please **do not** open issues on our bug tracker, there is nothing we can do about it.\ndiff --git a/conftest.py b/conftest.py\nindex b83f69a5..7d3d1f80 100644\n--- a/conftest.py\n+++ b/conftest.py\n@@ -16,5 +16,9 @@ def pytest_configure(config):\n collect_ignore = []\n if sys.version_info[:2] < (3, 6):\n     collect_ignore.extend(\n-        [\"tests/test_annotations.py\", \"tests/test_init_subclass.py\"]\n+        [\n+            \"tests/test_annotations.py\",\n+            \"tests/test_init_subclass.py\",\n+            \"tests/test_next_gen.py\",\n+        ]\n     )\ndiff --git a/docs/api.rst b/docs/api.rst\nindex 18a17c50..7797e650 100644\n--- a/docs/api.rst\n+++ b/docs/api.rst\n@@ -16,6 +16,12 @@ What follows is the API explanation, if you'd like a more hands-on introduction,\n Core\n ----\n \n+\n+.. warning::\n+   As of ``attrs`` 20.1.0, it also ships with a bunch of provisional APIs that are intended to become the main way of defining classes in the future.\n+\n+   Please have a look at :ref:`prov`.\n+\n .. autodata:: attr.NOTHING\n \n .. autofunction:: attr.s(these=None, repr_ns=None, repr=None, cmp=None, hash=None, init=None, slots=False, frozen=False, weakref_slot=True, str=False, auto_attribs=False, kw_only=False, cache_hash=False, auto_exc=False, eq=None, order=None, auto_detect=False, collect_by_mro=False, getstate_setstate=None, on_setattr=None)\n@@ -580,6 +586,47 @@ These are helpers that you can use together with `attr.s`'s and `attr.ib`'s ``on\n    N.B. Please use `attr.s`'s *frozen* argument to freeze whole classes; it is more efficient.\n \n \n+.. _prov:\n+\n+Provisional APIs\n+----------------\n+\n+These are Python 3.6 and later-only, keyword-only, and **provisional** APIs that call `attr.s` with different default values.\n+\n+The most notable differences are:\n+\n+- automatically detect whether or not *auto_attribs* should be `True`\n+- *slots=True*  (see :term:`slotted classes`)\n+- *auto_exc=True*\n+- *auto_detect=True*\n+- *eq=True*, but *order=False*\n+- Validators run when you set an attribute (*on_setattr=attr.setters.validate*).\n+- Some options that aren't relevant to Python 3 have been dropped.\n+\n+Please note that these are *defaults* and you're free to override them, just like before.\n+\n+----\n+\n+Their behavior is scheduled to become part of the upcoming ``import attrs`` that will introduce a new namespace  with nicer names and nicer defaults (see  `#408 <https://github.com/python-attrs/attrs/issues/408>`_ and `#487 <https://github.com/python-attrs/attrs/issues/487>`_).\n+\n+Therefore your constructive feedback in the linked issues above is strongly encouraged!\n+\n+.. note::\n+   Provisional doesn't mean we will remove it (although it will be deprecated once the final form is released), but that it might change if we receive relevant feedback.\n+\n+   `attr.s` and `attr.ib` (and their serious business cousins) aren't going anywhere.\n+   The new APIs build on top of them.\n+\n+.. autofunction:: attr.define\n+.. function:: attr.mutable(same_as_define)\n+\n+   Alias for `attr.define`.\n+\n+.. function:: attr.frozen(same_as_define)\n+\n+   Behaves the same as `attr.define` but sets *frozen=True* and *on_setattr=None*.\n+\n+\n Deprecated APIs\n ---------------\n \ndiff --git a/src/attr/__init__.py b/src/attr/__init__.py\nindex fa9414ee..572daaff 100644\n--- a/src/attr/__init__.py\n+++ b/src/attr/__init__.py\n@@ -1,5 +1,7 @@\n from __future__ import absolute_import, division, print_function\n \n+import sys\n+\n from functools import partial\n \n from . import converters, exceptions, filters, setters, validators\n@@ -39,7 +41,6 @@ s = attributes = attrs\n ib = attr = attrib\n dataclass = partial(attrs, auto_attribs=True)  # happy Easter ;)\n \n-\n __all__ = [\n     \"Attribute\",\n     \"Factory\",\n@@ -68,3 +69,8 @@ __all__ = [\n     \"validate\",\n     \"validators\",\n ]\n+\n+if sys.version_info[:2] >= (3, 6):\n+    from ._next_gen import define, frozen, mutable\n+\n+    __all__.extend((define, frozen, mutable))\ndiff --git a/src/attr/__init__.pyi b/src/attr/__init__.pyi\nindex 5f3b5534..f3d6bb66 100644\n--- a/src/attr/__init__.pyi\n+++ b/src/attr/__init__.pyi\n@@ -227,6 +227,53 @@ def attrs(\n     getstate_setstate: Optional[bool] = ...,\n     on_setattr: Optional[_OnSetAttrArgType] = ...,\n ) -> Callable[[_C], _C]: ...\n+@overload\n+def define(\n+    maybe_cls: _C,\n+    *,\n+    these: Optional[Dict[str, Any]] = ...,\n+    repr: bool = ...,\n+    hash: Optional[bool] = ...,\n+    init: bool = ...,\n+    slots: bool = ...,\n+    frozen: bool = ...,\n+    weakref_slot: bool = ...,\n+    str: bool = ...,\n+    auto_attribs: bool = ...,\n+    kw_only: bool = ...,\n+    cache_hash: bool = ...,\n+    auto_exc: bool = ...,\n+    eq: Optional[bool] = ...,\n+    order: Optional[bool] = ...,\n+    auto_detect: bool = ...,\n+    getstate_setstate: Optional[bool] = ...,\n+    on_setattr: Optional[_OnSetAttrArgType] = ...,\n+) -> _C: ...\n+@overload\n+def define(\n+    maybe_cls: None = ...,\n+    *,\n+    these: Optional[Dict[str, Any]] = ...,\n+    repr: bool = ...,\n+    hash: Optional[bool] = ...,\n+    init: bool = ...,\n+    slots: bool = ...,\n+    frozen: bool = ...,\n+    weakref_slot: bool = ...,\n+    str: bool = ...,\n+    auto_attribs: bool = ...,\n+    kw_only: bool = ...,\n+    cache_hash: bool = ...,\n+    auto_exc: bool = ...,\n+    eq: Optional[bool] = ...,\n+    order: Optional[bool] = ...,\n+    auto_detect: bool = ...,\n+    getstate_setstate: Optional[bool] = ...,\n+    on_setattr: Optional[_OnSetAttrArgType] = ...,\n+) -> Callable[[_C], _C]: ...\n+\n+mutable = define\n+frozen = define  # they differ only in their defaults\n \n # TODO: add support for returning NamedTuple from the mypy plugin\n class _Fields(Tuple[Attribute[Any], ...]):\ndiff --git a/src/attr/_next_gen.py b/src/attr/_next_gen.py\nnew file mode 100644\nindex 00000000..8312d215\n--- /dev/null\n+++ b/src/attr/_next_gen.py\n@@ -0,0 +1,86 @@\n+\"\"\"\n+This is a Python 3.6 and later-only, keyword-only, and **provisional** API that\n+calls `attr.s` with different default values.\n+\n+Provisional APIs that shall become \"import attrs\" one glorious day.\n+\"\"\"\n+\n+from functools import partial\n+\n+from attr.exceptions import UnannotatedAttributeError\n+\n+from . import setters\n+from ._make import attrs\n+\n+\n+def define(\n+    maybe_cls=None,\n+    *,\n+    these=None,\n+    repr=None,\n+    hash=None,\n+    init=None,\n+    slots=True,\n+    frozen=False,\n+    weakref_slot=True,\n+    str=False,\n+    auto_attribs=None,\n+    kw_only=False,\n+    cache_hash=False,\n+    auto_exc=True,\n+    eq=True,\n+    order=False,\n+    auto_detect=True,\n+    getstate_setstate=None,\n+    on_setattr=setters.validate\n+):\n+    r\"\"\"\n+    The only behavioral difference is the handling of the *auto_attribs*\n+    option:\n+\n+    :param Optional[bool] auto_attribs: If set to `True` or `False`, it behaves\n+       exactly like `attr.s`. If left `None`, `attr.s` will try to guess:\n+\n+       1. If all attributes are annotated and no `attr.ib` is found, it assumes\n+          *auto_attribs=True*.\n+       2. Otherwise it assumes *auto_attribs=False* and tries to collect\n+          `attr.ib`\\ s.\n+\n+\n+    .. versionadded:: 20.1.0\n+    \"\"\"\n+\n+    def do_it(auto_attribs):\n+        return attrs(\n+            maybe_cls=maybe_cls,\n+            these=these,\n+            repr=repr,\n+            hash=hash,\n+            init=init,\n+            slots=slots,\n+            frozen=frozen,\n+            weakref_slot=weakref_slot,\n+            str=str,\n+            auto_attribs=auto_attribs,\n+            kw_only=kw_only,\n+            cache_hash=cache_hash,\n+            auto_exc=auto_exc,\n+            eq=eq,\n+            order=order,\n+            auto_detect=auto_detect,\n+            collect_by_mro=True,\n+            getstate_setstate=getstate_setstate,\n+            on_setattr=on_setattr,\n+        )\n+\n+    if auto_attribs is not None:\n+        return do_it(auto_attribs)\n+\n+    try:\n+        return do_it(True)\n+    except UnannotatedAttributeError:\n+        return do_it(False)\n+\n+\n+mutable = define\n+frozen = partial(define, frozen=True, on_setattr=None)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.25
+  },
+  "request_hash": "093bd78fc457a44c711afbbb31805ec07f5550f4b6ec7a94c407cd1bb78a1c97",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attr` module now provides three new provisional APIs\u2014`attr.define()`, `attr.mutable()`, and `attr.frozen()`\u2014that offer different default behaviors for defining classes, but these APIs are only available on Python 3.6 and later.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078717,
+    "id": "gen-1788078717-QagtM5Cv0eui0LIKdiUC",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 56,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 7.7346e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.008e-05,
+        "upstream_inference_cost": 7.7346e-05,
+        "upstream_inference_prompt_cost": 6.7266e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 3205,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 3072,
+        "video_tokens": 0
+      },
+      "total_tokens": 3261
+    }
+  },
+  "schema_version": 1
+}

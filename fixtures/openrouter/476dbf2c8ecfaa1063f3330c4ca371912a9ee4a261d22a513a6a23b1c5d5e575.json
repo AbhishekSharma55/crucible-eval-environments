@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.441,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\n@validates accepts multiple field names\n\nPR body:\nFix for #1960 \n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/AUTHORS.rst b/AUTHORS.rst\nindex a43a00f0..46063135 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -176,4 +176,5 @@ Contributors (chronological)\n - Peter C `@somethingnew2-0 <https://github.com/somethingnew2-0>`_\n - Marcel Jackwerth `@mrcljx` <https://github.com/mrcljx>`_\n - Fares Abubaker `@Fares-Abubaker <https://github.com/Fares-Abubaker>`_\n+- Dharanikumar Sekar `@dharani7998 <https://github.com/dharani7998>`_\n - Nicolas Simonds `@0xDEC0DE <https://github.com/0xDEC0DE>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 7a84dc54..32612ad6 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -14,6 +14,9 @@ Features:\n   `TimeDelta <marshmallow.fields.TimeDelta>`, and `Enum <marshmallow.fields.Enum>`\n   accept their internal value types as valid input (:issue:`1415`).\n   Thanks :user:`bitdancer` for the suggestion.\n+- `@validates <marshmallow.validates>` accepts multiple field names (:issue:`1960`).\n+  *Backwards-incompatible*: Decorated methods now receive ``data_key`` as a keyword argument.\n+  Thanks :user:`dpriskorn` for the suggestion and :user:`dharani7998` for the PR.\n \n Other changes:\n \ndiff --git a/docs/quickstart.rst b/docs/quickstart.rst\nindex 84cc70e5..0e265fb7 100644\n--- a/docs/quickstart.rst\n+++ b/docs/quickstart.rst\n@@ -290,7 +290,7 @@ You may also pass a collection (list, tuple, generator) of callables to ``valida\n Field validators as methods\n +++++++++++++++++++++++++++\n \n-It is sometimes convenient to write validators as methods. Use the `validates <marshmallow.decorators.validates>` decorator to register field validator methods.\n+It is sometimes convenient to write validators as methods. Use the `validates <marshmallow.validates>` decorator to register field validator methods.\n \n .. code-block:: python\n \n@@ -301,12 +301,30 @@ It is sometimes convenient to write validators as methods. Use the `validates <m\n         quantity = fields.Integer()\n \n         @validates(\"quantity\")\n-        def validate_quantity(self, value):\n+        def validate_quantity(self, value: int, data_key: str) -> None:\n             if value < 0:\n                 raise ValidationError(\"Quantity must be greater than 0.\")\n             if value > 30:\n                 raise ValidationError(\"Quantity must not be greater than 30.\")\n \n+.. note::\n+\n+    You can pass multiple field names to the `validates <marshmallow.validates>` decorator.\n+\n+    .. code-block:: python\n+\n+        from marshmallow import Schema, fields, validates, ValidationError\n+\n+\n+        class UserSchema(Schema):\n+            name = fields.Str(required=True)\n+            nickname = fields.Str(required=True)\n+\n+            @validates(\"name\", \"nickname\")\n+            def validate_names(self, value: str, data_key: str) -> None:\n+                if len(value) < 3:\n+                    raise ValidationError(\"Too short\")\n+\n \n Required fields\n ---------------\ndiff --git a/docs/upgrading.rst b/docs/upgrading.rst\nindex ea79005d..88595272 100644\n--- a/docs/upgrading.rst\n+++ b/docs/upgrading.rst\n@@ -137,6 +137,44 @@ To automatically generate schema fields from model classes, consider using a sep\n         name = auto_field()\n         birthdate = auto_field()\n \n+`@validates <marshmallow.validates>` accepts multiple field names\n+*****************************************************************\n+\n+The `@validates <marshmallow.validates>` decorator now accepts multiple field names as arguments.\n+Decorated methods receive ``data_key`` as a keyword argument.\n+\n+.. code-block:: python\n+\n+    from marshmallow import fields, Schema, validates\n+\n+\n+    # 3.x\n+    class UserSchema(Schema):\n+        name = fields.Str(required=True)\n+        nickname = fields.Str(required=True)\n+\n+        @validates(\"name\")\n+        def validate_name(self, value: str) -> None:\n+            if len(value) < 3:\n+                raise ValidationError('\"name\" too short')\n+\n+        @validates(\"nickname\")\n+        def validate_nickname(self, value: str) -> None:\n+            if len(value) < 3:\n+                raise ValidationError('\"nickname\" too short')\n+\n+\n+    # 4.x\n+    class UserSchema(Schema):\n+        name = fields.Str(required=True)\n+        nickname = fields.Str(required=True)\n+\n+        @validates(\"name\", \"nickname\")\n+        def validate_names(self, value: str, data_key: str) -> None:\n+            if len(value) < 3:\n+                raise ValidationError(f'\"{data_key}\" too short')\n+\n+\n Remove ``ordered`` from the `SchemaOpts <marshmallow.SchemaOpts>` constructor\n *****************************************************************************\n \ndiff --git a/src/marshmallow/decorators.py b/src/marshmallow/decorators.py\nindex 4e378c36..ddc4a4df 100644\n--- a/src/marshmallow/decorators.py\n+++ b/src/marshmallow/decorators.py\n@@ -83,12 +83,15 @@ class MarshmallowHook:\n     __marshmallow_hook__: dict[str, list[tuple[bool, Any]]] | None = None\n \n \n-def validates(field_name: str) -> Callable[..., Any]:\n-    \"\"\"Register a field validator.\n+def validates(*field_names: str) -> Callable[..., Any]:\n+    \"\"\"Register a validator method for field(s).\n \n-    :param field_name: Name of the field that the method validates.\n+    :param field_names: Names of the fields that the method validates.\n+\n+    .. versionchanged:: 4.0.0 Accepts multiple field names as positional arguments.\n+    .. versionchanged:: 4.0.0 Decorated methods receive ``data_key`` as a keyword argument.\n     \"\"\"\n-    return set_hook(None, VALIDATES, field_name=field_name)\n+    return set_hook(None, VALIDATES, field_names=field_names)\n \n \n def validates_schema(\ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex 8f8d1ec0..d11d7529 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -1120,48 +1120,52 @@ class Schema(metaclass=SchemaMeta):\n     def _invoke_field_validators(self, *, error_store: ErrorStore, data, many: bool):\n         for attr_name, _, validator_kwargs in self._hooks[VALIDATES]:\n             validator = getattr(self, attr_name)\n-            field_name = validator_kwargs[\"field_name\"]\n \n-            try:\n-                field_obj = self.fields[field_name]\n-            except KeyError as error:\n-                if field_name in self.declared_fields:\n-                    continue\n-                raise ValueError(f'\"{field_name}\" field does not exist.') from error\n+            field_names = validator_kwargs[\"field_names\"]\n \n-            data_key = (\n-                field_obj.data_key if field_obj.data_key is not None else field_name\n-            )\n-            if many:\n-                for idx, item in enumerate(data):\n+            for field_name in field_names:\n+                try:\n+                    field_obj = self.fields[field_name]\n+                except KeyError as error:\n+                    if field_name in self.declared_fields:\n+                        continue\n+                    raise ValueError(f'\"{field_name}\" field does not exist.') from error\n+\n+                data_key = (\n+                    field_obj.data_key if field_obj.data_key is not None else field_name\n+                )\n+                do_validate = functools.partial(validator, data_key=data_key)\n+\n+                if many:\n+                    for idx, item in enumerate(data):\n+                        try:\n+                            value = item[field_obj.attribute or field_name]\n+                        except KeyError:\n+                            pass\n+                        else:\n+                            validated_value = self._call_and_store(\n+                                getter_func=do_validate,\n+                                data=value,\n+                                field_name=data_key,\n+                                error_store=error_store,\n+                                index=(idx if self.opts.index_errors else None),\n+                            )\n+                            if validated_value is missing:\n+                                item.pop(field_name, None)\n+                else:\n                     try:\n-                        value = item[field_obj.attribute or field_name]\n+                        value = data[field_obj.attribute or field_name]\n                     except KeyError:\n                         pass\n                     else:\n                         validated_value = self._call_and_store(\n-                            getter_func=validator,\n+                            getter_func=do_validate,\n                             data=value,\n                             field_name=data_key,\n                             error_store=error_store,\n-                            index=(idx if self.opts.index_errors else None),\n                         )\n                         if validated_value is missing:\n-                            item.pop(field_name, None)\n-            else:\n-                try:\n-                    value = data[field_obj.attribute or field_name]\n-                except KeyError:\n-                    pass\n-                else:\n-                    validated_value = self._call_and_store(\n-                        getter_func=validator,\n-                        data=value,\n-                        field_name=data_key,\n-                        error_store=error_store,\n-                    )\n-                    if validated_value is missing:\n-                        data.pop(field_name, None)\n+                            data.pop(field_name, None)\n \n     def _invoke_schema_validators(\n         self,\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "476dbf2c8ecfaa1063f3330c4ca371912a9ee4a261d22a513a6a23b1c5d5e575",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `@validates` decorator now accepts multiple field names, allowing a single validator method to validate several fields at once.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078365,
+    "id": "gen-1788078365-zAJdWDLTInQ0ggVSFG5b",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Novita",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 27,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00034524,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.56e-06,
+        "upstream_inference_cost": 0.00034524,
+        "upstream_inference_prompt_cost": 0.00033768
+      },
+      "is_byok": false,
+      "prompt_tokens": 2412,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2439
+    }
+  },
+  "schema_version": 1
+}

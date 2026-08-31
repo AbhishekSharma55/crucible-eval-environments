@@ -1,0 +1,69 @@
+{
+  "latency_s": 4.565,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\npush preserved contexts in correct order\n\nPR body:\nThe test client asks the app to append contexts to a stack, in order to re-push them when using `with client`. However, they were being pushed in reverse order, resulting in the oldest context being seen as current. This PR pushes them in the correct order, meaning `session` will be in the correct state of the last response.\r\n\r\nfixes #5786 \n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 2870fdf6..1c41e34b 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -3,6 +3,9 @@ Version 3.1.2\n \n Unreleased\n \n+-   When using ``follow_redirects`` in the test client, the final state\n+    of ``session`` is correct. :issue:`5786`\n+\n \n Version 3.1.1\n -------------\ndiff --git a/src/flask/testing.py b/src/flask/testing.py\nindex ded2391b..55eb12fe 100644\n--- a/src/flask/testing.py\n+++ b/src/flask/testing.py\n@@ -240,10 +240,10 @@ class FlaskClient(Client):\n         response.json_module = self.application.json  # type: ignore[assignment]\n \n         # Re-push contexts that were preserved during the request.\n-        while self._new_contexts:\n-            cm = self._new_contexts.pop()\n+        for cm in self._new_contexts:\n             self._context_stack.enter_context(cm)\n \n+        self._new_contexts.clear()\n         return response\n \n     def __enter__(self) -> FlaskClient:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.25
+  },
+  "request_hash": "d0782c7724be99bb20a6c701ab5383c1ee5d393278db72ab82c8067d96ccd44d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "In the test client, when following redirects, the session's state incorrectly reflected the oldest response rather than the most recent one.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078698,
+    "id": "gen-1788078698-VVyNgCIN1YIloBu1ZMqm",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 27,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 3.60416e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.536e-06,
+        "upstream_inference_cost": 3.60416e-05,
+        "upstream_inference_prompt_cost": 3.15056e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 464,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 491
+    }
+  },
+  "schema_version": 1
+}

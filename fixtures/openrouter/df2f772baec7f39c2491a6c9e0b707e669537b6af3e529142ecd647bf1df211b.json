@@ -1,0 +1,69 @@
+{
+  "latency_s": 18.872,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nSort help args to make them reproducible\n\nPR body:\nget_help_option_names() uses a set which is not ordered.\nThe return value is used by mkdocs-click making the\nmkdocs-doc package in Debian not reproducible:\n\nhttps://reproduce.debian.net/all/unstable.html#mkdocs-doc\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.md b/CHANGES.md\nindex f7ff22b3..fc440996 100644\n--- a/CHANGES.md\n+++ b/CHANGES.md\n@@ -63,6 +63,8 @@ Unreleased\n   {class}`ParamType` takes a second optional type parameter describing the\n   input value it accepts (`ParamType[int, str]` for a type converting\n   strings to integers), defaulting to `Any`. {pr}`3407`\n+- {meth}`Command.get_help_option_names` returns the help option names in the\n+  order they were declared. {pr}`3728`\n \n ## Version 8.4.2\n \ndiff --git a/src/click/core.py b/src/click/core.py\nindex f29dc465..de129ec2 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -1175,11 +1175,18 @@ class Command:\n         return rv\n \n     def get_help_option_names(self, ctx: Context) -> list[str]:\n-        \"\"\"Returns the names for the help option.\"\"\"\n-        all_names = set(ctx.help_option_names)\n+        \"\"\"Returns the names for the help option.\n+\n+        Drops duplicates and names already reserved by another parameter. Order of\n+        :attr:`Context.help_option_names` is preserved, so the result is stable.\n+\n+        .. versionchanged:: 8.5.0\n+            Names keep their declaration order.\n+        \"\"\"\n+        all_names = dict.fromkeys(ctx.help_option_names)\n         for param in self.params:\n-            all_names.difference_update(param.opts)\n-            all_names.difference_update(param.secondary_opts)\n+            for name in (*param.opts, *param.secondary_opts):\n+                all_names.pop(name, None)\n         return list(all_names)\n \n     def get_help_option(self, ctx: Context) -> Option | None:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "df2f772baec7f39c2491a6c9e0b707e669537b6af3e529142ecd647bf1df211b",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The help option names returned by the command are not in a consistent, deterministic order, causing generated documentation to vary between builds and preventing reproducible package builds (e.g., for Debian\u2019s mkdocs-doc package).",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078524,
+    "id": "gen-1788078524-F2VU3ncDU6P9ofFLz4Cr",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 45,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 4.74852e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.56e-06,
+        "upstream_inference_cost": 4.74852e-05,
+        "upstream_inference_prompt_cost": 3.99252e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 588,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 633
+    }
+  },
+  "schema_version": 1
+}

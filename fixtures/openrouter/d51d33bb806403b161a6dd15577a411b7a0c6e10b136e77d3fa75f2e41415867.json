@@ -1,0 +1,69 @@
+{
+  "latency_s": 6.421,
+  "request": {
+    "max_tokens": 2000,
+    "messages": [
+      {
+        "content": "You are a software repair agent. Produce a minimal unified diff that fixes the reported behavior. Return only the diff. You have one step and cannot use the network.",
+        "role": "system"
+      },
+      {
+        "content": "Problem statement:\n`AsyncRetrying` incorrectly allowed synchronous iteration, causing retries to execute without awaiting the sleep coroutine, resulting in instant retries instead of respecting the configured delay.\n\nParent source files:\n--- tenacity/_asyncio.py ---\n# Copyright 2016 \u00c9tienne Bersac\n# Copyright 2016 Julien Danjou\n# Copyright 2016 Joshua Harlow\n# Copyright 2013-2014 Ray Holder\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n# http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n\nimport functools\nimport sys\nimport typing\nfrom asyncio import sleep\n\nfrom tenacity import AttemptManager\nfrom tenacity import BaseRetrying\nfrom tenacity import DoAttempt\nfrom tenacity import DoSleep\nfrom tenacity import RetryCallState\n\n\nWrappedFn = typing.TypeVar(\"WrappedFn\", bound=typing.Callable[..., typing.Any])\n_RetValT = typing.TypeVar(\"_RetValT\")\n\n\nclass AsyncRetrying(BaseRetrying):\n    def __init__(\n        self, sleep: typing.Callable[[float], typing.Awaitable[typing.Any]] = sleep, **kwargs: typing.Any\n    ) -> None:\n        super().__init__(**kwargs)\n        self.sleep = sleep\n\n    async def __call__(  # type: ignore[override]\n        self,\n        fn: typing.Callable[..., typing.Awaitable[_RetValT]],\n        *args: typing.Any,\n        **kwargs: typing.Any,\n    ) -> _RetValT:\n        self.begin()\n\n        retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\n        while True:\n            do = self.iter(retry_state=retry_state)\n            if isinstance(do, DoAttempt):\n                try:\n                    result = await fn(*args, **kwargs)\n                except BaseException:  # noqa: B902\n                    retry_state.set_exception(sys.exc_info())  # type: ignore[arg-type]\n                else:\n                    retry_state.set_result(result)\n            elif isinstance(do, DoSleep):\n                retry_state.prepare_for_next_attempt()\n                await self.sleep(do)\n            else:\n                return do  # type: ignore[no-any-return]\n\n    def __aiter__(self) -> \"AsyncRetrying\":\n        self.begin()\n        self._retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n        return self\n\n    async def __anext__(self) -> AttemptManager:\n        while True:\n            do = self.iter(retry_state=self._retry_state)\n            if do is None:\n                raise StopAsyncIteration\n            elif isinstance(do, DoAttempt):\n                return AttemptManager(retry_state=self._retry_state)\n            elif isinstance(do, DoSleep):\n                self._retry_state.prepare_for_next_attempt()\n                await self.sleep(do)\n            else:\n                raise StopAsyncIteration\n\n    def wraps(self, fn: WrappedFn) -> WrappedFn:\n        fn = super().wraps(fn)\n        # Ensure wrapper is recognized as a coroutine function.\n\n        @functools.wraps(fn)\n        async def async_wrapped(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:\n            return await fn(*args, **kwargs)\n\n        # Preserve attributes\n        async_wrapped.retry = fn.retry  # type: ignore[attr-defined]\n        async_wrapped.retry_with = fn.retry_with  # type: ignore[attr-defined]\n\n        return async_wrapped  # type: ignore[return-value]\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "d51d33bb806403b161a6dd15577a411b7a0c6e10b136e77d3fa75f2e41415867",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "```diff\n--- a/tenacity/_asyncio.py\n+++ b/tenacity/_asyncio.py\n@@ -1,3 +1,4 @@\n+import asyncio\n # Copyright 2016 \u00c9tienne Bersac\n # Copyright 2016 Julien Danjou\n # Copyright 2016 Joshua Harlow\n@@ -93,3 +94,10 @@ class AsyncRetrying(BaseRetrying):\n         async_wrapped.retry_with = fn.retry_with  # type: ignore[attr-defined]\n \n         return async_wrapped  # type: ignore[return-value]\n+\n+    def __iter__(self):\n+        raise TypeError(\"AsyncRetrying does not support synchronous iteration. Use 'async for' instead.\")\n+\n+    def __next__(self):\n+        raise TypeError(\"AsyncRetrying does not support synchronous iteration. Use 'async for' instead.\")\n```",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788079432,
+    "id": "gen-1788079432-x7ta5AiWXvOdZnrUifSp",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "GMICloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 189,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00014504,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.2336e-05,
+        "upstream_inference_cost": 0.00014504,
+        "upstream_inference_prompt_cost": 0.000102704
+      },
+      "is_byok": false,
+      "prompt_tokens": 917,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1106
+    }
+  },
+  "schema_version": 1
+}

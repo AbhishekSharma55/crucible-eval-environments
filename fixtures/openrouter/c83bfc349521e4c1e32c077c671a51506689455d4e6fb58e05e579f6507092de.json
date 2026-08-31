@@ -1,0 +1,66 @@
+{
+  "latency_s": 2.745,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfix: respect enabled=False in iterator protocols (__iter__ / __aiter__)\n\nPR body:\n## Summary\n\nWhen `Retrying(enabled=False)` is used with the context-manager iterator pattern \u2014 `for attempt in retrying:` or `async for attempt in retrying:` \u2014 the `enabled` flag is silently ignored and the full retry machinery runs (multiple attempts, stop/wait evaluated). This is inconsistent with the `wraps()`-based path, which already handles `enabled=False` correctly by running the function exactly once and propagating any exception directly.\n\n**Reproducer:**\n\n```python\nimport tenacity\n\ncall_count = 0\nretrying = tenacity.Retrying(enabled=False, stop=tenacity.stop_after_attempt(5))\ntry:\n    for attempt in retrying:\n        with attempt:\n            call_count += 1\n            raise ValueError(\"fail\")\nexcept tenacity.RetryError:\n    # WRONG: call_count == 5, and a RetryError is raised instead of ValueError\n    print(f\"call_count={call_count}\")  # prints 5, should be 1\n```\n\n## Fix\n\n- `BaseRetrying.__iter__`: when `not self.enabled`, yield one `AttemptManager`, then re-raise the stored exception if the attempt failed \u2014 mirroring `wraps()`.\n- `AsyncRetrying.__aiter__` / `__anext__`: same semantics via a one-shot done-flag.\n\nFour regression tests are added (sync failure, sync success, async failure, async success).\n\nThis pull request was prepared with the assistance of AI, under my direction and review.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex c52d6ba..e9532fc 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -475,6 +475,13 @@ class BaseRetrying(ABC):\n         self._add_action_func(lambda rs: DoSleep(rs.upcoming_sleep))\n \n     def __iter__(self) -> t.Generator[AttemptManager, None, None]:\n+        if not self.enabled:\n+            retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n+            yield AttemptManager(retry_state=retry_state)\n+            if retry_state.outcome is not None and retry_state.outcome.failed:\n+                raise retry_state.outcome.exception()  # type: ignore[misc]\n+            return\n+\n         self.begin()\n \n         retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\ndiff --git a/tenacity/asyncio/__init__.py b/tenacity/asyncio/__init__.py\nindex 214a7ae..6459894 100644\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -166,11 +166,25 @@ class AsyncRetrying(BaseRetrying):\n         raise TypeError(\"AsyncRetrying object is not iterable\")\n \n     def __aiter__(self) -> \"AsyncRetrying\":\n+        if not self.enabled:\n+            self._retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n+            self._disabled_iter_done = False\n+            return self\n+\n         self.begin()\n         self._retry_state = RetryCallState(self, fn=None, args=(), kwargs={})\n         return self\n \n     async def __anext__(self) -> AttemptManager:\n+        if not self.enabled:\n+            if self._disabled_iter_done:\n+                outcome = self._retry_state.outcome\n+                if outcome is not None and outcome.failed:\n+                    raise outcome.exception()  # type: ignore[misc]\n+                raise StopAsyncIteration\n+            self._disabled_iter_done = True\n+            return AttemptManager(retry_state=self._retry_state)\n+\n         while True:\n             do = await self.iter(retry_state=self._retry_state)\n             if do is None:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "c83bfc349521e4c1e32c077c671a51506689455d4e6fb58e05e579f6507092de",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When `Retrying(enabled=False)` is used with the iterator protocol (`for attempt in retrying:` or `async for attempt in retrying:`), the `enabled=False` flag is ignored, causing the full retry logic to execute instead of running the attempt only once.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078213,
+    "id": "gen-1788078213-QH1rxKN9by3aJEVfw494",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 58,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 9.918e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.044e-05,
+        "upstream_inference_cost": 9.918e-05,
+        "upstream_inference_prompt_cost": 8.874e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 986,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1044
+    }
+  },
+  "schema_version": 1
+}

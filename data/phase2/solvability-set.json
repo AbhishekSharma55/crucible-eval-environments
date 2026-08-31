@@ -1,0 +1,2136 @@
+{
+  "actual_n_per_group": 30,
+  "cases": [
+    {
+      "case_id": "jd/tenacity#484",
+      "group": "control",
+      "hidden_test_patch_sha": "31fe2d0cf2505bffd0cf1ffda8c7e30450ce709f",
+      "merged_at": "2024-07-05T07:22:20Z",
+      "parent_sha": "33cd0e1d4ac529f2f7853eba66b8127232f1ec63",
+      "pr_number": 484,
+      "problem_statement": "Looks like the change introduced with 8.4.2: https://github.com/jd/tenacity/compare/8.4.1...8.4.2\r\n\r\nBreaks the suggested behavior to overwrite tenacity wait time/retry confiig on tests, as suggested here:\r\n\r\nhttps://github.com/jd/tenacity/issues/106\r\n\r\nDoesn't looks like this was done by propose, is it expected? If yes, what would be the suggested way to ovewrite the retry config in tests to speed it up?",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py",
+        "tenacity/asyncio/__init__.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py",
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestDecoratorWrapper::test_retry_function_attributes",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestDecoratorWrapper::test_retry_function_attributes",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#603",
+      "group": "control",
+      "hidden_test_patch_sha": "42b70f90790e1a3203e3dc61ad2648579c3709db",
+      "merged_at": "2026-02-24T07:49:12Z",
+      "parent_sha": "711416c56e1952acc78bdbb45d74018b0eb865da",
+      "pr_number": 603,
+      "problem_statement": "Context: We've spent some time debugging a job that ran longer than expected after scaling up. One of the issues was that the key \r\n`'delay_since_first_attempt'` does not exist in the dictionary at initialization time. The code was not using the `dict.get()` accessor and instead used `retry.statistics['delay_since_first_attempt']` in the wrapped function itself. The end result was that the wrapped function always raises an error on the first attempt and succeeds on the second attempt if no errors from the REST api afterwards.\r\n\r\nThis was somewhat difficult to diagnose and the reasoning for not having the key-value pair in the begin method is not documented clearly. \r\n\r\nMy proposal: Set the key and value in the begin which may change later. The default value could be `0`, `-1`, or None if we don't want a value to exist because retrying has not yet started. The use of `None` seems the most reasonable to me and should not cause an always retry at least twice (using tenacities definition of retry counts). This should also be backwards compatible b/c the default behavior on a `dict.get()` call is to return `None` if the second argument is not specified. \r\n\r\nHere is a minimal reproducible example: \r\n\r\n```python\r\nimport logging\r\n\r\nfrom tenacity import retry, stop_after_attempt, wait_random_exponential\r\nfrom requests import Session, Response\r\n\r\nlogging.basicConfig(level=\"INFO\", datefmt=\"[%X]\")\r\nLOGGER = logging.getLogger(__name__)\r\n\r\n\r\ndef log_retry_state(retry_state) -> None:\r\n    # Log the attempt number, arguments, and outcome of the retry attempt\r\n    LOGGER.info(f\"Retry attempt: {retry_state.attempt_number}\")\r\n    LOGGER.info(retry_state.args)\r\n    LOGGER.info(retry_state.outcome)\r\n\r\n@retry(\r\n    wait=wait_random_exponential(multiplier=2, min=2, max=60),  # Adjust wait parameters as needed\r\n    stop=stop_after_attempt(5),  # Adjust the maximum number of retry attempts as needed\r\n    before_sleep=log_retry_state)\r\ndef call_api(url: str, data: dict, params: dict, session: Session) -> Response:\r\n    response = session.post(url, params=params, json=data)\r\n    print(f\"has retry? {hasattr(call_api, 'retry')}\")\r\n    print(f\"has retry.statistics? {hasattr(call_api.retry, 'statistics')}\")\r\n    print(f\"retry.statistics keys? {call_api.retry.statistics.keys()}\")\r\n    print(f\"stats attributetype {type(call_api.retry.statistics)}\")\r\n    stats = call_api.retry.statistics\r\n    # this next line causes the keyError which causes a retry to occur on the first execution even if the response succeeded. \r\n    LOGGER.info(f\"Delay since first attempt: {stats['delay_since_first_attempt']} ...\") \r\n    LOGGER.info(f\"Attempt number: {stats['attempt_number']} ...\")\r\n    try:\r\n        # Check if the response contains an error status code\r\n        response.raise_for_status()\r\n    except HTTPError as e:\r\n        # Log a warning and re-raise the exception for retrying\r\n        LOGGER.warning(f\"Server returned status code: {response.status_code}! Retrying...\")\r\n        LOGGER.warning(f\"Command response.raise_for_status() raised: {e}! Retrying...\")\r\n        raise e\r\n    # Return the response object if there are no errors\r\n    return response, call_api.retry\r\n\r\nresp, copy_call = call_api('https://www.example.com', {}, {}, Session())\r\n```\r\n\r\n\r\nHere is what happens for me locally \r\n\r\n```bash\r\n>>> resp, copy_call = call_api('https://www.example.com', {}, {}, Session())\r\nhas retry? True\r\nhas retry.statistics? True\r\nretry.statistics keys? dict_keys(['start_time', 'attempt_number', 'idle_for'])\r\nstats attributetype <class 'dict'>\r\nINFO:__main__:Retry attempt: 1\r\nINFO:__main__:('https://www.example.com', {}, {}, <requests.sessions.Session object at 0x101340250>)\r\nINFO:__main__:<Future at 0x101c7a550 state=finished raised KeyError>\r\nhas retry? True\r\nhas retry.statistics? True\r\nretry.statistics keys? dict_keys(['start_time', 'attempt_number', 'idle_for', 'delay_since_first_attempt'])\r\nstats attributetype <class 'dict'>\r\nINFO:__main__:Delay since first attempt: 0.15865383300115354 ...\r\nINFO:__main__:Attempt number: 2 ...\r\n```\r\n\r\nI would be happy to open a pull request for this change if this is acceptable to the maintainer(s) of the tenacity project.\r\n\r\nThe proposed change would not change the `iter` method\r\nhttps://github.com/jd/tenacity/blob/310058274ed22a345e9c3917c97b4afd6363d5a5/tenacity/__init__.py#L319\r\n\r\nhowever we would add a line to `begin`\r\n\r\nhttps://github.com/jd/tenacity/blob/310058274ed22a345e9c3917c97b4afd6363d5a5/tenacity/__init__.py#L303\r\nto the effect of \r\n\r\n        self.statistics[\"delay_since_first_attempt\"] = None # or whatever we decide as the best default value. \r\n\r\nIf this is not acceptable then adding a description of the existing behavior (with this key-val not being present at initialization) would be proposed. \r\n\r\nNote the [docstring states](https://github.com/jd/tenacity/blob/310058274ed22a345e9c3917c97b4afd6363d5a5/tenacity/__init__.py#L262) that the keys should be stable between iterations this is not true unless we ignore the initial conditions as part of the iterations. \r\n\r\nPlease let me know which suggested change (set key value in `begin` or clarify docstring)-if either-is preferred.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestStatisticsKeys::test_delay_since_first_attempt_available_on_first_attempt",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#606",
+      "group": "control",
+      "hidden_test_patch_sha": "a02b51a20fbda8fcc9051b10bad4a728882a631c",
+      "merged_at": "2026-02-24T15:47:49Z",
+      "parent_sha": "42b70f90790e1a3203e3dc61ad2648579c3709db",
+      "pr_number": 606,
+      "problem_statement": "A recent change subtly breaks existing behavior where users could use operators `&`, `|` to compose together instances of the callable `retry_base` with regular Python functions. This is useful to avoid the overhead of defining a callable class. This behavior worked as of 8.3.0.\r\n\r\nThe change that appears to be the root cause is:\r\nhttps://github.com/jd/tenacity/commit/21137e79ea6d59907b3b8d236c275c5190a612fe#diff-0dca3b72d66613121507acde32aeb2e6fd42818b367d2fb4189f4180ad09e2f7\r\n\r\nHere is a minimal example of what used to be valid and now causes an exception:\r\n```Python\r\nfrom tenacity import Retrying, retry_if_exception_type, RetryCallState\r\n\r\n\r\ndef my_retry_func(retry_state: RetryCallState):\r\n    return True\r\n\r\n\r\nretryer = Retrying(retry=retry_if_exception_type(Exception) | my_retry_func)\r\n```\r\n\r\nHere is the exception:\r\n```\r\n---------------------------------------------------------------------------\r\nAttributeError                            Traceback (most recent call last)\r\nCell In[3], line 5\r\n      1 def my_retry_func(retry_state: RetryCallState):\r\n      2     return True\r\n----> 5 retryer = Retrying(retry=retry_if_exception_type(Exception) | my_retry_func)\r\n\r\nFile ~/git/frame/dev-virtualenv-frame/lib/python3.11/site-packages/tenacity/retry.py:39, in retry_base.__or__(self, other)\r\n     38 def __or__(self, other: \"retry_base\") -> \"retry_any\":\r\n---> 39     return other.__ror__(self)\r\n\r\nAttributeError: 'function' object has no attribute '__ror__'\r\n```\r\n\r\nI believe the following patch fixes the issue (new asyncio seems to support this and does not need to change):\r\n\r\n```Python\r\n% git diff\r\ndiff --git a/tenacity/retry.py b/tenacity/retry.py\r\nindex 9211631..a58ea90 100644\r\n--- a/tenacity/retry.py\r\n+++ b/tenacity/retry.py\r\n@@ -30,13 +30,13 @@ class retry_base(abc.ABC):\r\n         pass\r\n\r\n     def __and__(self, other: \"retry_base\") -> \"retry_all\":\r\n-        return other.__rand__(self)\r\n+        return retry_all(other, self)\r\n\r\n     def __rand__(self, other: \"retry_base\") -> \"retry_all\":\r\n         return retry_all(other, self)\r\n\r\n     def __or__(self, other: \"retry_base\") -> \"retry_any\":\r\n-        return other.__ror__(self)\r\n+        return retry_any(other, self)\r\n\r\n     def __ror__(self, other: \"retry_base\") -> \"retry_any\":\r\n         return retry_any(other, self)\r\n```",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/retry.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_and_with_plain_function",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_or_with_plain_function",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#609",
+      "group": "control",
+      "hidden_test_patch_sha": "44eaefbbd0ec89fca573a1fffd55d149ac29cca9",
+      "merged_at": "2026-02-24T16:07:13Z",
+      "parent_sha": "39eb157a686a8642646807c64d0791de35a0910a",
+      "pr_number": 609,
+      "problem_statement": "In our codebase, we have cases of many conditions for retrying. Tenacity has been a massive improvement over what we used before.\r\n\r\nFor example:\r\n\r\n```python\r\n        (\r\n            retry_if_exception_type(httpx.ConnectError)\r\n            & retry_if_not_exception_message(message=\"[Errno -2] Name or service not known\")\r\n            & retry_if_not_exception_message(\r\n                message=\"[Errno -5] No address associated with hostname\"\r\n            )\r\n        )\r\n        | (\r\n            retry_if_not_exception_type(httpx.ConnectError)\r\n            & retry_if_exception_type(_EXCEPTIONS_TO_RETRY)\r\n        )\r\n        | retry_if_result(_should_retry_request)\r\n```\r\n\r\nSince we have so many conditions, we occasionally need to debug this logic, and the many OR are implemented as two argument calls, resulting in a chunk of calls in the call stack which all look the same. It is painful.\r\n\r\nOR is implemented by `retry_any`, which is computed in the following way:\r\n\r\n```python\r\n    def __call__(self, retry_state: \"RetryCallState\") -> bool:\r\n        return any(r(retry_state) for r in self.retries)\r\n```\r\n\r\nThis is great, as it supports an OR of many conditions.\r\nUnfortunately, it combines like this (from `retry_base`):\r\n\r\n```python\r\n    def __or__(self, other: \"retry_base\") -> \"retry_any\":\r\n        return other.__ror__(self)\r\n\r\n    def __ror__(self, other: \"retry_base\") -> \"retry_any\":\r\n        return retry_any(other, self)\r\n```\r\n\r\nThis results in `self.retries` only having two items.\r\n\r\nIf `__or__` were specialized in `retry_any`, it could \"flatten\" the call stack by passing all current items in `self.retries` to the new `retry_any`.\r\n\r\nThis also applies to `retry_all`.\r\n\r\nAFAICS, this should have no performance cost.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/asyncio/retry.py",
+        "tenacity/retry.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_and_coalesces",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_or_coalesces",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#640",
+      "group": "control",
+      "hidden_test_patch_sha": "e5179bdab9939a748dc3e88ff21309e12e5361e0",
+      "merged_at": "2026-05-22T07:06:13Z",
+      "parent_sha": "8779333a4759e56427b5d7ba23cacd3fe6054d61",
+      "pr_number": 640,
+      "problem_statement": "Hello,\n\nFirst, great library!\n\nI'm running into an issue where I am raising TryAgain, but I am doing this from within an `except` block. I do this because I am using `retry=retry_never` so that I can have full control over when Tenacity will retry versus not. I find this pattern easier to understand than using a function passed to the `retry` kwarg. However, I have noticed that after the last attempt when TryAgain is raised, Tenacity is raising TryAgain itself rather than the underlying exception that it came from. It would be nice if Tenacity here would respect `reraise=True` and raise the underlying exception itself instead of TryAgain. For now, I think I have found a workaround by subclassing `AsyncRetrying` and overriding `__aiter__` but this seems like a hack.\n\nLet me know your thoughts.\n\nThanks!",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py",
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_reraise_try_again_with_cause",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_try_again_from_cause_reraise",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestRetryConditions::test_retry_try_again_with_cause_reraise",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "marshmallow-code/marshmallow#2925",
+      "group": "control",
+      "hidden_test_patch_sha": "fea5428567960f15be0c9a3a4b99c0d9bb63848c",
+      "merged_at": "2026-03-25T21:58:45Z",
+      "parent_sha": "546be2f728faca68a88130a6406c20994355c853",
+      "pr_number": 2925,
+      "problem_statement": "Does it make sense to make `fields.Number` abstract?\n\nThe reason I ask is because I just had to do an upgrade from 2.15.4 to 4.2.2 and most of the errors were very quick to work through because the error information was very accurate to the problem (thank you for that).\n\nBut I had two fields on a custom `Schema` that were `fields.Number`. The error message that came back was `AttributeError: 'Number' object has no attribute 'num_type'.` It happens in the `_format_num` function since `num_type` is set on the subclasses (like `IntegerField`) but not on the `Number` base class.\n\nSince this is a class that isn't meant to be used, would it be better to make it not instantiate-able? It could be an `abc.ABC` with a very simple `@abstractmethod` on the `__init__` method or you could raise an error in `__new__`, or however else one typically does this.\n\nThen, for example, I could have seen `Can't instantiate abstract class B...` or something of the like. I would then know that the class is meant to be abstract without having to rely on the docstring.\n\nThis is obviously not a big deal, but I typically don't like relying on docstrings to decide implementation. Though I prefer the docstring over having to read the entire implementation and assuming the intent.\n\n## Example\n\nOn a Django model:\n\n```python\nfrom django.db import models\n\nfrom marshmallow import EXCLUDE, Schema, fields, validate\n\nclass TimeframeSchema(Schema):\n    type = fields.Str(required=True)\n    duration = fields.Number(required=True, validate=validate.Range(min=0))\n\n    class Meta:\n        unknown = EXCLUDE\n\ndef validate_timeframe(timeframe):\n    TimeframeSchema().load(timeframe)\n\nclass AModel(models.Model):\n    timeframe = models.JSONField(validators=[validate_timeframe])\n\n    def save(self, *args, **kwargs):\n        self.full_clean()\n        super().save(*args, **kwargs)\n```\n\nThen in a test file:\n\n```python\nfrom model_bakery import baker\nfrom app.models import AModel\n\n@python.mark.django_db\ndef test__some_test:\n    a_model = baker.make(AModel, timeframe={\"type\": \"annual\", \"duration\": 12})\n    assert a_model\n```\n\nThen running `pytest my_test_file`:\n\n```\ntests/apps/app/models/my_test_file.py:6: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n/opt/venv/lib/python3.10/site-packages/model_bakery/baker.py:133: in make\n    return baker.make(\n/opt/venv/lib/python3.10/site-packages/model_bakery/baker.py:389: in make\n    return self._make(**params)\n/opt/venv/lib/python3.10/site-packages/model_bakery/baker.py:470: in _make\n    instance = self.instance(\n/opt/venv/lib/python3.10/site-packages/model_bakery/baker.py:504: in instance\n    instance.save(**_save_kwargs)\nthe_app/apps/app/models/a_model.py:18: in save\n    self.full_clean()\n/opt/venv/lib/python3.10/site-packages/django/db/models/base.py:1470: in full_clean\n    self.clean_fields(exclude=exclude)\n/opt/venv/lib/python3.10/site-packages/django/db/models/base.py:1522: in clean_fields\n    setattr(self, f.attname, f.clean(raw_value, self))\n/opt/venv/lib/python3.10/site-packages/django/db/models/fields/__init__.py:778: in clean\n    self.run_validators(value)\n/opt/venv/lib/python3.10/site-packages/django/db/models/fields/__init__.py:730: in run_validators\n    v(value)\nthe_app/apps/app/models/a_model.py:13: in validate_timeframe\n    TimeframeSchema().load(timeframe)\n/opt/venv/lib/python3.10/site-packages/marshmallow/schema.py:730: in load\n    return self._do_load(\n/opt/venv/lib/python3.10/site-packages/marshmallow/schema.py:887: in _do_load\n    result = self._deserialize(\n/opt/venv/lib/python3.10/site-packages/marshmallow/schema.py:676: in _deserialize\n    value = self._call_and_store(\n/opt/venv/lib/python3.10/site-packages/marshmallow/schema.py:517: in _call_and_store\n    value = getter_func(data)\n/opt/venv/lib/python3.10/site-packages/marshmallow/schema.py:669: in getter\n    return field_obj.deserialize(\n/opt/venv/lib/python3.10/site-packages/marshmallow/fields.py:374: in deserialize\n    output = self._deserialize(value, attr, data, **kwargs)\n/opt/venv/lib/python3.10/site-packages/marshmallow/fields.py:960: in _deserialize\n    return self._validated(value)\n/opt/venv/lib/python3.10/site-packages/marshmallow/fields.py:943: in _validated\n    return self._format_num(value)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <fields.Number(dump_default=<marshmallow.missing>, attribute=None, validate=<Range(min=0, max=None, min_inclusive=True... be null.', 'validator_failed': 'Invalid value.', 'invalid': 'Not a valid number.', 'too_large': 'Number too large.'})>\nvalue = 12\n\n    def _format_num(self, value) -> _NumT:\n        \"\"\"Return the number value for value, given this field's `num_type`.\"\"\"\n>       return self.num_type(value)  # type: ignore[call-arg]\nE       AttributeError: 'Number' object has no attribute 'num_type'\n\n/opt/venv/lib/python3.10/site-packages/marshmallow/fields.py:935: AttributeError\n```",
+      "repo": "marshmallow-code/marshmallow",
+      "source_files": [
+        "src/marshmallow/fields.py"
+      ],
+      "test_files": [
+        "tests/test_fields.py",
+        "tests/test_serialization.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_fields.py::TestAbstractBaseFields::test_mapping_cannot_be_instantiated",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_fields.py::TestAbstractBaseFields::test_number_cannot_be_instantiated",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "marshmallow-code/marshmallow#2928",
+      "group": "control",
+      "hidden_test_patch_sha": "c1e727e16bed9851c6e77dde0119ee2d4f1ba08d",
+      "merged_at": "2026-04-01T12:20:20Z",
+      "parent_sha": "28f911b1240f127cc37b0d400a47e3ae5d573faa",
+      "pr_number": 2928,
+      "problem_statement": "IDN: https://en.wikipedia.org/wiki/Internationalized_domain_name\n\nValid URLs like https://\u09a4\u09cc\u09b9\u09bf\u09a6\u09c1\u09b0.\u09ac\u09be\u0982\u09b2\u09be are always rejected and there is not way to fix this.",
+      "repo": "marshmallow-code/marshmallow",
+      "source_files": [
+        "src/marshmallow/validate.py"
+      ],
+      "test_files": [
+        "tests/test_validate.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[http://\\u0645\\u062b\\u0627\\u0644.\\u0625\\u062e\\u062a\\u0628\\u0627\\u0631]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[http://www.\\u0627\\u062e\\u062a\\u0628\\u0627\\u0631.com:8080/path]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[https://\\u09a4\\u09cc\\u09b9\\u09bf\\u09a6\\u09c1\\u09b0.\\u09ac\\u09be\\u0982\\u09b2\\u09be]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[https://\\u4f8b\\u3048.jp/path]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[https://\\xfc\\xf1\\xee\\xe7\\xf6d\\xe9.com/path?q=1#frag]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_idn_valid[https://m\\xfcnchen.de]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1098",
+      "group": "control",
+      "hidden_test_patch_sha": "8df9a6b2847b23de5c65dcb16f715a7691c60743",
+      "merged_at": "2018-08-28T04:23:40Z",
+      "parent_sha": "011fd621967b740080965946ee4938bb6c31fe25",
+      "pr_number": 1098,
+      "problem_statement": "If we use `standalone_mode=True` passing arguments to command execution will not call `sys.exit`, except if the argument to the command is `[\"--help\"]`.\n\nFrom inside ipython:\n\n> In [12]: import click\n> \n> In [13]: @click.command()\n>     ...: def hello():\n>     ...:     print(\"hello, world\")\n>     ...:\n> \n> In [14]: hello.main([], standalone_mode=False)\n> hello, world\n> \n> In [15]: hello.main(['wrong_arg'], standalone_mode=False)\n> ---\n> \n> UsageError                                Traceback (most recent call last)\n> <ipython-input-15-c2bf17950330> in <module>()\n> ...\n> UsageError: Got unexpected extra argument (wrong_arg)\n> \n> In [16]: hello.main(['--help'], standalone_mode=False)\n> Usage: ipython [OPTIONS]\n> \n> Options:\n>   --help  Show this message and exit.\n> An exception has occurred, use %tb to see the full traceback.\n> \n> SystemExit: 0\n> \n> /Users/malkarouri/Library/Python/2.7/lib/python/site-packages/IPython/core/interactiveshell.py:2889: UserWarning: To exit: use 'exit', 'quit', or Ctrl-D.\n>   warn(\"To exit: use 'exit', 'quit', or Ctrl-D.\", stacklevel=1)\n\nExpected:\n`--help` parameter in standalone mode does not call `sys.exit`.",
+      "repo": "pallets/click",
+      "source_files": [
+        "click/core.py",
+        "click/exceptions.py"
+      ],
+      "test_files": [
+        "tests/test_context.py",
+        "tests/test_testing.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_context.py::test_exit_not_standalone",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1455",
+      "group": "control",
+      "hidden_test_patch_sha": "a141a2a1e646434c1d88d45003a1edd2e49d8b41",
+      "merged_at": "2020-08-14T16:31:02Z",
+      "parent_sha": "7147f41d0fd6676a8c0410875f43250dc8e54dc8",
+      "pr_number": 1455,
+      "problem_statement": "Currently click only does startswith match at https://github.com/pallets/click/blob/6c454c88b76f7a0be396dba72513bd316cd141e6/click/parser.py#L328-L329 so a typo like using `--boun` suggests `--bount` but using `--bound` doesn't make any suggestions. Using [difflib.get_close_matches](https://docs.python.org/3/library/difflib.html#difflib.get_close_matches) could get better suggestions and nearest matches.\r\n\r\nSample implementation : https://github.com/tirkarthi/click/tree/difflib-suggestions\r\n\r\n```python\r\nimport click\r\n\r\n@click.option(\"--count\")\r\n@click.option(\"--bount\")\r\n@click.command()\r\ndef cli(count, bount):\r\n    click.echo(f\"count = {count}, bount = {bount}\")\r\n\r\nif __name__ == \"__main__\":\r\n    cli()\r\n```\r\n\r\n```shell\r\npython sample.py --boun 1 \r\nUsage: sample.py [OPTIONS]\r\nTry \"sample.py --help\" for help.\r\n\r\nError: no such option: --boun  Did you mean --bount?\r\n```\r\n\r\n```shell\r\npython sample.py --bound 1\r\nUsage: sample.py [OPTIONS]\r\nTry \"sample.py --help\" for help.\r\n\r\nError: no such option: --bound\r\n```\r\n\r\nUsing `--bound` with `difflib.get_close_matches`\r\n\r\n```shell\r\npython sample.py --bound 1\r\nUsage: sample.py [OPTIONS]\r\nTry \"sample.py --help\" for help.\r\n\r\nError: no such option: --bound  (Possible options: --bount, --count)\r\n```\r\n\r\nUsing `--counter` with `difflib.get_close_matches`\r\n\r\n```shell\r\npython sample.py --counter 1\r\nUsage: sample.py [OPTIONS]\r\nTry \"sample.py --help\" for help.\r\n\r\nError: no such option: --counter  (Possible options: --count, --bount)\r\n```",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/parser.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_suggest_possible_options[--bounds-(Possible options: --bound, --count)]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_suggest_possible_options[--bount-(Possible options: --bound, --count)]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_suggest_possible_options[--cat-Did you mean --count?]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1609",
+      "group": "control",
+      "hidden_test_patch_sha": "6c1eabae3bc08fba81f8b18f8a9111a93f2b0107",
+      "merged_at": "2020-08-06T03:27:36Z",
+      "parent_sha": "82ca854f587af919789a9baae9a732fe0ce0052c",
+      "pr_number": 1609,
+      "problem_statement": "The program name (referred to as `prog_name` or `info_name`) is the name Click uses in usage help text. If it's not specified, Click tries to detect it by looking at `sys.argv[0]`.\r\n\r\nhttps://github.com/pallets/click/blob/dfb842d95a7c146d8fe8140c8100065410d95c4d/src/click/core.py#L797-L800\r\n\r\nThis works when the CLI is run as a script, either directly, or indirectly as an entry point, or as a module when the program is a single file, but fails when the program is a package and run with `python -m`. In that case, Python converts the `-m name` to the Python file within the package that would be executed. (The use of `__file__` there is also incorrect, as that will always point to `click/core.py`. There should never be a case where `sys.argv` is empty. `make_str` is probably not needed either.)\r\n\r\nThis leads to the following names:\r\n\r\n* `python example.py`, executing a script directly - `example.py`\r\n* `python -m example`, the single file module `example.py` - `example.py`\r\n* `python -m example`, a package like `example/__main__.py` - `__main__.py`\r\n* `python -m example.cli`, a submodule like `example/cli.py` - `cli.py`\r\n* `example`, an entry point, with any of the layouts above - `example`\r\n\r\nWhat's usually expected is that executing a script will print the Python file name (`example.py`), executing an entry point will print the entry point name (`example`), and executing a module or package will print the Python command (`python -m example`, `python -m example.cli`)\r\n\r\nThis leads to projects that expect to be run as either an entry point or `-m` writing their own wrapper around the CLI to control what name gets used. For example, Flask uses a wrapper that the entry point will call with no args, while `__main__.py` or `__name__ == \"__main__\"` will pass `as_module=True`.\r\n\r\n```python\r\ndef main(as_module=False):\r\n    cli.main(prog_name=\"python -m flask\" if as_module else None)\r\n```\r\n\r\nUnfortunately, detecting whether `python -m` was used is really, really complicated. Luckily, I did the work already in Werkzeug's reloader: https://github.com/pallets/werkzeug/blob/102bcda52176db448d383a9ef1ccf7e406a379eb/src/werkzeug/_reloader.py#L59. It won't be quite the same in Click because we're not concerned with the exact path to the `python` command or script file, or with arguments, but that should be a good start. Write a function `detect_program_name()` to detect this and call it in place of the existing code.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py",
+        "src/click/utils.py"
+      ],
+      "test_files": [
+        "tests/test_utils.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_detect_program_name[/foo/bar/example.py-None-example.py]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_detect_program_name[example-None-example]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_detect_program_name[example.py-None-example.py]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_detect_program_name[example/__main__.py-main3-python -m example]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_detect_program_name[example/cli.py-main4-python -m example.cli]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1840",
+      "group": "control",
+      "hidden_test_patch_sha": "e3594e7f8a76dd15109d29570a6f263e56e412f2",
+      "merged_at": "2021-04-13T02:36:03Z",
+      "parent_sha": "6c7624491911f0b18f869e5d0a989506e7b416f8",
+      "pr_number": 1840,
+      "problem_statement": "### Expected Behavior\r\n\r\nThree commands. The first takes a subset of the options that the last two take. Each prints the arguments they were called with. All but the first call the one before it via `context.forward`.\r\n\r\n```python\r\nimport click\r\nfrom pprint import pprint\r\n\r\n@click.group()\r\ndef main():\r\n    pass\r\n\r\n@main.command()\r\n@click.option('-a')\r\ndef first(**kwargs):\r\n    print('first')\r\n    pprint(kwargs)\r\n\r\n@main.command()\r\n@click.option('-a')\r\n@click.option('-b')\r\n@click.pass_context\r\ndef second(context, **kwargs):\r\n    print('second')\r\n    pprint(kwargs)\r\n    context.forward(first)\r\n\r\n@main.command()\r\n@click.option('-a')\r\n@click.option('-b')\r\n@click.pass_context\r\ndef third(context, **kwargs):\r\n    print('third')\r\n    pprint(kwargs)\r\n    context.forward(second)\r\n\r\nmain()\r\n```\r\n\r\nHere's the behavior I expect from each command. Notably, `first` is called with the same arguments, its declared options, each time.\r\n\r\n```\r\n$ python main.py first\r\nfirst\r\n{'a': None}\r\n$ python main.py second\r\nsecond\r\n{'a': None, 'b': None}\r\nfirst\r\n{'a': None}\r\n$ python main.py third\r\nthird\r\n{'a': None, 'b': None}\r\nsecond\r\n{'a': None, 'b': None}\r\nfirst\r\n{'a': None}\r\n```\r\n\r\n\r\n### Actual Behavior\r\n\r\n```\r\n$ python main.py first\r\nfirst\r\n{'a': None}\r\n$ python main.py second\r\nsecond\r\n{'a': None, 'b': None}\r\nfirst\r\n{'a': None, 'b': None}     # 'first' is called with 'b' here\r\n$ python main.py third\r\nthird\r\n{'a': None, 'b': None}\r\nsecond\r\n{'a': None, 'b': None}\r\nfirst\r\n{'a': None}                # but not here\r\n```\r\n\r\n\r\n### Environment\r\n\r\n* Python version: 3.7.5\r\n* Click version: 7.1.2",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_commands.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_commands.py::test_forwarded_params_consistency",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1872",
+      "group": "control",
+      "hidden_test_patch_sha": "ac655f8ac8a13cd45ce96bdc296bd857654088f0",
+      "merged_at": "2021-05-11T06:09:49Z",
+      "parent_sha": "5215fc1030ed911c0c67b18e2fcad95fc173dd0e",
+      "pr_number": 1872,
+      "problem_statement": "`HelpFormatter.write_text()` uses the function `wrap_text(text, width, initial_indent, ...)` internally. This function expects `width` to be the line width **including** the eventual indentation. `HelpFormatter.write_text()` gets this wrong and passes `self.width - self.current_indent` instead of just `self.width`.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/formatting.py"
+      ],
+      "test_files": [
+        "tests/test_formatting.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_formatting.py::test_help_formatter_write_text",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1964",
+      "group": "control",
+      "hidden_test_patch_sha": "166b31261f55ba3126456bbc2ff9e16142115e56",
+      "merged_at": "2022-02-20T16:50:16Z",
+      "parent_sha": "08ecfd0e7c238a2444886d239de6d0e9d83530ec",
+      "pr_number": 1964,
+      "problem_statement": "Currently, `Context.show_default` (a global setting) overrides `Option.show_default` (a local setting). This is counterintuitive and limit expressiveness: once `Context.show_default` is set to `True`, it's impossible to disable `show_default` for a specific option.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[True-False-False]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2093",
+      "group": "control",
+      "hidden_test_patch_sha": "3dde6c51c5015b7eba552348488c2f7bcaa16c69",
+      "merged_at": "2021-10-10T17:47:50Z",
+      "parent_sha": "3737511d399d3910ce65450358f3bde065acf8f1",
+      "pr_number": 2093,
+      "problem_statement": "This follows on from #665.\r\n\r\nConsider this code again, using `click.confirm` instead of `click.prompt`:\r\n\r\n```python\r\nimport click, readline\r\nclick.confirm(\"Input\")\r\n```\r\n- Type anything then backspace\r\n    - **Actual behaviour:** the entire line is erased\r\n    - **Expected behaviour:** only the entered character is erased\r\n- Type return only\r\n    - **Actual behaviour:** no newline is printed to the terminal (a following `click.echo()` or `print()` will appear to be ignored)\r\n    - **Expected behaviour:** a newline is printed to the terminal\r\n\r\nThe solution from PR #1836 seems to work in the case of `click.confirm` as well:\r\n\r\n```python\r\n    while True:\r\n        try:\r\n            # Write the prompt separately so that we get nice\r\n            # coloring through colorama on Windows\r\n            echo(prompt.rstrip(\" \"), nl=False, err=err)\r\n            value = visible_prompt_func(\" \").lower().strip()\r\n```\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.8.10\r\n- Click version: 8.0.1",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/termui.py"
+      ],
+      "test_files": [
+        "tests/test_utils.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_echo_writing_to_standard_error",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2223",
+      "group": "control",
+      "hidden_test_patch_sha": "20c88f02788586a80e6d867854c8313eaba5ad6e",
+      "merged_at": "2022-03-28T17:25:04Z",
+      "parent_sha": "ef11be6e49e19a055fe7e5a89f0f1f4062c68dba",
+      "pr_number": 2223,
+      "problem_statement": "There are 2 ways of configuring Click to load a value of a specific option from an environment variable: \"automatic\" via `auto_envvar_prefix` and \"explicit\" via passing `envvar` keyword argument to the option definition.\r\n\r\nWhen a name of an environment variable is set explicitly, Click treats empty string values (i.e. `export MY_OPTION=`) as not set and keeps a default value (`None` if not configured otherwise). But when a name is inferred from `auto_envvar_prefix` configuration, Click treats empty string values as valid values, does not set a default and passes the option to `ParamType.convert()` if `type` keyword argument is specified for that option.\r\n\r\nThis is inconsistent.\r\n\r\n```python\r\nimport click\r\n\r\n@click.command()\r\n@click.option('--auto')\r\n@click.option('--ex', envvar=\"EXEV\")\r\ndef cli(auto, ex):\r\n    click.echo(f\"{auto=} {type(auto)=}\")\r\n    click.echo(f\"{ex=} {type(ex)=}\")\r\n\r\nif __name__ == '__main__':\r\n    cli(auto_envvar_prefix='MY')\r\n```\r\n\r\nActual output:\r\n\r\n```shell\r\n$ MY_AUTO= EXEV= ./cli.py\r\nauto='' type(auto)=<class 'str'>\r\nex=None type(ex)=<class 'NoneType'>\r\n```\r\n\r\nExpected output:\r\n\r\n```shell\r\n$ MY_AUTO= EXEV= ./cli.py\r\nauto=None type(auto)=<class 'NoneType'>\r\nex=None type(ex)=<class 'NoneType'>\r\n```\r\n\r\nEnvironment:\r\n\r\n- Python version: `3.9.7`\r\n- Click version: `8.0.3`\r\n\r\nIt's being a nuisance for quite a while at my company, we have `.env.example` file with variables containing multiple `export FOO=` lines for each project. When my colleagues work on the project, they just copy `.env.example` to `.env`, fill out required values (not all of the values) and then do a test run.\r\n\r\nThen for variables like export `OPTIONAL_VALUE=` that are left as is, click loads them as empty strings and calls type validators `TypeInstance.convert()` with that value, which usually fails as an empty string is not a valid value for the majority of options.\r\n\r\nNow when I go diving into the code base, it seems like it's handled \"correctly\" here:\r\nhttps://github.com/pallets/click/blob/6411f425fae545f42795665af4162006b36c5e4a/src/click/core.py#L2267-L2283\r\n\r\n(i.e. if value is an empty string, `None` is returned)\r\n\r\nBut then here it is fetched as is without checking for an empty string:\r\nhttps://github.com/pallets/click/blob/6411f425fae545f42795665af4162006b36c5e4a/src/click/core.py#L2777-L2783\r\n\r\nThe most obvious fix would be to add the following 2 lines\r\n``` python\r\nif rv:\r\n    return rv\r\n```\r\nafter\r\nhttps://github.com/pallets/click/blob/6411f425fae545f42795665af4162006b36c5e4a/src/click/core.py#L2783",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_empty_envvar[AUTO_MYPATH]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2369",
+      "group": "control",
+      "hidden_test_patch_sha": "850bffe0b9db27f52f6f3f0a66eb6df432ce8bcd",
+      "merged_at": "2023-06-30T16:43:46Z",
+      "parent_sha": "a4f5450a2541e2f2f8cacf57f50435eb78422f99",
+      "pr_number": 2369,
+      "problem_statement": "Click since version 8.1.0 doesn't properly account for a scenario that the callback's docstring can have no \"help text\" part, like so:\r\n\r\n```python\r\n@click.command()\r\ndef callback():\r\n    \"\"\"\r\n    \\f\r\n    More stuff.\r\n    \"\"\"\r\n```\r\nThis results in empty lines in the output:\r\n\r\n```\r\n% python3 test --help\r\nUsage: test [OPTIONS]\r\n\r\n\r\n\r\nOptions:\r\n  --help  Show this message and exit.\r\n```\r\n\r\nBefore 8.1.0:\r\n```\r\n% python3 test --help\r\nUsage: test [OPTIONS]\r\n\r\nOptions:\r\n  --help  Show this message and exit.\r\n```\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.9.2\r\n- Click version: 8.1.3",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_commands.py",
+        "tests/test_formatting.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_formatting.py::test_truncating_docstring_no_help",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2517",
+      "group": "control",
+      "hidden_test_patch_sha": "948d7a707a0abda8ce0a1b39ba87390f11ffcd5e",
+      "merged_at": "2024-11-02T23:35:57Z",
+      "parent_sha": "a6e0d2936891030f5092c9869c7391104f6721d9",
+      "pr_number": 2517,
+      "problem_statement": "I maintain [Click Extra, a drop-in replacement for Click which adds colorization](https://github.com/kdeldycke/click-extra/tree/main#readme) of the help screen.\r\n\r\nI am currently relying on finicky regular expressions to identify and match the extra items that are displayed at the end of each option's help. These extra items are rendered in square brackets and looks like:\r\n- `[default: None]`\r\n- `[default: (unlimited)]`\r\n- `[env var: COLOR_CLI8_TIME; default: no-time]`\r\n- and a variety of other formats.\r\n\r\nThe problem is that the generation of these extra items are deeply embedded within Click and are impossible to fetch independently.\r\n\r\nThat's why I propose a simple refactor of the `Option.get_help_record()` method, and split it in two:\r\n- a new method to compute the values of these extra items\r\n- keep the original `get_help_record()` as-is, but dedicated to help message rendering only\r\n\r\nI have a PR that is ready at #2517.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py",
+        "src/click/types.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_count_default_type_help",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_do_not_show_default_empty_multiple",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_do_not_show_no_default",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_dynamic_default_help_special_method",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_file_type_help_default",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_hide_false_default_boolean_flag_value[False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_hide_false_default_boolean_flag_value[None]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_intrange_default_help_text[type0-1<=x<=32]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_intrange_default_help_text[type1-1<x<32]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_intrange_default_help_text[type2-x>=1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_intrange_default_help_text[type3-x<=32]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_boolean_flag_name[False-no-cache]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_boolean_flag_name[True-cache]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[False-False-extra_value4-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[False-None-extra_value3-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[False-True-extra_value5-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[False-one-extra_value9-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[None-False-extra_value1-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[None-None-extra_value0-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[None-True-extra_value2-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[True-False-extra_value7-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[True-None-extra_value6-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_precedence[True-True-extra_value8-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_default_string",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_show_true_default_boolean_flag_value",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2523",
+      "group": "control",
+      "hidden_test_patch_sha": "0e0c00324a5af35f8995c7ff88df67b0f5594a58",
+      "merged_at": "2024-11-03T01:52:09Z",
+      "parent_sha": "948d7a707a0abda8ce0a1b39ba87390f11ffcd5e",
+      "pr_number": 2523,
+      "problem_statement": "Let's start with the current behaviour of `CliRunner` regarding [its `mix_stderr` option](https://click.palletsprojects.com/en/8.1.x/api/#click.testing.CliRunner).\r\n\r\nHere is a simple CLI:\r\n```python\r\nfrom click import command, echo\r\nfrom click.testing import CliRunner\r\n\r\n\r\n@command()\r\ndef hello():\r\n    echo(\"1 - Hello world\")\r\n    echo(\"2 - Hello error\", err=True)\r\n    echo(\"3 - Good bye world\")\r\n    echo(\"4 - Good bye error\", err=True)\r\n\r\n\r\nif __name__ == \"__main__\":\r\n\r\n    print(\"\\n*** mix_stderr=True (default) ***\\n\")\r\n    runner = CliRunner(mix_stderr=True)\r\n    result = runner.invoke(hello)\r\n    print(f\"--- <stdout> ---\\n{result.stdout}\")\r\n    print(f\"--- <stderr> ---\\n(raises error)\\n\")\r\n    print(f\"--- <output> ---\\n{result.output}\")\r\n\r\n    print(\"\\n*** mix_stderr=False ***\\n\")\r\n    runner = CliRunner(mix_stderr=False)\r\n    result = runner.invoke(hello)\r\n    print(f\"--- <stdout> ---\\n{result.stdout}\")\r\n    print(f\"--- <stderr> ---\\n{result.stderr}\")\r\n    print(f\"--- <output> ---\\n{result.output}\")\r\n\r\n```\r\n\r\nWhen called, the CLI above produces:\r\n```shell-session\r\n$ python ./cli_runner_stderr_test.py\r\n\r\n*** mix_stderr=True (default) ***\r\n\r\n--- <stdout> ---\r\n1 - Hello world\r\n2 - Hello error\r\n3 - Good bye world\r\n4 - Good bye error\r\n\r\n--- <stderr> ---\r\n(raises error)\r\n\r\n--- <output> ---\r\n1 - Hello world\r\n2 - Hello error\r\n3 - Good bye world\r\n4 - Good bye error\r\n\r\n\r\n*** mix_stderr=False ***\r\n\r\n--- <stdout> ---\r\n1 - Hello world\r\n3 - Good bye world\r\n\r\n--- <stderr> ---\r\n2 - Hello error\r\n4 - Good bye error\r\n\r\n--- <output> ---\r\n1 - Hello world\r\n3 - Good bye world\r\n```\r\n\r\nWhat I'd like to propose is to instead have `CliRunner` produce this result:\r\n```shell-session\r\n$ python ./cli_runner_stderr_test.py\r\n\r\n*** mix_stderr=True (default) ***\r\n\r\n--- <stdout> ---\r\n1 - Hello world\r\n3 - Good bye world\r\n\r\n--- <stderr> ---\r\n2 - Hello error\r\n4 - Good bye error\r\n\r\n--- <output> ---\r\n1 - Hello world\r\n2 - Hello error\r\n3 - Good bye world\r\n4 - Good bye error\r\n\r\n\r\n*** mix_stderr=False ***\r\n\r\n--- <stdout> ---\r\n1 - Hello world\r\n3 - Good bye world\r\n\r\n--- <stderr> ---\r\n2 - Hello error\r\n4 - Good bye error\r\n\r\n--- <output> ---\r\n1 - Hello world\r\n3 - Good bye world\r\n```\r\n\r\nSo what I propose is to streamline the semantics of `result.stdout`, `result.stderr` and `result.output`:\r\n- Let `result.stdout` always contain the pure output to `<stdout>`. Never mangle `<stderr>` in it.\r\n- Let `result.stderr` always contain the pure output to `<stderr>`. Never raise an error.\r\n- Use `result.output` as the content the user is expected to see:\r\n  - let it be a proxy of `<stdout>` if `mix_stderr=False`\r\n  - have it produce a mix of `<stdout>` and `<stderr>` if `mix_stderr=True`\r\n\r\nThe advantage of this is we could properly check the individual `<stdout>` and `<stderr>` streams, and check for the user output by inspecting `<output>`.\r\n\r\nThe raised exception in `<stderr>` has been introduced in `7.0` for backward compatibility, because the code prior to `7.0` wasn't returning the `stderr`/`stderr` split output (see #868). It's from 2017 so we can safely change that behaviour by now.\r\n\r\nNote that I explicitely numbered each `echo()` statement to highlight the print order. If a refactor is attempted, I am anticipating some edge-cases around the preservation of order, so it's good to have simple code to test that.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/testing.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py",
+        "tests/test_testing.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_secho_non_text[123-\\x1b[45m123\\x1b[0m]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_secho_non_text[test-test]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_testing.py::test_isolation_stderr_errors",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_testing.py::test_stderr",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2555",
+      "group": "control",
+      "hidden_test_patch_sha": "549947111c4af2191dd4b245e1de2c25d20c36d6",
+      "merged_at": "2023-07-06T17:05:33Z",
+      "parent_sha": "9a536eebd958558c2cd24c17fb66fac112f1ac91",
+      "pr_number": 2555,
+      "problem_statement": "The `click.utils.echo()` function does not seem to account for the case when the console is not available on Windows, i.e., when running under `pythonw.exe` interpreter instead of the `python.exe` one.\r\n\r\nMinimal example: \r\n\r\n```python\r\n# program.py\r\nimport sys\r\nimport os\r\n\r\ntry:\r\n    import click\r\n    click.utils.echo(\"Hello world\")\r\nexcept Exception:\r\n    import traceback\r\n    error_file = os.path.join(os.path.dirname(__file__), \"error_log.txt\")\r\n    with open(error_file, \"w\") as fp:\r\n        traceback.print_exc(file=fp)\r\n```\r\n\r\nRunning this program with `pythonw.exe program.py` produces the `error_log.txt`:\r\n``` \r\nTraceback (most recent call last):\r\n  File \"C:\\Users\\Rok\\Development\\pyi-click\\program.py\", line 6, in <module>\r\n    click.utils.echo(\"Hello world\")\r\n  File \"C:\\Users\\Rok\\Development\\pyi-click\\venv\\lib\\site-packages\\click\\utils.py\", line 299, in echo\r\n    file.write(out)  # type: ignore\r\nAttributeError: 'NoneType' object has no attribute 'write'\r\n```\r\n\r\nIn contrast, standard `print()` function gracefully handles situations when console is unavailable and `sys.stdout` and `sys.stderr` are `None`.\r\n\r\nThis attempt at retrieving stdout/stderr:\r\nhttps://github.com/pallets/click/blob/c65c6ad18471448c0fcc59ef53088787288c02cc/src/click/utils.py#L250-L254\r\nshould be followed by another `None` check, and if the stream is unavailable, the function should become a no-op (exit immediately).\r\n\r\nEnvironment:\r\n\r\n- OS: Windows\r\n- Python version: any\r\n- Click version: 8.1.3 (and earlier)",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/_compat.py",
+        "src/click/_termui_impl.py",
+        "src/click/utils.py"
+      ],
+      "test_files": [
+        "tests/test_utils.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_utils.py::test_echo_no_streams",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2696",
+      "group": "control",
+      "hidden_test_patch_sha": "1b524bb30d0bd39528369c7029b9296e7663cf19",
+      "merged_at": "2024-11-03T12:21:04Z",
+      "parent_sha": "0e0c00324a5af35f8995c7ff88df67b0f5594a58",
+      "pr_number": 2696,
+      "problem_statement": "```py\r\n@click.command()\r\n@click.option('--a', required=True, envvar=\"b\", show_envvar=True)\r\ndef f(a): ...\r\nf()\r\n```\r\nHere I would want the error message to show the env var.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_missing_envvar",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2727",
+      "group": "control",
+      "hidden_test_patch_sha": "fcd85032cff78aa536a6d2b455fb83bfcc02b228",
+      "merged_at": "2024-11-03T13:12:06Z",
+      "parent_sha": "c326df95e9e3da0425360e030413f6a3ee25fdee",
+      "pr_number": 2727,
+      "problem_statement": "Often when I use the Click `progressbar` I find myself wanting to conditionally hide it. Sometimes it's because there's another option in play which means I have output to display in place of it - others it's because I added a `--silent` option (as seen in `curl`) for disabling it entirely.\r\n\r\nIt's actually a bit tricky doing this at the moment, due to its use as a context manager.\r\n\r\nWhat I'd really like to be able to do is this:\r\n\r\n```python\r\nhide = True  # or False depending on various things\r\n\r\nwith click.progressbar(items, show_eta=True, hide=hide):\r\n    for item in items:\r\n        process_item(item)\r\n```",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/_termui_impl.py",
+        "src/click/termui.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_hidden_manual",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2796",
+      "group": "control",
+      "hidden_test_patch_sha": "4ece17a107d7b2e8bc3bd14356c2b53038fe41cf",
+      "merged_at": "2025-01-12T14:59:58Z",
+      "parent_sha": "8a47580a00f3404e7071b9ecfec3692a1e18309f",
+      "pr_number": 2796,
+      "problem_statement": "I can work  around it as [described here](https://pythonpath.wordpress.com/2012/01/26/python-enum-with-namedtuple/) it would be great if `Choice` supported Python Enum.\n\nUnless of course I have missed something completely fundamental :-)",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py",
+        "src/click/exceptions.py",
+        "src/click/types.py"
+      ],
+      "test_files": [
+        "tests/test_basic.py",
+        "tests/test_formatting.py",
+        "tests/test_info_dict.py",
+        "tests/test_normalization.py",
+        "tests/test_types.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_basic.py::test_choice_argument_custom_type",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_basic.py::test_choice_argument_enum",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_basic.py::test_choice_argument_none",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_formatting.py::test_formatting_custom_type_metavar",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_normalization.py::test_choice_normalization",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_types.py::test_choice_get_invalid_choice_message",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2816",
+      "group": "control",
+      "hidden_test_patch_sha": "4f936ac1981645488f396953bc59e50445de00b6",
+      "merged_at": "2025-08-07T05:57:15Z",
+      "parent_sha": "1c68e531ef5e45f6facdb777c720d0f984614b81",
+      "pr_number": 2816,
+      "problem_statement": "The _is_incomplete_option function in the Click library has a logic issue in its loop that sets the last_option variable. The function does not break the loop after assigning last_option, which leads to wrong shell completion.\r\n\r\n\r\n## Replication: \r\nSee https://github.com/msaipraneeth/click-tuple-param\r\n### RCA: \r\nWe can reproduce issue If we have flag option before tuple option\r\n\r\n## Environment:\r\n\r\n- Python version: 3.11\r\n- Click version: 8.1.7\r\n\r\n## Possible solution :\r\n\r\nOnce we identify the last option we have the break the loop in _is_incomplete_option function\r\n\r\n```python .numberLines\r\ndef _is_incomplete_option(ctx: Context, args: t.List[str], param: Parameter) -> bool:\r\n    \"\"\"Determine if the given parameter is an option that needs a value.\r\n\r\n    :param args: List of complete args before the incomplete value.\r\n    :param param: Option object being checked.\r\n    \"\"\"\r\n    if not isinstance(param, Option):\r\n        return False\r\n\r\n    if param.is_flag or param.count:\r\n        return False\r\n\r\n    last_option = None\r\n\r\n    for index, arg in enumerate(reversed(args)):\r\n        if index + 1 > param.nargs:\r\n            break\r\n\r\n        if _start_of_option(ctx, arg):\r\n            last_option = arg\r\n            break  # <-------------------------------------------------- break the loop on finding the option\r\n\r\n    return last_option is not None and last_option in param.opts\r\n\r\n```",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/shell_completion.py"
+      ],
+      "test_files": [
+        "tests/test_shell_completion.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_shell_completion.py::test_flag_option_with_nargs_option",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#3152",
+      "group": "control",
+      "hidden_test_patch_sha": "ebcd548d50662bc8fa4f8b9ec7fe13cb8310bfaa",
+      "merged_at": "2025-11-20T03:49:38Z",
+      "parent_sha": "7f7bbe4569ea68e8dabee232eade069ef3310aea",
+      "pr_number": 3152,
+      "problem_statement": "### Outline\n\nAs stated in [official documentation](https://click.palletsprojects.com/en/stable/options/#optional-value): \n> Setting `is_flag=False, flag_value=value` tells Click that the option can still be passed a value, but if only the flag is given, the value will be `flag_value`.\n\nSince 8.3.0 this doesn't work anymore, instead `SystemExit` with \"Error: Option '--xyz' requires an argument.\" is thrown.\n\n### Replication of bug\n\nExample taken from documentation:\n```python\n@click.command()\n@click.option(\"--name\", is_flag=False, flag_value=\"Flag\", default=\"Default\")\ndef hello(name):\n    click.echo(f\"Hello, {name}!\")\n```\n\n```shell\n$ hello --name\nError: Option '--name' requires an argument.\n```\n\n### Expected behavior\n\nThe code example above should work as\n```shell\n$ hello --name\nHello, Flag!\n```\n\nIt's not even working in the generated documentation anymore: while [documentation up to Sep, 10th](https://web.archive.org/web/20250910222023/https://click.palletsprojects.com/en/stable/options/#optional-value) shows the expected and correct behavior, [current documentation](https://click.palletsprojects.com/en/stable/options/#optional-value) demonstrates the bug.\n\n- Python version: 3.11\n- Click version: 8.3.0",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_on_option_with_zero_or_one_args[int-args4-1\\n]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_on_option_with_zero_or_one_args[str-args1-FlagValue\\n]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#3534",
+      "group": "control",
+      "hidden_test_patch_sha": "cd9bdd96a9dcc8e4ecabd45b5c244dbc70034484",
+      "merged_at": "2026-05-30T20:23:11Z",
+      "parent_sha": "65feb6127e33ce6339e0c0ae230a90ea6b3772bc",
+      "pr_number": 3534,
+      "problem_statement": "This issue tracker is a tool to address bugs in Click itself. Please use\r\nPallets Discord or Stack Overflow for questions about your own code.\r\n\r\necho_via_pager not working as expected with generators\r\n<!--\r\n\r\n-->\r\n`\r\nimport time\r\ndef count():\r\n  for i in range(10)\r\n   time.sleep(1)\r\n   yield  \"\\ncount {i}\"\r\n`\r\n<!--\r\n\r\nclick.echo_with_pager(count)\r\n`\r\n-->\r\nExpected: The output should be printed one by one\r\nOriginal: The output is printed in one shot, and the screen is blank for about 10 seconds\r\n<!--\r\n\r\n-->\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.10\r\n- Click version: 8.1.3\r\n<!--\r\n\n\nI would love to see text immediately in this toy example:\n```python\nimport click\nimport os\nimport time\n\ndef _generator():\n    for i in range(10000):\n        time.sleep(0.01)\n        yield f\"{i+1:07}\\n\"\n\n@click.command\ndef main():\n    os.environ.setdefault(\"LESS\", \"-XFR\")\n    click.echo_via_pager(_generator())\n\nmain()\n```\nAs it is currently, nothing will show until 512 lines have been `yield`ed.\nI suspect a flush after this line would do the trick:\nhttps://github.com/pallets/click/blob/cdab890e57a30a9f437b88ce9652f7bfce980c1f/src/click/_termui_impl.py#L468\n\nRelated: #2542 \u2639\ufe0f",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/termui.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_echo_via_pager_streams_each_write",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#3769",
+      "group": "control",
+      "hidden_test_patch_sha": "150d1071d69c5cdad7de78590013ffe56cf9e3bb",
+      "merged_at": "2026-08-15T17:56:58Z",
+      "parent_sha": "8b44edfff7d9a6c895fa804148c16b3a0bc9efb5",
+      "pr_number": 3769,
+      "problem_statement": "Using a `click.progressbar` with:\n- `update_min_steps` which isn't a divisor of `length`\n- `show_pos=True`\n\nwon't show full completion at the end. This can be reproduced as follows:\n\n```python\nimport time\n\nimport click\n\nwith click.progressbar(\n    range(20),\n    show_pos=True,\n    update_min_steps=7,\n) as bar:\n    for i in bar:\n        time.sleep(0.1)\n```\n\nwith (final) output in the terminal\n\n```text\n  [####################################]  14/20          \n```\n\n**Expected behaviour**: I had expected the output to show `20/20` at the end.\nThis would be consistent with the default percentage formatting, as can be seen by commenting the line `show_pos=True` and re-running the reproduction:\n\n```text\n  [####################################]  100%          \n```\n\nEnvironment:\n\n- Python version: tested with 3.12.3 and 3.14.3\n- Click version: 8.4.1",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/_termui_impl.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[iterate-25]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[iterate-3]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[iterate-7]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[update-25]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[update-3]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_progressbar_lands_on_final_position[update-7]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/flask#5264",
+      "group": "control",
+      "hidden_test_patch_sha": "438edcdf01c392619449a6bdbb18f6cf72ef7bb9",
+      "merged_at": "2023-09-30T14:25:31Z",
+      "parent_sha": "b7c1290528f907c9f41afcdfd33a2227c73e26d3",
+      "pr_number": 5264,
+      "problem_statement": "[Official documentation](https://flask.palletsprojects.com/en/2.3.x/api/#flask.url_for) doesn't mention any preconditions for values argument, but `self=1` raises an exception.\r\n\r\nCan be replicated with the following test case:\r\n\r\n```python\r\nfrom unittest import TestCase\r\n\r\nfrom flask import Flask, url_for\r\n\r\n\r\nclass UrlForTests(TestCase):\r\n    def setUp(self) -> None:\r\n        self.app = Flask(__name__)\r\n\r\n    def test_with_self_argument(self) -> None:\r\n        with (\r\n            self.app.app_context(),\r\n            self.assertRaisesRegex(\r\n                TypeError, \"got multiple values for argument 'self'\"\r\n            ),\r\n        ):\r\n            url_for(\"doesnotmatter\", self=1)\r\n```\r\n\r\nTraceback example:\r\n\r\n```\r\nTraceback (most recent call last):\r\n  File \"/home/dmitry/git/github.com/minetest/contentdb/tests.py\", line 6, in <module>\r\n    url_for(\"doesnotmatter\", self=1)\r\n  File \"/home/dmitry/.cache/pypoetry/virtualenvs/contentdb-MK2UWkId-py3.10/lib/python3.10/site-packages/flask/helpers.py\", line 256, in url_for\r\n    return current_app.url_for(\r\nTypeError: Flask.url_for() got multiple values for argument 'self'\r\n```\r\n\r\nThe expected behavior is the returned URL has query string like '?self=1'.\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.10.6\r\n- Flask version: 2.3.3",
+      "repo": "pallets/flask",
+      "source_files": [
+        "src/flask/app.py"
+      ],
+      "test_files": [
+        "tests/test_helpers.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_helpers.py::TestUrlFor::test_url_for_with_self",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/flask#5626",
+      "group": "control",
+      "hidden_test_patch_sha": "6f2014d353d514e404c1f40e8f0a24e2bf62b941",
+      "merged_at": "2024-11-01T20:21:36Z",
+      "parent_sha": "62c56e08c43f5eb174d15dd050591cfba9aed548",
+      "pr_number": 5626,
+      "problem_statement": "Werkzeug provides three settings on `Request` to control form parsing: `max_content_length`, `max_form_memory_size`, and `max_form_parts`. Only `max_content_length` is exposed as a Flask config right now, and the way it's implemented means it can only be set for the whole application, not per-request. Fix all that. Document these in the security page as well as the config page.",
+      "repo": "pallets/flask",
+      "source_files": [
+        "src/flask/app.py",
+        "src/flask/wrappers.py"
+      ],
+      "test_files": [
+        "tests/test_basic.py",
+        "tests/test_request.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_request.py::test_limit_config",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/flask#6133",
+      "group": "control",
+      "hidden_test_patch_sha": "d8eaaba824655046958d1a97f11780de460c3271",
+      "merged_at": "2026-08-11T20:19:14Z",
+      "parent_sha": "3596b1ab61cea85edb8970e83ff61daa073facf8",
+      "pr_number": 6133,
+      "problem_statement": "For example of passing via a Queue that does not work. https://github.com/HourGlss/FlaskSSE/blob/master/sse/sse.py\r\n\r\n### Expected Behavior\r\nSession is a global variable\r\n\r\n### Actual Behavior\r\nWhen passed via a queue the keys and associated values are dropped. When attempting to access globally, no keys are available even if they had been added by endpoints\r\n\r\n### Environment\r\n\r\n* Python version: 3.7\r\n* Flask version: Default install\r\n* Werkzeug version: Default install",
+      "repo": "pallets/flask",
+      "source_files": [
+        "src/flask/sansio/scaffold.py"
+      ],
+      "test_files": [
+        "tests/test_basic.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_basic.py::test_method_route[query]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#1321",
+      "group": "control",
+      "hidden_test_patch_sha": "dbb25ce34787a30e2ffa65685f6c689a269c3521",
+      "merged_at": "2024-08-03T11:38:12Z",
+      "parent_sha": "fd7538f0e23a49ec34b636484de2d1b4b690c7fb",
+      "pr_number": 1321,
+      "problem_statement": "Say I have a base class Foo, where for every derived class I want to compute some class fields. This can easily be done with `__init_subclass__` in python. However, it's not possible to use the class's attribute data in `__init_subclass__`, since they will only get initialized by the decorator after the class is created. \r\n\r\nWhat I'd like to see is a  `__attrs_init_subclass__` method, that is called just before the decorator returns. In that method, `attr.fields(cls)` could then return the correct value. This method could obviously not take the `kwargs` like `__init_subclass__`. What might be useful is to pass a list of attributes declared in that class; there is currently no way to get those otherwise.\r\n\r\nThe only current alternative is to have the base class _and_ a custom decorator after the attrib decorator, that means every user of the class needs two separate declarations to get it working correctly.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/_make.py",
+        "src/attr/_next_gen.py"
+      ],
+      "test_files": [
+        "tests/test_functional.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_functional.py::TestFunctional::test_init_subclass[False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_functional.py::TestFunctional::test_init_subclass[True]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#382",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c0fc6911e6ca653d1dc49893307a8f761397f98e",
+      "merged_at": "2023-01-30T14:51:22Z",
+      "parent_sha": "1007141288e4e22f9166b714553c63d88053ed43",
+      "pr_number": 382,
+      "problem_statement": "The library now raises `RuntimeError` in certain retry conditions (such as when a retry predicate is called before an outcome is set, or when a failed outcome has no exception) instead of silently proceeding with potentially incorrect behavior.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py",
+        "tenacity/_asyncio.py",
+        "tenacity/after.py",
+        "tenacity/before.py",
+        "tenacity/before_sleep.py",
+        "tenacity/retry.py",
+        "tenacity/stop.py",
+        "tenacity/tornadoweb.py",
+        "tenacity/wait.py"
+      ],
+      "test_files": [
+        "tests/test_after.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_after.py::TestAfterLogFormat::test_01_default",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_after.py::TestAfterLogFormat::test_02_custom_sec_format",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#387",
+      "group": "rescued",
+      "hidden_test_patch_sha": "78c8d4bc8596af1143801076faa922f2f21c1bba",
+      "merged_at": "2023-02-06T10:29:32Z",
+      "parent_sha": "b93e4dca90cbadfc7db10c23253b4010b991b58f",
+      "pr_number": 387,
+      "problem_statement": "`AsyncRetrying` incorrectly allowed synchronous iteration, causing retries to execute without awaiting the sleep coroutine, resulting in instant retries instead of respecting the configured delay.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/_asyncio.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_async_retying_iterator",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#451",
+      "group": "rescued",
+      "hidden_test_patch_sha": "21137e79ea6d59907b3b8d236c275c5190a612fe",
+      "merged_at": "2024-06-12T12:20:23Z",
+      "parent_sha": "cb15300d9b4358d9bdb6cfd33d433368700b3abe",
+      "pr_number": 451,
+      "problem_statement": "The tenacity library does not support using async functions (coroutines) as retry strategy predicates, preventing users from defining retry conditions that rely on asynchronous operations.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py",
+        "tenacity/_utils.py",
+        "tenacity/asyncio/__init__.py",
+        "tenacity/asyncio/retry.py",
+        "tenacity/retry.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py"
+      ],
+      "transition_kind": "collection_error",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_exc",
+          "parent": "error"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_result",
+          "parent": "error"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_result_and",
+          "parent": "error"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_result_or",
+          "parent": "error"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_result_rand",
+          "parent": "error"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestContextManager::test_retry_with_async_result_ror",
+          "parent": "error"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#463",
+      "group": "rescued",
+      "hidden_test_patch_sha": "ade0567151ea6c9494fbca94c777ab729922e527",
+      "merged_at": "2024-06-17T07:33:40Z",
+      "parent_sha": "952189b4e33c02b5cd3fb0eb82dd318087f06d66",
+      "pr_number": 463,
+      "problem_statement": "When using the `@retry` decorator with Trio, the retry mechanism does not work automatically and requires manually passing `sleep=trio.sleep`.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/asyncio/__init__.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestTrio::test_trio_basic",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#541",
+      "group": "rescued",
+      "hidden_test_patch_sha": "815c34fec2c8d64fe2bc8a6bdd79bfb41f1938c6",
+      "merged_at": "2025-11-05T06:58:22Z",
+      "parent_sha": "d6e57dd1bd6eb1971bbe57169f98cd9c4f7aae6c",
+      "pr_number": 541,
+      "problem_statement": "The tenacity library lacks a built-in wait strategy that allows users to dynamically determine the retry delay based on the specific exception raised during a failed attempt.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py",
+        "tenacity/wait.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_exception",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#628",
+      "group": "rescued",
+      "hidden_test_patch_sha": "3233040287fb03391c0ad1a5ad7404d359f8a98d",
+      "merged_at": "2026-03-11T14:20:45Z",
+      "parent_sha": "21189c74a98552a3efa96e538b9ef2f25668d094",
+      "pr_number": 628,
+      "problem_statement": "The `wait_exponential_jitter` retry wait strategy does not support a configurable minimum wait time floor, and does not accept `timedelta` objects for its `max`, `jitter`, or `min` parameters, unlike the related `wait_exponential` strategy.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/wait.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_exponential_jitter_min",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_exponential_jitter_timedelta",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#646",
+      "group": "rescued",
+      "hidden_test_patch_sha": "4ee186c10924ef9125f2464f2ad608d3de32ced0",
+      "merged_at": "2026-07-01T08:52:12Z",
+      "parent_sha": "868c60b80cd84273bf15a8b3f5c2026776728e5f",
+      "pr_number": 646,
+      "problem_statement": "When `wait_chain()` is called with no strategies, it does not raise an error at construction time. Instead, the first time the resulting wait function is invoked, it raises an `IndexError` with the message \"tuple index out of range\", which is confusing because the mistake was made earlier when configuring the retry.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/wait.py"
+      ],
+      "test_files": [
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_chain_requires_at_least_one_strategy",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "jd/tenacity#694",
+      "group": "rescued",
+      "hidden_test_patch_sha": "389aab8b2688f7a1df41c2dd7797eeb18c8baff9",
+      "merged_at": "2026-08-06T06:44:13Z",
+      "parent_sha": "a09999688c8d3bb3d4ca1716748009954cc7c4d0",
+      "pr_number": 694,
+      "problem_statement": "The `wait` parameter in `Retrying` and `AsyncRetrying` no longer accepts falsy values like `None`, `0`, or `sum([])`, raising an uncaught `TypeError` during retry. Two additional regression bugs affect retry behavior: `callable + wait_strategy` raises `TypeError` instead of combining them, and `wait_combine` passes the retry state as a keyword argument `retry_state=`, which crashes callbacks that use a different parameter name.",
+      "repo": "jd/tenacity",
+      "source_files": [
+        "tenacity/__init__.py",
+        "tenacity/asyncio/__init__.py",
+        "tenacity/wait.py"
+      ],
+      "test_files": [
+        "tests/test_asyncio.py",
+        "tests/test_tenacity.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_asyncio.py::TestAsyncio::test_wait_falsy_values_mean_no_wait",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_combine_passes_state_positionally",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_falsy_values_mean_no_wait",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_tenacity.py::TestWaitConditions::test_wait_radd_plain_callable",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "marshmallow-code/marshmallow#1965",
+      "group": "rescued",
+      "hidden_test_patch_sha": "2fc8207da9cf0cf1d9b9b4ab76d4d0478b588325",
+      "merged_at": "2025-03-04T05:03:48Z",
+      "parent_sha": "b7026f3b2622cffc981588b647526fa9525f063d",
+      "pr_number": 1965,
+      "problem_statement": "The `@validates` decorator now accepts multiple field names, allowing a single validator method to validate several fields at once.",
+      "repo": "marshmallow-code/marshmallow",
+      "source_files": [
+        "src/marshmallow/decorators.py",
+        "src/marshmallow/schema.py"
+      ],
+      "test_files": [
+        "tests/test_context.py",
+        "tests/test_decorators.py",
+        "tests/test_schema.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_decorators.py::TestValidatesDecorator::test_validates_accepts_multiple_fields",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "marshmallow-code/marshmallow#2722",
+      "group": "rescued",
+      "hidden_test_patch_sha": "3273a5beb9db746217390589d72e92230255fede",
+      "merged_at": "2025-01-04T21:44:53Z",
+      "parent_sha": "168fae7e827ba761ffdf638aab43a32bfdfa3453",
+      "pr_number": 2722,
+      "problem_statement": "The `marshmallow.base` module and `FieldABC` class have been removed, and the `resolve_field_instance` and `FieldInstanceResolutionError` APIs have been made private (prefixed with underscore).",
+      "repo": "marshmallow-code/marshmallow",
+      "source_files": [
+        "src/marshmallow/base.py",
+        "src/marshmallow/exceptions.py",
+        "src/marshmallow/fields.py",
+        "src/marshmallow/schema.py",
+        "src/marshmallow/utils.py"
+      ],
+      "test_files": [
+        "tests/test_serialization.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_serialization.py::TestFieldSerialization::test_bad_list_field",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_serialization.py::TestFieldSerialization::test_bad_tuple_field",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "marshmallow-code/marshmallow#3016",
+      "group": "rescued",
+      "hidden_test_patch_sha": "902f99c4151d1f0c4c3b8e8dfbafc7b6a76aeaa6",
+      "merged_at": "2026-08-08T14:24:08Z",
+      "parent_sha": "3207be31474530f7c0685dfbd7b4faca5b35fbf5",
+      "pr_number": 3016,
+      "problem_statement": "The `validate.URL` validator incorrectly rejects absolute URLs that contain a fragment after an empty path (e.g., `https://example.com#frag`), even though such URLs are valid per RFC 3986 and commonly used for anchor links to a domain root.",
+      "repo": "marshmallow-code/marshmallow",
+      "source_files": [
+        "src/marshmallow/validate.py"
+      ],
+      "test_files": [
+        "tests/test_validate.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_absolute_valid[http://example.org#fragment]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_absolute_valid[http://user@example.com#fragment]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_relative_only_valid[#frag]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validate.py::test_url_relative_valid[#frag]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1304",
+      "group": "rescued",
+      "hidden_test_patch_sha": "2340accccb0c13aca61b2cfba840d04d8c506135",
+      "merged_at": "2020-02-17T00:06:06Z",
+      "parent_sha": "278a054432dbbe077f8921249d657c992ccf99fb",
+      "pr_number": 1304,
+      "problem_statement": "When an environment variable is set to an empty string (e.g., `MYPATH=''`), Click incorrectly treats it as if the variable has a value, rather than ignoring it as if the variable were not set.",
+      "repo": "pallets/click",
+      "source_files": [
+        "click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_empty_envvar",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1309",
+      "group": "rescued",
+      "hidden_test_patch_sha": "93d947c2e3c5584729d7de35644f778c0e8e147e",
+      "merged_at": "2020-02-20T06:46:12Z",
+      "parent_sha": "9ea9666f0f5646713be799e764ecc252c9f7ebbd",
+      "pr_number": 1309,
+      "problem_statement": "When prompting for a file-type option that has a default value, the prompt displays the default\u2019s full representation (e.g., the file object) instead of just the file path, making the prompt confusing.",
+      "repo": "pallets/click",
+      "source_files": [
+        "click/termui.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_file_prompt_default_format[file_kwargs0]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_file_prompt_default_format[file_kwargs1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_file_prompt_default_format[file_kwargs2]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1312",
+      "group": "rescued",
+      "hidden_test_patch_sha": "990ca8e664a0610fe0583f3aa8924fd49f928a74",
+      "merged_at": "2020-08-10T14:45:28Z",
+      "parent_sha": "563b1a7116a6806e699d31d327dd9bca93c40cb3",
+      "pr_number": 1312,
+      "problem_statement": "The test runner's result object does not expose the return value of the invoked command, making it impossible to verify what the command returned during testing.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/testing.py"
+      ],
+      "test_files": [
+        "tests/test_testing.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_testing.py::test_command_standalone_mode_returns_value",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1318",
+      "group": "rescued",
+      "hidden_test_patch_sha": "1a714b3d2c9242b8a5d573c258f6c6941b505da1",
+      "merged_at": "2019-09-26T05:34:27Z",
+      "parent_sha": "68c93287a8195af539c85656927f5c67ba5631d5",
+      "pr_number": 1318,
+      "problem_statement": "When using `click.Choice` with case-insensitive matching or a token normalization function, the value returned to the user is the normalized version of their input rather than the originally specified choice from the list.",
+      "repo": "pallets/click",
+      "source_files": [
+        "click/types.py"
+      ],
+      "test_files": [
+        "tests/test_normalization.py",
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_normalization.py::test_choice_normalization",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_case_insensitive_choice",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_case_insensitive_choice_returned_exactly",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1504",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c99e0e8baf7012df214147dc4aa92c51f3cd6edf",
+      "merged_at": "2020-06-06T00:02:09Z",
+      "parent_sha": "1784558ed7c75c65764d2a434bd9cbb206ca939d",
+      "pr_number": 1504,
+      "problem_statement": "When using shell completion (e.g., Bash, Zsh), the `--help` option is not suggested as a completion candidate, even though it is a valid and available option.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/_bashcomplete.py"
+      ],
+      "test_files": [
+        "tests/test_bashcomplete.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_args_with_double_dash_complete[args0---expect0]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_args_with_double_dash_complete[args1----expect1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_boolean_flag",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_boolean_flag_choice",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_chaining",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_hidden",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_long_chain",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_long_chain_choice",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_multi_option",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_multi_value_option",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_option_choice",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_single_command",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_bashcomplete.py::test_small_chain",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#1916",
+      "group": "rescued",
+      "hidden_test_patch_sha": "fcf82054fda436298d16a204a602be739d7efbe8",
+      "merged_at": "2021-05-19T18:42:23Z",
+      "parent_sha": "1b4915931c1b32ad1bcd043132a0831d71be3aa4",
+      "pr_number": 1916,
+      "problem_statement": "When a parameter has an invalid default value, help text fails to display with an error instead of showing the available options.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_basic.py",
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_basic.py::test_help_invalid_default",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2094",
+      "group": "rescued",
+      "hidden_test_patch_sha": "3737511d399d3910ce65450358f3bde065acf8f1",
+      "merged_at": "2021-10-10T17:19:39Z",
+      "parent_sha": "96146c9d0b25d700d00b65c916739bd491dd15e0",
+      "pr_number": 2094,
+      "problem_statement": "When using `Path(resolve_path=True)`, paths that contain symlinks are not correctly resolved, resulting in invalid or incorrect paths.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/types.py"
+      ],
+      "test_files": [
+        "tests/conftest.py",
+        "tests/test_types.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_types.py::test_path_resolve_symlink",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2248",
+      "group": "rescued",
+      "hidden_test_patch_sha": "5fd87bdf80ed450334b37344f6c99890c217d3db",
+      "merged_at": "2022-04-28T13:55:44Z",
+      "parent_sha": "afdfb120fff5cb5f8d0184d411369f5dddaed5b3",
+      "pr_number": 2248,
+      "problem_statement": "When creating an option, specifying both `multiple=True` and `is_flag=True` does not raise an error, but these two settings are incompatible and should not be allowed together.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_invalid_flag_combinations[kwargs2-'multiple' is not valid with 'is_flag', use 'count'.]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2509",
+      "group": "rescued",
+      "hidden_test_patch_sha": "a6e0d2936891030f5092c9869c7391104f6721d9",
+      "merged_at": "2024-11-02T23:11:55Z",
+      "parent_sha": "1a4d8c1bb1e8f8e214ede7223bd2c05dc2ce006a",
+      "pr_number": 2509,
+      "problem_statement": "When `show_default` is set to `False` on an option, the default value still appears in the prompt instead of being hidden.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_termui.py::test_false_show_default_cause_no_default_display_in_prompt",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2680",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c326df95e9e3da0425360e030413f6a3ee25fdee",
+      "merged_at": "2024-11-03T12:35:15Z",
+      "parent_sha": "a8c05427602d12842c53ce48b03b5d6b5c0c6693",
+      "pr_number": 2680,
+      "problem_statement": "When a CLI command exits via `ctx.exit()`, any cleanup callbacks or context managers registered with the context are not invoked, causing resource leaks that can lead to flaky and non-deterministic test results when running multiple tests in the same Python interpreter.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_context.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_context.py::test_multiple_eager_callbacks[eagerness_precedence]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_context.py::test_multiple_eager_callbacks[natural_order]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_context.py::test_no_state_leaks",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2728",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c021f05c838c1d0401ebc340d1de9b663c7fb578",
+      "merged_at": "2024-05-21T14:46:21Z",
+      "parent_sha": "e88c11239971d309744fd3f9139259f64787f45a",
+      "pr_number": 2728,
+      "problem_statement": "When a `click.Path` parameter receives an invalid path containing a newline character, the error message is displayed across multiple lines instead of as a single line.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/types.py"
+      ],
+      "test_files": [
+        "tests/test_types.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_types.py::test_invalid_path_with_esc_sequence",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2829",
+      "group": "rescued",
+      "hidden_test_patch_sha": "b5464b7e065bdfd952b1532880941f1be07e4e2b",
+      "merged_at": "2024-12-22T20:25:57Z",
+      "parent_sha": "88328fc8743d43566081d9f17acad5f5552f5a87",
+      "pr_number": 2829,
+      "problem_statement": "When an `Option` is not a flag (i.e., `is_flag=False`), setting `flag_value = not self.default` previously required the default value to have a valid boolean conversion, which could fail for objects like `numpy.ndarray` that raise an exception on truthiness evaluation.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_info_dict.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_info_dict.py::test_command[Command]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_info_dict.py::test_command[Group]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_info_dict.py::test_command[Nested Group]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_info_dict.py::test_context",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_info_dict.py::test_parameter[Option]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "pallets/click#2930",
+      "group": "rescued",
+      "hidden_test_patch_sha": "884af5c20fdc95c9c7352df35c37273391464fb9",
+      "merged_at": "2025-05-20T14:55:39Z",
+      "parent_sha": "011b9f9d190c71310264e6c54bae6259f5e38a9f",
+      "pr_number": 2930,
+      "problem_statement": "The bug causes flag options that specify a `type` to not set the correct flag value when the flag is used, resulting in the flag's value being incorrect or unset.",
+      "repo": "pallets/click",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_options.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_is_correctly_set[opts1-True-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_is_correctly_set[opts3-True-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_is_correctly_set[opts5-True-True]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_is_correctly_set[opts7-True-False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_options.py::test_flag_value_is_correctly_set[opts9-True-True]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#1001",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c58ffd4e4cba5d5e58356722b985fc362358c48e",
+      "merged_at": "2022-08-11T11:33:34Z",
+      "parent_sha": "536ddc57e25228655e78634db91d6ebd23dbb5d1",
+      "pr_number": 1001,
+      "problem_statement": "On Python 3.10 and later, abstractness of dict classes created by the library is not properly detected.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/_make.py"
+      ],
+      "test_files": [
+        "tests/test_abc.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_abc.py::TestUpdateAbstractMethods::test_abc_implementation[False]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#1085",
+      "group": "rescued",
+      "hidden_test_patch_sha": "c9150d278ced32056d73c239ff64034e5056bcb6",
+      "merged_at": "2023-01-25T06:58:32Z",
+      "parent_sha": "882805e173ba970f381ed8f162b650eb7fbc1160",
+      "pr_number": 1085,
+      "problem_statement": "Starting with attrs version 22.2.0, pickled instances created by earlier versions of attrs cannot be unpickled; unpickling an older pickle raises an `AttributeError` because the unpickling code expects a dict but encounters a tuple.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/_make.py"
+      ],
+      "test_files": [
+        "tests/test_slots.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_slots.py::test_slots_unpickle_is_backward_compatible[False]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_slots.py::test_slots_unpickle_is_backward_compatible[True]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#1203",
+      "group": "rescued",
+      "hidden_test_patch_sha": "1fcd29f8641efbff7e1b2130a38a4404a899bd50",
+      "merged_at": "2023-11-28T12:09:38Z",
+      "parent_sha": "d40d9f3c97302f3d9bfe7c72e4d5b542e041f3d8",
+      "pr_number": 1203,
+      "problem_statement": "The `attr.make_class` function lacks the ability to inject additional class attributes (such as methods) when creating new classes, forcing users to use lower-level mechanisms like `types.new_class` that lose type information.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/_make.py"
+      ],
+      "test_files": [
+        "tests/test_make.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_make.py::TestMakeClass::test_additional_class_body",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#1263",
+      "group": "rescued",
+      "hidden_test_patch_sha": "d9ed5937fe0c2621c53e53e8c7a5ff4bd559de65",
+      "merged_at": "2024-03-16T15:58:34Z",
+      "parent_sha": "f590f44cfd43fbba0eb3c6747fa0f635f8f7affa",
+      "pr_number": 1263,
+      "problem_statement": "The `repr_ns` parameter in `attr.s` is now deprecated and triggers a deprecation warning when used.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/_make.py"
+      ],
+      "test_files": [
+        "tests/test_make.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_make.py::TestAttributes::test_repr_fake_qualname",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#925",
+      "group": "rescued",
+      "hidden_test_patch_sha": "d0c73d8faa184cdff8d6a0378ed5b85ca57cde7d",
+      "merged_at": "2022-03-20T08:48:55Z",
+      "parent_sha": "b75436630fafde95ba2954052c5c4d7d4f506b28",
+      "pr_number": 925,
+      "problem_statement": "The `deep_iterable` validator does not accept a list of validators for its `member_validator` argument, requiring users to manually combine them instead.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "src/attr/validators.py"
+      ],
+      "test_files": [
+        "tests/test_validators.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_fail_invalid_member[member_validator1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_fail_invalid_member[member_validator2]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_fail_invalid_member_and_iterable[member_validator1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_fail_invalid_member_and_iterable[member_validator2]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_noncallable_validators[member_validator4-42]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_noncallable_validators[member_validator5-42]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_repr_member_only_sequence",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_repr_sequence_member_and_iterable",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_success_member_and_iterable[member_validator1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_success_member_and_iterable[member_validator2]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_success_member_only[member_validator1]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_validators.py::TestDeepIterable::test_success_member_only[member_validator2]",
+          "parent": "failed"
+        }
+      ]
+    },
+    {
+      "case_id": "python-attrs/attrs#993",
+      "group": "rescued",
+      "hidden_test_patch_sha": "d4934b14f13645a144224d2a8281820da568cbe6",
+      "merged_at": "2023-01-11T15:50:27Z",
+      "parent_sha": "c02d993f9dc8643714fdad43e8adbc0f4a33b474",
+      "pr_number": 993,
+      "problem_statement": "The project no longer supports Python 3.6, and the build system has been changed to use static packaging configuration.",
+      "repo": "python-attrs/attrs",
+      "source_files": [
+        "setup.py",
+        "src/attr/__init__.py",
+        "src/attr/validators.py",
+        "src/attrs/__init__.py"
+      ],
+      "test_files": [
+        "tests/test_packaging.py"
+      ],
+      "transition_kind": "assertion_failure",
+      "transition_tests": [
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_author[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_author[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_copyright[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_copyright[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_description[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_description[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_does_not_exist[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_does_not_exist[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_email[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_email[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_license[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_license[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_title[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_title[attrs]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_uri[attr-__uri__]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_uri[attr-__url__]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_uri[attrs-__uri__]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_uri[attrs-__url__]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_version[attr]",
+          "parent": "failed"
+        },
+        {
+          "fix": "passed",
+          "nodeid": "tests/test_packaging.py::TestLegacyMetadataHack::test_version[attrs]",
+          "parent": "failed"
+        }
+      ]
+    }
+  ],
+  "requested_n_per_group": 30,
+  "schema_version": 1,
+  "seed": 99173,
+  "single_attempt": true
+}

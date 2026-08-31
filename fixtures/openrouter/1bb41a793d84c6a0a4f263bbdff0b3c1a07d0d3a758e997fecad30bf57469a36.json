@@ -1,0 +1,66 @@
+{
+  "latency_s": 1.49,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfeat(wait): add `wait_exception` strategy\n\nPR body:\nJust a small feature I frequently use with HTTP requests, in case you are interested.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex e93793c..b0b4794 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -59,6 +59,7 @@ from .stop import stop_when_event_set  # noqa\n # Import all built-in wait strategies for easier usage.\n from .wait import wait_chain  # noqa\n from .wait import wait_combine  # noqa\n+from .wait import wait_exception  # noqa\n from .wait import wait_exponential  # noqa\n from .wait import wait_fixed  # noqa\n from .wait import wait_incrementing  # noqa\n@@ -686,6 +687,7 @@ __all__ = [\n     \"stop_when_event_set\",\n     \"wait_chain\",\n     \"wait_combine\",\n+    \"wait_exception\",\n     \"wait_exponential\",\n     \"wait_fixed\",\n     \"wait_incrementing\",\ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex dc3c850..abfde77 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -113,6 +113,45 @@ class wait_chain(wait_base):\n         return wait_func(retry_state=retry_state)\n \n \n+class wait_exception(wait_base):\n+    \"\"\"Wait strategy that waits the amount of time returned by the predicate.\n+\n+    The predicate is passed the exception object. Based on the exception, the\n+    user can decide how much time to wait before retrying.\n+\n+    For example::\n+\n+        def http_error(exception: BaseException) -> float:\n+            if (\n+                isinstance(exception, requests.HTTPError)\n+                and exception.response.status_code == requests.codes.too_many_requests\n+            ):\n+                return float(exception.response.headers.get(\"Retry-After\", \"1\"))\n+            return 60.0\n+\n+\n+        @retry(\n+            stop=stop_after_attempt(3),\n+            wait=wait_exception(http_error),\n+        )\n+        def http_get_request(url: str) -> None:\n+            response = requests.get(url)\n+            response.raise_for_status()\n+    \"\"\"\n+\n+    def __init__(self, predicate: typing.Callable[[BaseException], float]) -> None:\n+        self.predicate = predicate\n+\n+    def __call__(self, retry_state: \"RetryCallState\") -> float:\n+        if retry_state.outcome is None:\n+            raise RuntimeError(\"__call__() called before outcome was set\")\n+\n+        exception = retry_state.outcome.exception()\n+        if exception is None:\n+            raise RuntimeError(\"outcome failed but the exception is None\")\n+        return self.predicate(exception)\n+\n+\n class wait_incrementing(wait_base):\n     \"\"\"Wait an incremental amount of time after each attempt.\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "1bb41a793d84c6a0a4f263bbdff0b3c1a07d0d3a758e997fecad30bf57469a36",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The tenacity retry library lacks a built-in wait strategy that allows the wait time to be determined dynamically based on the specific exception raised during a retry attempt.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078192,
+    "id": "gen-1788078192-pfrQB1JB3bia0KxN6G08",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 34,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 7.776e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.12e-06,
+        "upstream_inference_cost": 7.776e-05,
+        "upstream_inference_prompt_cost": 7.164e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 796,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 830
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,69 @@
+{
+  "latency_s": 8.486,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #1637:\n### how did you install flake8?\r\n\r\n```console\r\n$ pip install flake8==5.0.0\r\nCollecting flake8==5.0.0\r\n  Using cached flake8-5.0.0-py2.py3-none-any.whl (61 kB)\r\n```\r\n\r\n\r\n### unmodified output of `flake8 --bug-report`\r\n\r\n```json\r\n{\r\n  \"platform\": {\r\n    \"python_implementation\": \"CPython\",\r\n    \"python_version\": \"3.8.0\",\r\n    \"system\": \"Linux\"\r\n  },\r\n  \"plugins\": [\r\n    {\r\n      \"plugin\": \"mccabe\",\r\n      \"version\": \"0.7.0\"\r\n    },\r\n    {\r\n      \"plugin\": \"pycodestyle\",\r\n      \"version\": \"2.9.0\"\r\n    },\r\n    {\r\n      \"plugin\": \"pyflakes\",\r\n      \"version\": \"2.5.0\"\r\n    }\r\n  ],\r\n  \"version\": \"5.0.0\"\r\n}\r\n```\r\n\r\n\r\n### describe the problem\r\n\r\n#### commands ran\r\n\r\n```console\r\n$ flake8 src/\r\nTraceback (most recent call last):\r\n  File \"/home/user/project/env/bin/flake8\", line 8, in <module>\r\n    sys.exit(main())\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/main/cli.py\", line 22, in main\r\n    app.run(argv)\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/main/application.py\", line 336, in run\r\n    self._run(argv)\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/main/application.py\", line 325, in _run\r\n    self.run_checks()\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/main/application.py\", line 229, in run_checks\r\n    self.file_checker_manager.run()\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/checker.py\", line 250, in run\r\n    self.run_parallel()\r\n  File \"/home/user/project/env/lib/python3.8/site-packages/flake8/checker.py\", line 217, in run_parallel\r\n    for ret in pool_map:\r\n  File \"/usr/lib/python3.8/multiprocessing/pool.py\", line 448, in <genexpr>\r\n    return (item for chunk in result for item in chunk)\r\n  File \"/usr/lib/python3.8/multiprocessing/pool.py\", line 865, in next\r\n    raise value\r\n  File \"/usr/lib/python3.8/multiprocessing/pool.py\", line 537, in _handle_tasks\r\n    put(task)\r\n  File \"/usr/lib/python3.8/multiprocessing/connection.py\", line 206, in send\r\n    self._send_bytes(_ForkingPickler.dumps(obj))\r\n  File \"/usr/lib/python3.8/multiprocessing/reduction.py\", line 51, in dumps\r\n    cls(buf, protocol).dump(obj)\r\n  File \"/usr/lib/python3.8/collections/__init__.py\", line 429, in __getnewargs__\r\n    return _tuple(self)\r\nRecursionError: maximum recursion depth exceeded\r\n```\r\n\r\nIt looks like `FileChecker` isn't pickleable for some reason.\r\n\r\nI added a breakpoint in `checker.py` on line 210, and ran:\r\n```\r\n(Pdb) p self.checkers[0]\r\nFileChecker for src/dir/__init__.py\r\n(Pdb) import pickle\r\n(Pdb) pickle.dumps(self.checkers[0])\r\n*** RecursionError: maximum recursion depth exceeded\r\n```\r\n\r\nThis did not occur before upgrading, when I was using flake8 4.0.1.\r\n\r\nIt does not reproduce on python 3.8.10.\n\nPR title:\nwork around un-pickleabiliy of EntryPoint in 3.8.0\n\nPR body:\n3.8.0 is ancient but might as well make it work\r\n\r\nresolves #1637\r\n\r\ntested manually in docker\n\nGold patch:\ndiff --git a/src/flake8/_compat.py b/src/flake8/_compat.py\nindex 18809e2..81da7be 100644\n--- a/src/flake8/_compat.py\n+++ b/src/flake8/_compat.py\n@@ -6,4 +6,11 @@ if sys.version_info >= (3, 8):  # pragma: no cover (PY38+)\n else:  # pragma: no cover (<PY38)\n     import importlib_metadata\n \n+if sys.version_info[:3] == (3, 8, 0):\n+    # backported from importlib.metadata in 3.8.1\n+    importlib_metadata.EntryPoint.__reduce__ = lambda self: (  # type: ignore\n+        type(self),\n+        (self.name, self.value, self.group),  # type: ignore\n+    )\n+\n __all__ = (\"importlib_metadata\",)\n\n\nRelevant source files at the broken parent:\n\n--- src/flake8/_compat.py ---\n\"\"\"Expose backports in a single place.\"\"\"\nimport sys\n\nif sys.version_info >= (3, 8):  # pragma: no cover (PY38+)\n    import importlib.metadata as importlib_metadata\nelse:  # pragma: no cover (<PY38)\n    import importlib_metadata\n\n__all__ = (\"importlib_metadata\",)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.125
+  },
+  "request_hash": "234bba9cca79a6d4680b854edc69d6832b691995147300e5a6ef2e3af9586556",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_compat_pickle.py\",\n  \"content\": \"import pickle\\nimport sys\\n\\nfrom flake8._compat import importlib_metadata\\n\\n\\ndef test_entrypoint_picklable():\\n    ep = importlib_metadata.EntryPoint(\\n        name=\\\"test\\\", value=\\\"test_module\\\", group=\\\"flake8.extension\\\"\\n    )\\n    if sys.version_info[:3] == (3, 8, 0):\\n        # On Python 3.8.0, unpickling may fail due to recursion\\n        try:\\n            pickle.loads(pickle.dumps(ep))\\n        except RecursionError:\\n            raise AssertionError(\\n                \\\"EntryPoint is not picklable on Python 3.8.0\\\"\\n            )\\n    else:\\n        pickle.loads(pickle.dumps(ep))\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788175801,
+    "id": "gen-1788175801-SrokiJs5dbOMvi7C0O1D",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "CoreWeave",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 199,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00026544,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.572e-05,
+        "upstream_inference_cost": 0.00026544,
+        "upstream_inference_prompt_cost": 0.00020972
+      },
+      "is_byok": false,
+      "prompt_tokens": 1498,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1697
+    }
+  },
+  "schema_version": 1
+}

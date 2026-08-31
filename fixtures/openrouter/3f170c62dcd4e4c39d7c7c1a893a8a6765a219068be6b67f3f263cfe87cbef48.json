@@ -1,0 +1,69 @@
+{
+  "latency_s": 3.968,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #391:\nClass `wait_base` returns float for `__call__` method.\r\nhttps://github.com/jd/tenacity/blob/b49eb370573626abd5ddb5dc03228c503079be59/tenacity/wait.py#L27-L32\r\n\r\nSame for other classes\r\nhttps://github.com/jd/tenacity/blob/b49eb370573626abd5ddb5dc03228c503079be59/tenacity/wait.py#L47-L54\r\n\r\nBut `wait.WaitBaseT ` annotated as \r\nhttps://github.com/jd/tenacity/blob/b49eb370573626abd5ddb5dc03228c503079be59/tenacity/wait.py#L44\r\n\r\nAnd when trying to make custom wait function like\r\n```python\r\n@retry(\r\n    wait=lambda retry_state: 10,\r\n)\r\ndef my_fn() -> None:\r\n    ...\r\n```\r\nthen mypy complains:\r\n```\r\nerror: Argument \"wait\" to \"retry\" has incompatible type \"Callable[[RetryCallState], int]\"; expected \"Union[wait_base, Callable[[RetryCallState], bool]]\"  [arg-type]\r\n```\r\n\r\nSys info:\r\n* python 3.10.10\r\n* mypy 1.0.1\n\nPR title:\nbetter wait.WaitBaseT annotation\n\nPR body:\nfixes https://github.com/jd/tenacity/issues/391\n\nGold patch:\ndiff --git a/releasenotes/notes/fix-wait-typing-b26eecdb6cc0a1de.yaml b/releasenotes/notes/fix-wait-typing-b26eecdb6cc0a1de.yaml\nnew file mode 100644\nindex 0000000..3b560c3\n--- /dev/null\n+++ b/releasenotes/notes/fix-wait-typing-b26eecdb6cc0a1de.yaml\n@@ -0,0 +1,5 @@\n+---\n+fixes:\n+  - |\n+    Argument `wait` was improperly annotated, making mypy checks fail.\n+    Now it's annotated as `typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], typing.Union[float, int]]]`\ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex 7a793b2..e1e2fe4 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -41,7 +41,7 @@ class wait_base(abc.ABC):\n         return self.__add__(other)\n \n \n-WaitBaseT = typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], bool]]\n+WaitBaseT = typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], typing.Union[float, int]]]\n \n \n class wait_fixed(wait_base):\n\n\nRelevant source files at the broken parent:\n\n--- tenacity/wait.py ---\n# Copyright 2016\u20132021 Julien Danjou\n# Copyright 2016 Joshua Harlow\n# Copyright 2013-2014 Ray Holder\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n# http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n\nimport abc\nimport random\nimport typing\n\nfrom tenacity import _utils\n\nif typing.TYPE_CHECKING:\n    from tenacity import RetryCallState\n\n\nclass wait_base(abc.ABC):\n    \"\"\"Abstract base class for wait strategies.\"\"\"\n\n    @abc.abstractmethod\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        pass\n\n    def __add__(self, other: \"wait_base\") -> \"wait_combine\":\n        return wait_combine(self, other)\n\n    def __radd__(self, other: \"wait_base\") -> typing.Union[\"wait_combine\", \"wait_base\"]:\n        # make it possible to use multiple waits with the built-in sum function\n        if other == 0:  # type: ignore[comparison-overlap]\n            return self\n        return self.__add__(other)\n\n\nWaitBaseT = typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], bool]]\n\n\nclass wait_fixed(wait_base):\n    \"\"\"Wait strategy that waits a fixed amount of time between each retry.\"\"\"\n\n    def __init__(self, wait: _utils.time_unit_type) -> None:\n        self.wait_fixed = _utils.to_seconds(wait)\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        return self.wait_fixed\n\n\nclass wait_none(wait_fixed):\n    \"\"\"Wait strategy that doesn't wait at all before retrying.\"\"\"\n\n    def __init__(self) -> None:\n        super().__init__(0)\n\n\nclass wait_random(wait_base):\n    \"\"\"Wait strategy that waits a random amount of time between min/max.\"\"\"\n\n    def __init__(self, min: _utils.time_unit_type = 0, max: _utils.time_unit_type = 1) -> None:  # noqa\n        self.wait_random_min = _utils.to_seconds(min)\n        self.wait_random_max = _utils.to_seconds(max)\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        return self.wait_random_min + (random.random() * (self.wait_random_max - self.wait_random_min))\n\n\nclass wait_combine(wait_base):\n    \"\"\"Combine several waiting strategies.\"\"\"\n\n    def __init__(self, *strategies: wait_base) -> None:\n        self.wait_funcs = strategies\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        return sum(x(retry_state=retry_state) for x in self.wait_funcs)\n\n\nclass wait_chain(wait_base):\n    \"\"\"Chain two or more waiting strategies.\n\n    If all strategies are exhausted, the very last strategy is used\n    thereafter.\n\n    For example::\n\n        @retry(wait=wait_chain(*[wait_fixed(1) for i in range(3)] +\n                               [wait_fixed(2) for j in range(5)] +\n                               [wait_fixed(5) for k in range(4)))\n        def wait_chained():\n            print(\"Wait 1s for 3 attempts, 2s for 5 attempts and 5s\n                   thereafter.\")\n    \"\"\"\n\n    def __init__(self, *strategies: wait_base) -> None:\n        self.strategies = strategies\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        wait_func_no = min(max(retry_state.attempt_number, 1), len(self.strategies))\n        wait_func = self.strategies[wait_func_no - 1]\n        return wait_func(retry_state=retry_state)\n\n\nclass wait_incrementing(wait_base):\n    \"\"\"Wait an incremental amount of time after each attempt.\n\n    Starting at a starting value and incrementing by a value for each attempt\n    (and restricting the upper limit to some maximum value).\n    \"\"\"\n\n    def __init__(\n        self,\n        start: _utils.time_unit_type = 0,\n        increment: _utils.time_unit_type = 100,\n        max: _utils.time_unit_type = _utils.MAX_WAIT,  # noqa\n    ) -> None:\n        self.start = _utils.to_seconds(start)\n        self.increment = _utils.to_seconds(increment)\n        self.max = _utils.to_seconds(max)\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        result = self.start + (self.increment * (retry_state.attempt_number - 1))\n        return max(0, min(result, self.max))\n\n\nclass wait_exponential(wait_base):\n    \"\"\"Wait strategy that applies exponential backoff.\n\n    It allows for a customized multiplier and an ability to restrict the\n    upper and lower limits to some maximum and minimum value.\n\n    The intervals are fixed (i.e. there is no jitter), so this strategy is\n    suitable for balancing retries against latency when a required resource is\n    unavailable for an unknown duration, but *not* suitable for resolving\n    contention between multiple processes for a shared resource. Use\n    wait_random_exponential for the latter case.\n    \"\"\"\n\n    def __init__(\n        self,\n        multiplier: typing.Union[int, float] = 1,\n        max: _utils.time_unit_type = _utils.MAX_WAIT,  # noqa\n        exp_base: typing.Union[int, float] = 2,\n        min: _utils.time_unit_type = 0,  # noqa\n    ) -> None:\n        self.multiplier = multiplier\n        self.min = _utils.to_seconds(min)\n        self.max = _utils.to_seconds(max)\n        self.exp_base = exp_base\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        try:\n            exp = self.exp_base ** (retry_state.attempt_number - 1)\n            result = self.multiplier * exp\n        except OverflowError:\n            return self.max\n        return max(max(0, self.min), min(result, self.max))\n\n\nclass wait_random_exponential(wait_exponential):\n    \"\"\"Random wait with exponentially widening window.\n\n    An exponential backoff strategy used to mediate contention between multiple\n    uncoordinated processes for a shared resource in distributed systems. This\n    is the sense in which \"exponential backoff\" is meant in e.g. Ethernet\n    networking, and corresponds to the \"Full Jitter\" algorithm described in\n    this blog post:\n\n    https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/\n\n    Each retry occurs at a random time in a geometrically expanding interval.\n    It allows for a custom multiplier and an ability to restrict the upper\n    limit of the random interval to some maximum value.\n\n    Example::\n\n        wait_random_exponential(multiplier=0.5,  # initial window 0.5s\n                                max=60)          # max 60s timeout\n\n    When waiting for an unavailable resource to become available again, as\n    opposed to trying to resolve contention for a shared resource, the\n    wait_exponential strategy (which uses a fixed interval) may be preferable.\n\n    \"\"\"\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        high = super().__call__(retry_state=retry_state)\n        return random.uniform(0, high)\n\n\nclass wait_exponential_jitter(wait_base):\n    \"\"\"Wait strategy that applies exponential backoff and jitter.\n\n    It allows for a customized initial wait, maximum wait and jitter.\n\n    This implements the strategy described here:\n    https://cloud.google.com/storage/docs/retry-strategy\n\n    The wait time is min(initial * 2**n + random.uniform(0, jitter), maximum)\n    where n is the retry count.\n    \"\"\"\n\n    def __init__(\n        self,\n        initial: float = 1,\n        max: float = _utils.MAX_WAIT,  # noqa\n        exp_base: float = 2,\n        jitter: float = 1,\n    ) -> None:\n        self.initial = initial\n        self.max = max\n        self.exp_base = exp_base\n        self.jitter = jitter\n\n    def __call__(self, retry_state: \"RetryCallState\") -> float:\n        jitter = random.uniform(0, self.jitter)\n        try:\n            exp = self.exp_base ** (retry_state.attempt_number - 1)\n            result = self.initial * exp + jitter\n        except OverflowError:\n            result = self.max\n        return max(0, min(result, self.max))\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "3f170c62dcd4e4c39d7c7c1a893a8a6765a219068be6b67f3f263cfe87cbef48",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_wait_typing.py\",\n  \"content\": \"import typing\\nfrom tenacity.wait import WaitBaseT, wait_base\\nfrom tenacity import RetryCallState\\n\\n\\ndef test_wait_callable_accepts_int() -> None:\\n    def wait_fn(retry_state: RetryCallState) -> int:\\n        return 10\\n    x: WaitBaseT = wait_fn\\n    assert isinstance(x, typing.Callable)\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788097633,
+    "id": "gen-1788097633-AeU6devVNPxWKkNUA0Ub",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 107,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00027387,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.926e-05,
+        "upstream_inference_cost": 0.00027387,
+        "upstream_inference_prompt_cost": 0.00025461
+      },
+      "is_byok": false,
+      "prompt_tokens": 2829,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2936
+    }
+  },
+  "schema_version": 1
+}

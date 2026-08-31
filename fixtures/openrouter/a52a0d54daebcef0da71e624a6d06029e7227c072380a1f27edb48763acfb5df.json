@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.035,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nCapture command return value in Result / CliRunner\n\nPR body:\nI'm using click (with `standalone_mode=False`) as the command-parsing module for a chat bot. It's awesome! In the simplest case, I have commands structured like this:\r\n\r\n```python\r\n@sammich.command()\r\n@click.option(\"--filling\", default=\"sad, empty\")\r\ndef make(filling):\r\n    \"\"\"Demo for click options.\"\"\"\r\n    return f\"Here you go, have a {filling} sammich\"\r\n```\r\n\r\nFor more complex stuff there's other ways to send messages back from the bot, but using the return value of the command to send simple messages has worked really well.\r\n\r\nTesting commands like this is a bit of a pain. I can use the `CliRunner` and see that the \"exit code\" is 0, however, while the `CliRunner` (via the Result object) allows access to stdout, stderr, exit code etc, it doesn't capture the invocation result/return value. While it's a fairly unusual use case, it looked like it might be fairly straightforward to do and it turns out it is (at least... I think so!).\r\n\r\nWith this PR, I can more easily test my simple commands' return values (the new test in `test_testing.py` is exactly what I want to do for my own simple commands.)\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 1b00e615..66895acc 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -64,6 +64,9 @@ Unreleased\n     normally be used in a ``with`` statement, allowing them to be used\n     across subcommands and callbacks, then cleaned up when the context\n     ends. :pr:`1191`\n+-   The result object returned by the test runner's ``invoke()`` method\n+    has a ``return_value`` attribute with the value returned by the\n+    invoked command. :pr:`1312`\n \n \n Version 7.1.2\ndiff --git a/src/click/testing.py b/src/click/testing.py\nindex fd6bf61b..d7e58566 100644\n--- a/src/click/testing.py\n+++ b/src/click/testing.py\n@@ -62,7 +62,14 @@ class Result:\n     \"\"\"Holds the captured result of an invoked CLI script.\"\"\"\n \n     def __init__(\n-        self, runner, stdout_bytes, stderr_bytes, exit_code, exception, exc_info=None\n+        self,\n+        runner,\n+        stdout_bytes,\n+        stderr_bytes,\n+        return_value,\n+        exit_code,\n+        exception,\n+        exc_info=None,\n     ):\n         #: The runner that created the result\n         self.runner = runner\n@@ -70,6 +77,10 @@ class Result:\n         self.stdout_bytes = stdout_bytes\n         #: The standard error as bytes, or None if not available\n         self.stderr_bytes = stderr_bytes\n+        #: The value returned from the invoked command.\n+        #:\n+        #: .. versionadded:: 8.0\n+        self.return_value = return_value\n         #: The exit code as integer.\n         self.exit_code = exit_code\n         #: The exception that happened if one did.\n@@ -269,16 +280,6 @@ class CliRunner:\n \n         This returns a :class:`Result` object.\n \n-        .. versionadded:: 3.0\n-           The ``catch_exceptions`` parameter was added.\n-\n-        .. versionchanged:: 3.0\n-           The result object now has an `exc_info` attribute with the\n-           traceback if available.\n-\n-        .. versionadded:: 4.0\n-           The ``color`` parameter was added.\n-\n         :param cli: the command to invoke\n         :param args: the arguments to invoke. It may be given as an iterable\n                      or a string. When given as string it will be interpreted\n@@ -291,9 +292,24 @@ class CliRunner:\n         :param extra: the keyword arguments to pass to :meth:`main`.\n         :param color: whether the output should contain color codes. The\n                       application can still override this explicitly.\n+\n+        .. versionchanged:: 8.0\n+            The result object has the ``return_value`` attribute with\n+            the value returned from the invoked command.\n+\n+        .. versionchanged:: 4.0\n+            Added the ``color`` parameter.\n+\n+        .. versionchanged:: 3.0\n+            Added the ``catch_exceptions`` parameter.\n+\n+        .. versionchanged:: 3.0\n+            The result object has the ``exc_info`` attribute with the\n+            traceback if available.\n         \"\"\"\n         exc_info = None\n         with self.isolation(input=input, env=env, color=color) as outstreams:\n+            return_value = None\n             exception = None\n             exit_code = 0\n \n@@ -306,7 +322,7 @@ class CliRunner:\n                 prog_name = self.get_default_prog_name(cli)\n \n             try:\n-                cli.main(args=args or (), prog_name=prog_name, **extra)\n+                return_value = cli.main(args=args or (), prog_name=prog_name, **extra)\n             except SystemExit as e:\n                 exc_info = sys.exc_info()\n                 exit_code = e.code\n@@ -339,6 +355,7 @@ class CliRunner:\n             runner=self,\n             stdout_bytes=stdout,\n             stderr_bytes=stderr,\n+            return_value=return_value,\n             exit_code=exit_code,\n             exception=exception,\n             exc_info=exc_info,\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "a52a0d54daebcef0da71e624a6d06029e7227c072380a1f27edb48763acfb5df",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The test runner's result object does not expose the return value of the invoked command, making it impossible to verify what the command returned during testing.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078423,
+    "id": "gen-1788078423-nG0Rc9HirvfB7wXqjh6z",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "SiliconFlow",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 29,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00018557,
+      "cost_details": {
+        "upstream_inference_completions_cost": 8.12e-06,
+        "upstream_inference_cost": 0.00018557,
+        "upstream_inference_prompt_cost": 0.00017745
+      },
+      "is_byok": false,
+      "prompt_tokens": 1365,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1394
+    }
+  },
+  "schema_version": 1
+}

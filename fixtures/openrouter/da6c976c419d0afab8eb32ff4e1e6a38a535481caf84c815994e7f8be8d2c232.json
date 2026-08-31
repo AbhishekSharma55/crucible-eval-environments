@@ -1,0 +1,74 @@
+{
+  "latency_s": 6.257,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfix: guard against None seconds_since_start in after_log\n\nPR body:\n`RetryCallState.seconds_since_start` returns None when\n`outcome_timestamp` is not set. The `%` format operator in `after_log`\nwould crash with a TypeError in this case. Fall back to \"?\" when the\nvalue is None.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/tenacity/after.py b/tenacity/after.py\nindex a4b8922..707f743 100644\n--- a/tenacity/after.py\n+++ b/tenacity/after.py\n@@ -39,10 +39,11 @@ def after_log(\n             fn_name = \"<unknown>\"\n         else:\n             fn_name = _utils.get_callback_name(retry_state.fn)\n+        secs = retry_state.seconds_since_start\n         logger.log(\n             log_level,\n             f\"Finished call to '{fn_name}' \"\n-            f\"after {sec_format % retry_state.seconds_since_start}(s), \"\n+            f\"after {sec_format % secs if secs is not None else '?'}(s), \"\n             f\"this was the {_utils.to_ordinal(retry_state.attempt_number)} time calling it.\",\n         )\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "da6c976c419d0afab8eb32ff4e1e6a38a535481caf84c815994e7f8be8d2c232",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `after_log` function crashes with a `TypeError` when the retry state's elapsed time is not available.",
+          "reasoning": "We need to write a concise problem statement describing the externally observable bug. The PR title says \"guard against None seconds_since_start in after_log\". The body explains that `RetryCallState.seconds_since_start` returns None when `outcome_timestamp` is not set, and the `%` format operator in `after_log` would crash with a TypeError. So the bug is that when `seconds_since_start` is None, the logging function crashes. The problem statement should describe the symptom: a TypeError occurs when logging after a retry attempt if the outcome timestamp is not set. We should not reveal implementation details like the variable name or the fix. So: \"When using the `after_log` logging function, a `TypeError` is raised if `seconds_since_start` is `None` (which occurs when the outcome timestamp is not set).\" But we need to be concise and only describe the externally observable bug. Possibly: \"The `after_log` function crashes with a `TypeError` when the retry state's seconds since start is not available.\"",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing the externally observable bug. The PR title says \"guard against None seconds_since_start in after_log\". The body explains that `RetryCallState.seconds_since_start` returns None when `outcome_timestamp` is not set, and the `%` format operator in `after_log` would crash with a TypeError. So the bug is that when `seconds_since_start` is None, the logging function crashes. The problem statement should describe the symptom: a TypeError occurs when logging after a retry attempt if the outcome timestamp is not set. We should not reveal implementation details like the variable name or the fix. So: \"When using the `after_log` logging function, a `TypeError` is raised if `seconds_since_start` is `None` (which occurs when the outcome timestamp is not set).\" But we need to be concise and only describe the externally observable bug. Possibly: \"The `after_log` function crashes with a `TypeError` when the retry state's seconds since start is not available.\"",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078198,
+    "id": "gen-1788078198-rzkZWMICDaNnj71Ah57K",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Parasail",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 249,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 253
+      },
+      "cost": 0.00012362,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.972e-05,
+        "upstream_inference_cost": 0.00012362,
+        "upstream_inference_prompt_cost": 5.39e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 385,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 634
+    }
+  },
+  "schema_version": 1
+}

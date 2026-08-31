@@ -1,0 +1,69 @@
+{
+  "latency_s": 13.221,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd `ne` validator\n\nPR body:\n# Summary\r\n\r\nThis change adds a validator that raises `ValueError` if the\r\ninitializer is called with a number equal to *val*.\r\n\r\nAn example use case. I want a field that is a signed `int` of any\r\nvalue except for zero. I could do the following.\r\n\r\n```python\r\nattrs.field(\r\n    validator=attrs.validators.or_(\r\n        attrs.validators.le(-1),\r\n        attrs.validators.ge(1),\r\n    )\r\n)\r\n```\r\n\r\nWith this proposed `ne` validator I could do.\r\n\r\n```python\r\nattrs.field(validator=attrs.validators.ne(0))\r\n```\r\n\r\n# Pull Request Check List\r\n\r\n<!--\r\nThis list is our brown M&M test:\r\nIgnoring -- or even deleting -- leads to instant closing of this pull request.\r\nThe only exceptions are pure documentation fixes.\r\n\r\nPlease read our [contribution guide](https://github.com/python-attrs/attrs/blob/main/.github/CONTRIBUTING.md) at least once, it will save you unnecessary review cycles!\r\n\r\nYou may check boxes that don't apply to your pull request to indicate that there isn't anything left to do.\r\n-->\r\n\r\n- [x] I acknowledge this project's [**AI policy**](https://github.com/python-attrs/attrs/blob/main/.github/AI_POLICY.md).\r\n- [x] This pull requests is [**not** from my `main` branch](https://hynek.me/articles/pull-requests-branch/).\r\n  - Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\r\n- [x] There's **tests** for all new and changed code.\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [ ] ...and used in the stub test file `typing-examples/baseline.py` or, if necessary, `typing-examples/mypy.py`.\r\n    - [ ] If they've been added to `attr/__init__.pyi`, they've *also* been re-imported in `attrs/__init__.pyi`.\r\n- [x] The **documentation** has been updated.\r\n    - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [x] Changes to the signatures of `@attr.s()` and `@attrs.define()` have to be added by hand too.\r\n    - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n          The next version is the second number in the current release + 1.\r\n          The first number represents the current year.\r\n          So if the current version on PyPI is 26.2.0, the next version is gonna be 26.3.0.\r\n          If the next version is the first in the new year, it'll be 27.1.0.\r\n    - [x] Documentation in `.rst` and `.md` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [x] Changes have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n\r\n<!--\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!\r\nGiven the ongoing AI slop wave we need to be strict about policies, but we're happy to help out fellow humans.\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1571.change.md b/changelog.d/1571.change.md\nnew file mode 100644\nindex 00000000..acaad15b\n--- /dev/null\n+++ b/changelog.d/1571.change.md\n@@ -0,0 +1 @@\n+Added new validator `attrs.validators.ne()` (not equal).\ndiff --git a/docs/api.rst b/docs/api.rst\nindex ee84d9de..c8ab29a4 100644\n--- a/docs/api.rst\n+++ b/docs/api.rst\n@@ -396,6 +396,22 @@ All objects from ``attrs.validators`` are also available from ``attr.validators`\n          ...\n       ValueError: (\"'x' must be > 42: 42\")\n \n+.. autofunction:: attrs.validators.ne\n+\n+   For example:\n+\n+   .. doctest::\n+\n+      >>> @define\n+      ... class C:\n+      ...     x = field(validator=attrs.validators.ne(42))\n+      >>> C(43)\n+      C(x=43)\n+      >>> C(42)\n+      Traceback (most recent call last):\n+         ...\n+      ValueError: (\"'x' must be != 42: 42\")\n+\n .. autofunction:: attrs.validators.max_len\n \n    For example:\ndiff --git a/src/attr/validators.py b/src/attr/validators.py\nindex 0b1a2944..d6fb2a47 100644\n--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -32,6 +32,7 @@ __all__ = [\n     \"matches_re\",\n     \"max_len\",\n     \"min_len\",\n+    \"ne\",\n     \"not_\",\n     \"optional\",\n     \"or_\",\n@@ -156,10 +157,10 @@ def matches_re(regex, flags=0, func=None):\n \n     Args:\n         regex (str, re.Pattern):\n-            A regex string or precompiled pattern to match against\n+            A regex string or precompiled pattern to match against.\n \n         flags (int):\n-            Flags that will be passed to the underlying re function (default 0)\n+            Flags that will be passed to the underlying re function (default 0).\n \n         func (typing.Callable):\n             Which underlying `re` function to call. Valid options are\n@@ -368,8 +369,8 @@ def deep_iterable(member_validator, iterable_validator=None):\n         iterable_validator:\n             Validator(s) to apply to iterable itself (optional).\n \n-    Raises\n-        TypeError: if any sub-validators fail\n+    Raises:\n+        TypeError: if any sub-validators fail.\n \n     .. versionadded:: 19.1.0\n \n@@ -513,7 +514,7 @@ def ge(val):\n     The validator uses `operator.ge` to compare the values.\n \n     Args:\n-        val: Inclusive lower bound for values\n+        val: Inclusive lower bound for values.\n \n     .. versionadded:: 21.3.0\n     \"\"\"\n@@ -528,13 +529,28 @@ def gt(val):\n     The validator uses `operator.gt` to compare the values.\n \n     Args:\n-       val: Exclusive lower bound for values\n+       val: Exclusive lower bound for values.\n \n     .. versionadded:: 21.3.0\n     \"\"\"\n     return _NumberValidator(val, \">\", operator.gt)\n \n \n+def ne(val):\n+    \"\"\"\n+    A validator that raises `ValueError` if the initializer is called with a\n+    number equal to *val*.\n+\n+    The validator uses `operator.ne` to compare the values.\n+\n+    Args:\n+       val: The value that is not allowed.\n+\n+    .. versionadded:: 26.2.0\n+    \"\"\"\n+    return _NumberValidator(val, \"!=\", operator.ne)\n+\n+\n @attrs(repr=False, frozen=True, slots=True)\n class _MaxLengthValidator:\n     max_length = attrib()\n@@ -557,7 +573,7 @@ def max_len(length):\n     with a string or iterable that is longer than *length*.\n \n     Args:\n-        length (int): Maximum length of the string or iterable\n+        length (int): Maximum length of the string or iterable.\n \n     .. versionadded:: 21.3.0\n     \"\"\"\n@@ -586,7 +602,7 @@ def min_len(length):\n     with a string or iterable that is shorter than *length*.\n \n     Args:\n-        length (int): Minimum length of the string or iterable\n+        length (int): Minimum length of the string or iterable.\n \n     .. versionadded:: 22.1.0\n     \"\"\"\ndiff --git a/src/attr/validators.pyi b/src/attr/validators.pyi\nindex 18fb112c..38415921 100644\n--- a/src/attr/validators.pyi\n+++ b/src/attr/validators.pyi\n@@ -85,6 +85,7 @@ def lt(val: _T) -> _ValidatorType[_T]: ...\n def le(val: _T) -> _ValidatorType[_T]: ...\n def ge(val: _T) -> _ValidatorType[_T]: ...\n def gt(val: _T) -> _ValidatorType[_T]: ...\n+def ne(val: _T) -> _ValidatorType[_T]: ...\n def max_len(length: int) -> _ValidatorType[_T]: ...\n def min_len(length: int) -> _ValidatorType[_T]: ...\n def not_(\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "8eaa27c19b3a83b4e92df460654cb7adf6a00f80070d91abf0fc9679d767a73c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attrs` library lacks a built\u2011in \u201cnot equal\u201d validator, requiring users to combine multiple validators (e.g. `le(-1)` and `ge(1)`) to exclude a specific value like zero.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078638,
+    "id": "gen-1788078638-XOXTIeODYf3Gnk7FBDjs",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 48,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001619933,
+      "cost_details": {
+        "upstream_inference_completions_cost": 8.064e-06,
+        "upstream_inference_cost": 0.0001619933,
+        "upstream_inference_prompt_cost": 0.0001539293
+      },
+      "is_byok": false,
+      "prompt_tokens": 2267,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2315
+    }
+  },
+  "schema_version": 1
+}

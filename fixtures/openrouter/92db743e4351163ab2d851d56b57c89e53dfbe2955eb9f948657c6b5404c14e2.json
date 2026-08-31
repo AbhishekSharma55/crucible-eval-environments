@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.098,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nclick.style: add support for 256/RGB colors\n\nPR body:\nThis adds support for true-color text (using the \\033[38;2;RRR;GGG;BBB escape sequence) and 256-color palette (using the \\033[38;5;NNN escape sequence). It's backwards compatible with the current string-based colors, but adds a type-checking helper to handle integers or tuples/lists of 3 integers.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 8f58527e..b4a8b1cc 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -77,6 +77,8 @@ Unreleased\n     to ``--name``. :pr:`1355`\n -   A context's ``show_default`` parameter defaults to the value from\n     the parent context. :issue:`1565`\n+-   ``click.style()`` can output 256 and RGB color codes. Most modern\n+    terminals support these codes. :pr:`1429`\n \n \n Version 7.1.2\ndiff --git a/src/click/termui.py b/src/click/termui.py\nindex 24de36ee..44e0b803 100644\n--- a/src/click/termui.py\n+++ b/src/click/termui.py\n@@ -441,6 +441,17 @@ def clear():\n         sys.stdout.write(\"\\033[2J\\033[1;1H\")\n \n \n+def _interpret_color(color, offset=0):\n+    if isinstance(color, int):\n+        return f\"{38 + offset};5;{color:d}\"\n+\n+    if isinstance(color, (tuple, list)):\n+        r, g, b = color\n+        return f\"{38 + offset};2;{r:d};{g:d};{b:d}\"\n+\n+    return str(_ansi_colors[color] + offset)\n+\n+\n def style(\n     text,\n     fg=None,\n@@ -462,6 +473,7 @@ def style(\n         click.echo(click.style('Hello World!', fg='green'))\n         click.echo(click.style('ATTENTION!', blink=True))\n         click.echo(click.style('Some things', reverse=True, fg='cyan'))\n+        click.echo(click.style('More colors', fg=(255, 12, 128), bg=117))\n \n     Supported color names:\n \n@@ -483,6 +495,16 @@ def style(\n     * ``bright_white``\n     * ``reset`` (reset the color code only)\n \n+    If the terminal supports it, color may also be specified as:\n+\n+    -   An integer in the interval [0, 255]. The terminal must support\n+        8-bit/256-color mode.\n+    -   An RGB tuple of three integers in [0, 255]. The terminal must\n+        support 24-bit/true-color mode.\n+\n+    See https://en.wikipedia.org/wiki/ANSI_color and\n+    https://gist.github.com/XVilka/8346728 for more information.\n+\n     :param text: the string to style with ansi codes.\n     :param fg: if provided this will become the foreground color.\n     :param bg: if provided this will become the background color.\n@@ -501,6 +523,9 @@ def style(\n     .. versionchanged:: 8.0\n         A non-string ``message`` is converted to a string.\n \n+    .. versionchanged:: 8.0\n+       Added support for 256 and RGB color codes.\n+\n     .. versionchanged:: 7.0\n         Added support for bright colors.\n \n@@ -510,16 +535,19 @@ def style(\n         text = str(text)\n \n     bits = []\n+\n     if fg:\n         try:\n-            bits.append(f\"\\033[{_ansi_colors[fg]}m\")\n+            bits.append(f\"\\033[{_interpret_color(fg)}m\")\n         except KeyError:\n             raise TypeError(f\"Unknown color {fg!r}\")\n+\n     if bg:\n         try:\n-            bits.append(f\"\\033[{_ansi_colors[bg] + 10}m\")\n+            bits.append(f\"\\033[{_interpret_color(bg, 10)}m\")\n         except KeyError:\n             raise TypeError(f\"Unknown color {bg!r}\")\n+\n     if bold is not None:\n         bits.append(f\"\\033[{1 if bold else 22}m\")\n     if dim is not None:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "92db743e4351163ab2d851d56b57c89e53dfbe2955eb9f948657c6b5404c14e2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `click.style()` function only accepts string color names for foreground and background colors, and does not support specifying colors as integer palette indices or RGB tuples.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078431,
+    "id": "gen-1788078431-ArGyv0BwsurtIBPECFRA",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 32,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001026,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.76e-06,
+        "upstream_inference_cost": 0.0001026,
+        "upstream_inference_prompt_cost": 9.684e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1076,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1108
+    }
+  },
+  "schema_version": 1
+}

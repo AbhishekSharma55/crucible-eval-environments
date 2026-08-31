@@ -1,0 +1,1399 @@
+{
+  "fixture_mode": "replay",
+  "groups": {
+    "control": {
+      "attempted": 30,
+      "n": 30,
+      "solve_rate": 0.16666666666666666,
+      "solved": 5
+    },
+    "rescued": {
+      "attempted": 30,
+      "n": 30,
+      "solve_rate": 0.2,
+      "solved": 6
+    }
+  },
+  "model": "deepseek/deepseek-v4-flash",
+  "results": [
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "jd/tenacity#484",
+      "group": "control",
+      "solution_patch": "--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -233,7 +233,7 @@ class BaseRetrying(ABC):\n         def retry_with(*args: t.Any, **kwargs: t.Any) -> WrappedFn:\n-            return self.copy(*args, **kwargs).wraps(f)\n+            return self.copy(*args, **kwargs).wraps(f)\n \n         # Preserve attributes\n         wrapped_f.retry = wrapped_f  # type: ignore[attr-defined]\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 3.59,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 196,
+        "cost_usd": 0.00125006,
+        "latency_s": 4.809,
+        "prompt_tokens": 8537,
+        "request_hash": "a6c5616a12597375d145e8d69a0caac09cb0c73b8b6054bf74347f052e20e6f5",
+        "total_tokens": 8733
+      },
+      "wall_s": 3.978
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "jd/tenacity#603",
+      "group": "control",
+      "solution_patch": "--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -300,6 +300,7 @@ class BaseRetrying(ABC):\n         self.statistics.clear()\n         self.statistics[\"start_time\"] = time.monotonic()\n         self.statistics[\"attempt_number\"] = 1\n         self.statistics[\"idle_for\"] = 0\n+        self.statistics[\"delay_since_first_attempt\"] = None\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.043,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: tenacity/__init__.py:300\nerror: tenacity/__init__.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 106,
+        "cost_usd": 0.00110244,
+        "latency_s": 3.234,
+        "prompt_tokens": 8252,
+        "request_hash": "6600dccfcb45051fd32094809095002c1cd67eaec08da201d502e442aca4f746",
+        "total_tokens": 8358
+      },
+      "wall_s": 0.429
+    },
+    {
+      "abort_reason": null,
+      "case_id": "jd/tenacity#606",
+      "group": "control",
+      "solution_patch": "--- a/tenacity/retry.py\n+++ b/tenacity/retry.py\n@@ -30,13 +30,13 @@ class retry_base(abc.ABC):\n         pass\n\n     def __and__(self, other: \"retry_base\") -> \"retry_all\":\n-        return other.__rand__(self)\n+        return retry_all(other, self)\n\n     def __rand__(self, other: \"retry_base\") -> \"retry_all\":\n         return retry_all(other, self)\n\n     def __or__(self, other: \"retry_base\") -> \"retry_any\":\n-        return other.__ror__(self)\n+        return retry_any(other, self)\n\n     def __ror__(self, other: \"retry_base\") -> \"retry_any\":\n         return retry_any(other, self)\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 3.13,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 188,
+        "cost_usd": 0.000585,
+        "latency_s": 4.817,
+        "prompt_tokens": 2898,
+        "request_hash": "289dd8b6a17ee8fc5783dab3791aa450b8f8073afc8152662db471835bbf8554",
+        "total_tokens": 3086
+      },
+      "wall_s": 3.521
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "jd/tenacity#609",
+      "group": "control",
+      "solution_patch": "--- a/tenacity/retry.py\n+++ b/tenacity/retry.py\n@@ -114,13 +114,22 @@ class retry_any(retry_base):\n     def __init__(self, *retries: \"RetryBaseT\") -> None:\n         self.retries = retries\n\n+    def __or__(self, other: \"RetryBaseT\") -> \"retry_any\":\n+        if isinstance(other, retry_any):\n+            return retry_any(*self.retries, *other.retries)\n+        return retry_any(*self.retries, other)\n+\n+    def __ror__(self, other: \"RetryBaseT\") -> \"retry_any\":\n+        if isinstance(other, retry_any):\n+            return retry_any(*other.retries, *self.retries)\n+        return retry_any(other, *self.retries)\n+\n     def __call__(self, retry_state: \"RetryCallState\") -> bool:\n         return any(r(retry_state) for r in self.retries)\n\n\n class retry_all(retry_base):\n     \"\"\"Retries if all the retries condition are valid.\"\"\"\n\n     def __init__(self, *retries: \"RetryBaseT\") -> None:\n         self.retries = retries\n\n+    def __and__(self, other: \"RetryBaseT\") -> \"retry_all\":\n+        if isinstance(other, retry_all):\n+            return retry_all(*self.retries, *other.retries)\n+        if isinstance(other, retry_base):\n+            return other.__rand__(self)\n+        return retry_all(*self.retries, other)\n+\n+    def __rand__(self, other: \"RetryBaseT\") -> \"retry_all\":\n+        if isinstance(other, retry_all):\n+            return retry_all(*other.retries, *self.retries)\n+        if isinstance(other, retry_base):\n+            return other.__rand__(self)\n+        return retry_all(other, *self.retries)\n+\n     def __call__(self, retry_state: \"RetryCallState\") -> bool:\n         return all(r(retry_state) for r in self.retries)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.894,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 504,
+        "cost_usd": 0.0003411303,
+        "latency_s": 60.282,
+        "prompt_tokens": 3777,
+        "request_hash": "3e0991e316f854b9c4f198dd317ead6b4d9ff42a8abfc01e7e17a7272f4caf6a",
+        "total_tokens": 4281
+      },
+      "wall_s": 3.458
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "jd/tenacity#640",
+      "group": "control",
+      "solution_patch": "--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -393,7 +393,10 @@ class BaseRetrying(ABC):\n         if self.iter_state.stop_run_result:\n             if self.retry_error_callback:\n                 self._add_action_func(self.retry_error_callback)\n-                return\n+                # If retry_error_callback returns normally, we need to return its result\n+                # but we also need to handle reraise for TryAgain\n+                if self.reraise and self.iter_state.is_explicit_retry:\n+                    self._add_action_func(lambda rs: rs.outcome.result())\n \n             def exc_check(rs: \"RetryCallState\") -> None:\n                 fut = t.cast(\"Future\", rs.outcome)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 3.449,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 180,
+        "cost_usd": 0.0006115046,
+        "latency_s": 2.894,
+        "prompt_tokens": 7210,
+        "request_hash": "5fb720ceae4a85870e77ec70cebf2ee06f1068fb42bb088cbf153994da0a4d80",
+        "total_tokens": 7390
+      },
+      "wall_s": 3.757
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "marshmallow-code/marshmallow#2925",
+      "group": "control",
+      "solution_patch": "--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -913,7 +913,7 @@ class UUID(Field[uuid.UUID]):\n _NumT = typing.TypeVar(\"_NumT\")\n \n \n-class Number(Field[_NumT]):\n+class Number(Field[_NumT], abc.ABC):\n     \"\"\"Base class for number fields. This class should not be used within schemas.\n \n     :param as_string: If `True`, format the serialized value as a string.\n@@ -931,6 +931,10 @@ class Number(Field[_NumT]):\n         \"too_large\": \"Number too large.\",\n     }\n \n+    @abc.abstractmethod\n+    def _format_num(self, value) -> _NumT:\n+        ...\n+\n     def __init__(self, *, as_string: bool = False, **kwargs: Unpack[_BaseFieldKwargs]):\n         self.as_string = as_string\n         super().__init__(**kwargs)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.331,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 271,
+        "cost_usd": 0.00114323328,
+        "latency_s": 5.413,
+        "prompt_tokens": 13635,
+        "request_hash": "f2499a4883cf39b82ff3e5fcf265e4974787ca2ebd32f62dc0590e07ab97f89d",
+        "total_tokens": 13906
+      },
+      "wall_s": 1.79
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "marshmallow-code/marshmallow#2928",
+      "group": "control",
+      "solution_patch": "--- a/src/marshmallow/validate.py\n+++ b/src/marshmallow/validate.py\n@@ -131,6 +131,17 @@ class URL(Validator):\n         if not matched:\n             raise ValidationError(message)\n \n+        # Check if the hostname is an internationalized domain name (IDN)\n+        # and convert it to punycode for validation\n+        if \"://\" in value:\n+            try:\n+                from urllib.parse import urlparse\n+                parsed = urlparse(value)\n+                if parsed.hostname and not parsed.hostname.isascii():\n+                    # Re-validate with punycode hostname\n+                    encoded_hostname = parsed.hostname.encode(\"idna\").decode(\"ascii\")\n+                    encoded_url = value.replace(parsed.hostname, encoded_hostname, 1)\n+                    return self.__call__(encoded_url)\n+            except (ValueError, UnicodeError):\n+                pass\n+\n         return value\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.366,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 259,
+        "cost_usd": 0.00092344,
+        "latency_s": 4.941,
+        "prompt_tokens": 6078,
+        "request_hash": "8570e8715eba12604c7ca95c2221b1279dca0b8f0d6b3939db62dc6e9343471d",
+        "total_tokens": 6337
+      },
+      "wall_s": 1.875
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#1098",
+      "group": "control",
+      "solution_patch": "The `SystemExit` from `ctx.exit()` is not caught here. It propagates up. The fix is to catch `SystemExit` in the inner try block and handle it based on `standalone_mode`.\n\nHere's the minimal diff:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.081,
+        "exit_code": 128,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: No valid patches in input (allow with \"--allow-empty\")\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 2000,
+        "cost_usd": 0.00121759694,
+        "latency_s": 18.219,
+        "prompt_tokens": 11073,
+        "request_hash": "8f391317d027096004a0943993fb48b2b3d4f3312ae272452f78cf5d08264231",
+        "total_tokens": 13073
+      },
+      "wall_s": 0.546
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#1455",
+      "group": "control",
+      "solution_patch": "--- a/src/click/parser.py\n+++ b/src/click/parser.py\n@@ -1,3 +1,4 @@\n+import difflib\n \"\"\"\n This module started out as largely a copy paste from the stdlib's\n optparse module with the features removed that we do not need from\n@@ -323,9 +324,14 @@ class OptionParser:\n \n     def _match_long_opt(self, opt, explicit_value, state):\n         if opt not in self._long_opt:\n-            possibilities = [word for word in self._long_opt if word.startswith(opt)]\n-            raise NoSuchOption(opt, possibilities=possibilities, ctx=self.ctx)\n+            possibilities = difflib.get_close_matches(opt, self._long_opt, cutoff=0.5)\n+            if not possibilities:\n+                possibilities = [word for word in self._long_opt if word.startswith(opt)]\n+            raise NoSuchOption(opt, possibilities=possibilities, ctx=self.ctx)\n \n         option = self._long_opt[opt]\n         if option.takes_value:\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 1.633,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 244,
+        "cost_usd": 0.00039376512,
+        "latency_s": 4.113,
+        "prompt_tokens": 4395,
+        "request_hash": "827db92b8deb9bb422029f32e383dabc8d2847d9650a2705ba9a925d1c01dfd4",
+        "total_tokens": 4639
+      },
+      "wall_s": 2.085
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#1609",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -788,6 +788,37 @@\n     return sorted(declaration_order, key=sort_key)\n \n \n+def _detect_program_name():\n+    \"\"\"Detect the program name for usage help text.\n+\n+    Returns the appropriate name based on how the program was invoked:\n+    - ``python example.py`` -> ``example.py``\n+    - ``python -m example`` -> ``python -m example``\n+    - ``python -m example.cli`` -> ``python -m example.cli``\n+    - ``example`` (entry point) -> ``example``\n+    \"\"\"\n+    # Try to detect if we were invoked with ``python -m``.\n+    # This is tricky because Python replaces ``-m name`` with the\n+    # actual file path in ``sys.argv[0]``.\n+    # We check if the module was run as ``__main__`` and if the\n+    # ``__main__`` module's ``__spec__`` indicates it was run with ``-m``.\n+    try:\n+        import __main__\n+        main_mod = __main__.__spec__\n+        if main_mod is not None and main_mod.parent is None:\n+            # The module was run with ``-m``.\n+            # ``main_mod.name`` is the module name (e.g., ``example``).\n+            return f\"python -m {main_mod.name}\"\n+    except (ImportError, AttributeError):\n+        pass\n+\n+    # Fall back to the existing behavior.\n+    if sys.argv:\n+        return os.path.basename(sys.argv[0])\n+    else:\n+        return None\n+\n+\n class ParameterSource:\n     \"\"\"This is an enum that indicates the source of a command line parameter.\n \n@@ -793,9 +824,7 @@\n         else:\n             args = list(args)\n \n         if prog_name is None:\n-            prog_name = make_str(\n-                os.path.basename(sys.argv[0] if sys.argv else __file__)\n-            )\n+            prog_name = _detect_program_name()\n \n         # Hook for the Bash completion.  This only activates if the Bash\n         # completion is actually enabled, otherwise this is quite a fast\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.728,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 500,
+        "cost_usd": 0.00166696,
+        "latency_s": 7.724,
+        "prompt_tokens": 11440,
+        "request_hash": "ba0936484b7b0fd2ec5eb9d8af65ed62d0d68eab6ed6c487ca698f72cbe136b3",
+        "total_tokens": 11940
+      },
+      "wall_s": 2.214
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#1840",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -1,3 +1,4 @@\n+import copy\n import enum\n import errno\n import os\n@@ -497,6 +498,7 @@\n         self, cmd = args[:2]\n \n         # Can only forward to other commands, not direct callbacks.\n+        kwargs = copy.copy(kwargs)\n         if not isinstance(cmd, Command):\n             raise TypeError(\"Callback is not a command.\")\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.814,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 104,
+        "cost_usd": 0.0016184,
+        "latency_s": 4.42,
+        "prompt_tokens": 11352,
+        "request_hash": "20b8c5c306fbbd1640c6e21893f6f6a9e35a34961e515fc4341d60b7f5be0a3e",
+        "total_tokens": 11456
+      },
+      "wall_s": 2.233
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#1872",
+      "group": "control",
+      "solution_patch": "--- a/src/click/formatting.py\n+++ b/src/click/formatting.py\n@@ -155,7 +155,7 @@ class HelpFormatter:\n         text_width = max(self.width - self.current_indent, 11)\n         indent = \" \" * self.current_indent\n         self.write(\n             wrap_text(\n                 text,\n-                text_width,\n+                self.width,\n                 initial_indent=indent,\n                 subsequent_indent=indent,\n                 preserve_paragraphs=True,\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 1.843,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 110,
+        "cost_usd": 0.000354832,
+        "latency_s": 2.165,
+        "prompt_tokens": 2428,
+        "request_hash": "34c69a2eace1e435abff2fbc789eca5482115e4190645d954cdf0178063c88a3",
+        "total_tokens": 2538
+      },
+      "wall_s": 2.303
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#1964",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -2182,7 +2182,7 @@\n         if self.show_default is not None:\n             show_default = self.show_default\n         elif ctx.show_default is not None:\n-            show_default = ctx.show_default\n+            show_default = False if self.show_default is False else ctx.show_default\n \n         if self.show_default_is_metadata:\n             show_default = self.default\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.083,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:2182\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 95,
+        "cost_usd": 0.00159684,
+        "latency_s": 4.106,
+        "prompt_tokens": 11216,
+        "request_hash": "a17b25c2db7de8cbda0f649c4bfc4cedceeb493a4bf763be8cfc068c628e7b10",
+        "total_tokens": 11311
+      },
+      "wall_s": 0.545
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#2093",
+      "group": "control",
+      "solution_patch": "--- a/src/click/termui.py\n+++ b/src/click/termui.py\n@@ -233,8 +233,9 @@ def confirm(\n     while True:\n         try:\n             # Write the prompt separately so that we get nice\n             # coloring through colorama on Windows\n-            echo(prompt, nl=False, err=err)\n-            value = visible_prompt_func(\"\").lower().strip()\n+            echo(prompt.rstrip(\" \"), nl=False, err=err)\n+            value = visible_prompt_func(\" \").lower().strip()\n         except (KeyboardInterrupt, EOFError):\n             raise Abort() from None\n         if value in (\"y\", \"yes\"):\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 2.123,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 154,
+        "cost_usd": 0.0006285888,
+        "latency_s": 3.699,
+        "prompt_tokens": 7487,
+        "request_hash": "dbff3ecee67e2e30e5973825d19048ccf9b3bca5986062f6dd01e7138c100a9f",
+        "total_tokens": 7641
+      },
+      "wall_s": 2.616
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2223",
+      "group": "control",
+      "solution_patch": "```diff\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -2777,6 +2777,8 @@ class Option(Parameter):\n                 rv = os.environ.get(envvar)\n                 if rv is not None:\n                     value = rv\n+                    if not rv:\n+                        return None\n                     break\n \n         if value is None and self.envvar is not None and self.multiple:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.09,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:2777\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 96,
+        "cost_usd": 0.00169988,
+        "latency_s": 4.949,
+        "prompt_tokens": 11950,
+        "request_hash": "3f4f45c01acab0ff243010100be4a5d2d921da0c01a0253f4aaa9fadc1bc3395",
+        "total_tokens": 12046
+      },
+      "wall_s": 0.486
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2369",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -1777,7 +1777,7 @@\n         # Use inspect to get the docstring, since we need the raw text\n         # to handle the ``\\f`` marker.\n         doc = inspect.getdoc(callback)\n-        if doc is None:\n+        if not doc:\n             return\n \n         # Split the docstring at the ``\\f`` marker.\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.083,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:1777\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 96,
+        "cost_usd": 0.00104553,
+        "latency_s": 3.364,
+        "prompt_tokens": 11425,
+        "request_hash": "f10a001ce057598a3d7944d11bcf31c49060f385f55dedf02be5e69a17b03d0c",
+        "total_tokens": 11521
+      },
+      "wall_s": 0.599
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2517",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -1558,6 +1558,56 @@\n         return self.help\n \n     def get_help_record(self, ctx: Context) -> tuple[str, str] | None:\n+        \"\"\"Returns a formatted help record for this option.\n+\n+        This method is responsible for rendering the help text. The\n+        extra items (like default values and environment variables)\n+        are computed by :meth:`get_help_record_extra`.\n+\n+        :param ctx: The current context.\n+        :return: A tuple of ``(option_string, help_text)`` or ``None``\n+            if the option is hidden.\n+        \"\"\"\n+        if self.hidden:\n+            return None\n+\n+        any_prefix_is_slash = False\n+\n+        def _write_opts(option_strings: list[str]) -> str:\n+            nonlocal any_prefix_is_slash\n+\n+            rv = []\n+\n+            for opt in option_strings:\n+                if opt.startswith(\"/\"):\n+                    any_prefix_is_slash = True\n+\n+            rv = \", \".join(option_strings)\n+\n+            return rv\n+\n+        rv = _write_opts(self.opts)\n+        rv += _write_opts(self.secondary_opts)\n+\n+        help = self.help or \"\"\n+        extra = self.get_help_record_extra(ctx)\n+        if extra:\n+            help = f\"{help}  {extra}\" if help else extra\n+\n+        return rv, help\n+\n+    def get_help_record_extra(self, ctx: Context) -> str:\n+        \"\"\"Returns the extra information for the help record.\n+\n+        This method computes the extra items that are displayed at the\n+        end of each option's help, such as default values and\n+        environment variables. These are rendered in square brackets.\n+\n+        :param ctx: The current context.\n+        :return: A string containing the extra information, or an empty\n+            string if there is none.\n+        \"\"\"\n+        extra_parts = []\n+\n         any_prefix_is_slash = False\n \n         def _write_opts(option_strings: list[str]) -> str:\n@@ -1578,7 +1628,7 @@\n         rv = _write_opts(self.opts)\n         rv += _write_opts(self.secondary_opts)\n \n-        help = self.help or \"\"\n+        help = \"\"\n         extra: list[str] = []\n \n         if self.envvar is not None:\n@@ -1612,7 +1662,7 @@\n             extra.append(_(\"required\"))\n \n         if extra:\n-            help = f\"{help}  {' '.join(extra)}\" if help else \" \".join(extra)\n+            extra_parts.extend(extra)\n \n-        return rv, help\n+        return \" \".join(extra_parts)\n \n     def get_usage_pieces(self, ctx: Context) -> list[str]:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.101,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:1558\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 719,
+        "cost_usd": 0.00103485312,
+        "latency_s": 11.514,
+        "prompt_tokens": 11395,
+        "request_hash": "d80b4ecebcb63be45f3d2f126a4332c1c4dc65dd622d27f276809e1d6991a8ef",
+        "total_tokens": 12114
+      },
+      "wall_s": 0.681
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#2523",
+      "group": "control",
+      "solution_patch": "--- src/click/testing.py\n+++ src/click/testing.py\n@@ -131,7 +131,7 @@\n     @property\n     def output(self) -> str:\n         \"\"\"The (standard) output as unicode string.\"\"\"\n-        return self.stdout\n+        return self.stdout if self.stderr_bytes is None else self.stdout + self.stderr\n \n     @property\n     def stdout(self) -> str:\n@@ -143,8 +143,7 @@\n     def stderr(self) -> str:\n         \"\"\"The standard error as unicode string.\"\"\"\n         if self.stderr_bytes is None:\n-            raise ValueError(\"stderr not separately captured\")\n-        return self.stderr_bytes.decode(self.runner.charset, \"replace\").replace(\n+            return \"\"\n+        return self.stderr_bytes.decode(self.runner.charset, \"replace\").replace(\n             \"\\r\\n\", \"\\n\"\n         )\n \n@@ -282,7 +281,7 @@\n                 sys.stdout.flush()\n                 stdout = outstreams[0].getvalue()\n                 if self.mix_stderr:\n-                    stderr = None\n+                    stderr = stdout\n                 else:\n                     stderr = outstreams[1].getvalue()  # type: ignore\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.129,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 267,
+        "cost_usd": 0.000610736,
+        "latency_s": 6.385,
+        "prompt_tokens": 4919,
+        "request_hash": "c6a3f3e6601d882d215788f22274276145ec967bea46dce881ac3627762e15cc",
+        "total_tokens": 5186
+      },
+      "wall_s": 2.755
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2555",
+      "group": "control",
+      "solution_patch": "--- a/src/click/utils.py\n+++ b/src/click/utils.py\n@@ -247,6 +247,9 @@ def echo(\n     if file is None:\n         if err:\n             file = _default_text_stderr()\n+            if file is None:\n+                return\n         else:\n             file = _default_text_stdout()\n+            if file is None:\n+                return\n \n     # Convert the message into a string first if necessary.\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.107,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/utils.py:247\nerror: src/click/utils.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 101,
+        "cost_usd": 0.00120807,
+        "latency_s": 5.582,
+        "prompt_tokens": 13221,
+        "request_hash": "20b285f1d3adf32b98cc827eb0158c447e3f93c5f13494167ee9d04ec1949923",
+        "total_tokens": 13322
+      },
+      "wall_s": 0.724
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2696",
+      "group": "control",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -2748,6 +2748,8 @@\n                     raise MissingParameter(ctx=ctx, param=self)\n                 elif missing == 3:\n                     raise MissingParameter(\n                         ctx=ctx, param=self,\n+                        message=_(\n+                            \"Missing option '{opt}' required by env var '{envvar}'.\"\n+                        ).format(opt=self.name, envvar=self.envvar),\n                     )\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.128,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:2748\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 833,
+        "cost_usd": 0.000901103,
+        "latency_s": 247.646,
+        "prompt_tokens": 11210,
+        "request_hash": "8bab6ff3b0527d4306893cf8ba647172f5e5b22738108f62bbad0ce2e63e598d",
+        "total_tokens": 12043
+      },
+      "wall_s": 0.711
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2727",
+      "group": "control",
+      "solution_patch": "--- src/click/_termui_impl.py\n+++ src/click/_termui_impl.py\n@@ -72,6 +72,7 @@\n         item_show_func: t.Callable[[V | None], str | None] | None = None,\n         label: str | None = None,\n         file: t.TextIO | None = None,\n+        hide: bool = False,\n         color: bool | None = None,\n         update_min_steps: int = 1,\n         width: int = 30,\n@@ -113,6 +114,7 @@\n         self.current_item: V | None = None\n         self.is_hidden: bool = not isatty(self.file)\n         self._last_line: str | None = None\n+        self.hide: bool = hide\n \n     def __enter__(self) -> ProgressBar[V]:\n         self.entered = True\n@@ -131,6 +133,10 @@\n         self.render_progress()\n         return self.generator()\n \n+    def __bool__(self) -> bool:\n+        # Allow hiding via boolean evaluation\n+        return not self.hide\n+\n     def __next__(self) -> V:\n         # Iteration is defined in terms of a generator function,\n         # returned by iter(self); use that to define next(). This works\n@@ -149,7 +155,7 @@\n         self.file.flush()\n \n     def render_progress(self) -> None:\n-        if self.is_hidden:\n+        if self.is_hidden or self.hide:\n             # Only output the label as it changes if the output is not a\n             # TTY. Use file=stderr if you expect to be piping stdout.\n             if self._last_line != self.label:\n@@ -218,7 +224,7 @@\n         if not self.entered:\n             raise RuntimeError(\"You need to use progress bars in a with block.\")\n \n-        if self.is_hidden:\n+        if self.is_hidden or self.hide:\n             yield from self.iter\n         else:\n             for rv in self.iter:\n--- src/click/termui.py\n+++ src/click/termui.py\n@@ -350,6 +350,7 @@\n     file: t.TextIO | None = None,\n     color: bool | None = None,\n     update_min_steps: int = 1,\n+    hide: bool = False,\n ) -> ProgressBar[V]:\n     \"\"\"This function creates an iterable context manager that can be used\n     to iterate over something while showing a progress bar.  It will\n@@ -440,6 +441,9 @@\n         completed. This allows tuning for very fast iterators.\n \n     .. versionchanged:: 8.0\n+        Added the ``hide`` parameter.\n+\n+    .. versionchanged:: 8.0\n         Output is shown even if execution time is less than 0.5 seconds.\n \n     .. versionchanged:: 8.0\n@@ -467,6 +471,7 @@\n     return ProgressBar(\n         iterable=iterable,\n         length=length,\n+        hide=hide,\n         show_eta=show_eta,\n         show_percent=show_percent,\n         show_pos=show_pos,\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.117,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/_termui_impl.py:149\nerror: src/click/_termui_impl.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 741,
+        "cost_usd": 0.0009797564,
+        "latency_s": 83.396,
+        "prompt_tokens": 12596,
+        "request_hash": "dc4f266cbc95c22995233fd2a0a58ade05905f58df933287d1780809d451f10e",
+        "total_tokens": 13337
+      },
+      "wall_s": 0.705
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2796",
+      "group": "control",
+      "solution_patch": "--- a/src/click/types.py\n+++ b/src/click/types.py\n@@ -1,5 +1,6 @@\n from __future__ import annotations\n \n+import enum\n import os\n import stat\n import typing as t\n@@ -400,6 +401,9 @@ class Choice(ParamType):\n     def __init__(\n         self, choices: cabc.Sequence[str | Choice], case_sensitive: bool = True\n     ) -> None:\n+        if isinstance(choices, type) and issubclass(choices, enum.Enum):\n+            choices = [choice.value for choice in choices]\n+        \n         self.choices = list(choices)\n         self.case_sensitive = case_sensitive\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.124,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/types.py:1\nerror: src/click/types.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 213,
+        "cost_usd": 0.00104472,
+        "latency_s": 5.653,
+        "prompt_tokens": 11182,
+        "request_hash": "6c515cc4c418692bb29b4b88f37e67f9c638e252f053714629e33431ad4d7a7a",
+        "total_tokens": 11395
+      },
+      "wall_s": 0.792
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#2816",
+      "group": "control",
+      "solution_patch": "--- a/src/click/shell_completion.py\n+++ b/src/click/shell_completion.py\n@@ -330,6 +330,7 @@ def _is_incomplete_option(ctx: Context, args: list[str], param: Parameter) -> bo\n \n         if _start_of_option(ctx, arg):\n             last_option = arg\n+            break\n \n     return last_option is not None and last_option in param.opts\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 1.951,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 95,
+        "cost_usd": 0.00050184,
+        "latency_s": 2.599,
+        "prompt_tokens": 5386,
+        "request_hash": "7d3f56599c3f1bf06a031a115e76dba1da540627522e92b9d8bbc94c2b2dc2ac",
+        "total_tokens": 5481
+      },
+      "wall_s": 2.564
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#3152",
+      "group": "control",
+      "solution_patch": "--- a/src/click/parser.py\n+++ b/src/click/parser.py\n@@ -242,7 +242,7 @@ class _OptionParser:\n         if self.obj.nargs != 0:\n             if self.obj.is_bool_flag:\n                 value = True\n-            elif self.obj.is_flag:\n+            elif self.obj.is_flag and self.obj.flag_value is None:\n                 value = None\n             else:\n                 value = None\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.095,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/parser.py:242\nerror: src/click/parser.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 276,
+        "cost_usd": 0.00256263,
+        "latency_s": 7.767,
+        "prompt_tokens": 11467,
+        "request_hash": "0cdcb233a3609fc50b3ec4e94a2edbd8b7c518c0788617b2b016a4ee90bba385",
+        "total_tokens": 11743
+      },
+      "wall_s": 0.676
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#3534",
+      "group": "control",
+      "solution_patch": "--- src/click/_termui_impl.py\n+++ src/click/_termui_impl.py\n@@ -465,6 +465,7 @@\n             for text in text_generator:\n                 pager.write(text)\n                 pager.flush()\n+                pager.flush()\n         else:\n             for text in text_generator:\n                 pager.write(text)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.108,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/_termui_impl.py:465\nerror: src/click/_termui_impl.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 79,
+        "cost_usd": 0.00071511552,
+        "latency_s": 5.03,
+        "prompt_tokens": 8710,
+        "request_hash": "3dfdb4ec74f7e84984748f8a2829e9ebe8b86f75f3a8cb5820ab9a799eb11a79",
+        "total_tokens": 8789
+      },
+      "wall_s": 0.751
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#3769",
+      "group": "control",
+      "solution_patch": "--- a/src/click/_termui_impl.py\n+++ b/src/click/_termui_impl.py\n@@ -316,6 +316,9 @@ class ProgressBar(t.Generic[V]):\n                 yield rv\n                 self.update(1)\n \n+            # Ensure final progress is rendered even if update_min_steps\n+            # didn't trigger a render at the last step.\n+            self.make_step(self._completed_intervals)\n             self.finish()\n             self.render_progress()\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.887,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 177,
+        "cost_usd": 0.00067911746,
+        "latency_s": 2.83,
+        "prompt_tokens": 8053,
+        "request_hash": "d974046165e730e5bd1d121b7eccb522b52abf9827b5597e565961546be6ae00",
+        "total_tokens": 8230
+      },
+      "wall_s": 2.428
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/flask#5264",
+      "group": "control",
+      "solution_patch": "--- src/flask/app.py\n+++ src/flask/app.py\n@@ -256,6 +256,7 @@ class Flask(App):\n         :param values: Values to use for the variable parts of the URL\n             rule. Unknown keys are appended as query string arguments,\n             like ``?a=b&c=d``.\n \n         .. versionadded:: 2.2\n             Moved from ``flask.url_for``, which calls this method.\n         \"\"\"\n+        if \"self\" in values:\n+            raise TypeError(\"got multiple values for argument 'self'\")\n+\n         req_ctx = _cv_request.get(None)\n \n         if req_ctx is not None:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.694,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 143,
+        "cost_usd": 0.0015457,
+        "latency_s": 4.51,
+        "prompt_tokens": 11582,
+        "request_hash": "bfce9db201c09d4f7024bf6740f3d11f476ab870f28b81ab71b10be2ea8b91f1",
+        "total_tokens": 11725
+      },
+      "wall_s": 2.266
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/flask#5626",
+      "group": "control",
+      "solution_patch": "--- a/src/flask/app.py\n+++ b/src/flask/app.py\n@@ -107,6 +107,8 @@ class Flask(App):\n             \"SESSION_REFRESH_EACH_REQUEST\": True,\n             \"MAX_CONTENT_LENGTH\": None,\n+            \"MAX_FORM_MEMORY_SIZE\": None,\n+            \"MAX_FORM_PARTS\": None,\n             \"SEND_FILE_MAX_AGE_DEFAULT\": None,\n             \"TRAP_BAD_REQUEST_ERRORS\": None,\n             \"TRAP_HTTP_EXCEPTIONS\": False,\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.925,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 2000,
+        "cost_usd": 0.00214928,
+        "latency_s": 27.928,
+        "prompt_tokens": 11352,
+        "request_hash": "58f42e9bffbfa64abdae926e333d76cf0e092b16a5f2a9276d622496d7688864",
+        "total_tokens": 13352
+      },
+      "wall_s": 2.423
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/flask#6133",
+      "group": "control",
+      "solution_patch": "diff --git a/src/flask/sessions.py b/src/flask/sessions.py\n--- a/src/flask/sessions.py\n+++ b/src/flask/sessions.py\n@@ -1,6 +1,7 @@\n from __future__ import annotations\n \n import hashlib\n+import copy\n import typing as t\n from collections.abc import MutableMapping\n from datetime import datetime\n@@ -88,6 +89,14 @@ class SessionMixin(MutableMapping):\n         return self.modified\n \n \n+class GlobalSessionMixin(SessionMixin):\n+    \"\"\"A session mixin that maintains a global copy of session data.\"\"\"\n+    \n+    def __init__(self, *args, **kwargs):\n+        super().__init__(*args, **kwargs)\n+        self._global_data = {}\n+    \n+    def __getitem__(self, key):\n+        try:\n+            return super().__getitem__(key)\n+        except KeyError:\n+            return self._global_data[key]\n+    \n+    def __setitem__(self, key, value):\n+        super().__setitem__(key, value)\n+        self._global_data[key] = value\n+    \n+    def __delitem__(self, key):\n+        super().__delitem__(key)\n+        self._global_data.pop(key, None)\n+    \n+    def get_global_data(self):\n+        \"\"\"Return a copy of the global session data.\"\"\"\n+        return copy.deepcopy(self._global_data)\n+\n+\n class SecureCookieSession(SessionMixin, dict):\n     \"\"\"Base class for sessions based on signed cookies.\n \n@@ -100,6 +109,7 @@ class SecureCookieSession(SessionMixin, dict):\n     def __init__(self, initial=None):\n         dict.__init__(self, initial or ())\n         self.modified = False\n+        self._global_data = dict(initial or ())\n \n \n class NullSession(SecureCookieSession):\n@@ -130,6 +140,7 @@ class SessionInterface:\n     def open_session(self, app, request):\n         raise NotImplementedError()\n \n+    def get_global_session(self, app):\n+        \"\"\"Get a global session object that persists across requests.\"\"\"\n+        return GlobalSessionMixin()\n+\n     def make_null_session(self, app):\n         \"\"\"Creates a new instance of a null session object for the\n         request context.\n@@ -145,6 +156,7 @@ class SessionInterface:\n     def save_session(self, app, session, response):\n         raise NotImplementedError()\n \n+    def save_global_session(self, app, session):\n+        \"\"\"Save the global session data.\"\"\"\n+        pass\n+\n \n class SecureCookieSessionInterface(SessionInterface):\n@@ -220,6 +232,10 @@ class SecureCookieSessionInterface(SessionInterface):\n         if not session:\n             session = self.null_session_class()\n         return session\n+\n+    def get_global_session(self, app):\n+        \"\"\"Get a global session that persists across requests.\"\"\"\n+        return GlobalSessionMixin()\n \n     def save_session(self, app, session, response):\n         \"\"\"Saves the session in the response's Set-Cookie header.\n@@ -227,6 +243,10 @@ class SecureCookieSessionInterface(SessionInterface):\n         name = self.get_cookie_name(app)\n         domain = self.get_cookie_domain(app)\n         path = self.get_cookie_path(app)\n+        \n+        # Save global session data\n+        if hasattr(session, '_global_data'):\n+            self.save_global_session(app, session)\n \n         # If the session is modified to be empty, remove the cookie.\n         # If the session is empty, return without setting the cookie.\n@@ -280,6 +300,10 @@ class SecureCookieSessionInterface(SessionInterface):\n         if self.use_signer:\n             return self.get_signing_serializer(app).dumps(dict(session))\n         return self.get_serializer(app).dumps(dict(session))\n+\n+    def save_global_session(self, app, session):\n+        \"\"\"Store global session data in the app config.\"\"\"\n+        if hasattr(session, '_global_data'):\n+            app.config['GLOBAL_SESSION_DATA'] = session.get_global_data()\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.079,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/flask/sessions.py:1\nerror: src/flask/sessions.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 1194,
+        "cost_usd": 0.00127227,
+        "latency_s": 12.786,
+        "prompt_tokens": 7215,
+        "request_hash": "44491d3d7ada15ad9f21127e2684e6b9d42ec9a61df9b8008cc0ce5af9550b26",
+        "total_tokens": 8409
+      },
+      "wall_s": 0.602
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "python-attrs/attrs#1321",
+      "group": "control",
+      "solution_patch": "--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1067,6 +1067,12 @@ def attrs(\n         if (\n             PY_3_10_PLUS\n             and match_args\n             and not _has_own_attribute(cls, \"__match_args__\")\n         ):\n             builder.add_match_args()\n\n+        # Call __attrs_init_subclass__ if defined, after class is fully built\n+        if hasattr(cls, \"__attrs_init_subclass__\"):\n+            cls.__attrs_init_subclass__()\n+\n         return builder.build_class()\n \n     # maybe_cls's type depends on the usage of the decorator.  It's a class\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.54,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 219,
+        "cost_usd": 0.00174803,
+        "latency_s": 3.716,
+        "prompt_tokens": 12607,
+        "request_hash": "39e568a781995f5bd52c91636a99e570dc26af74b3c64bbef1a8e1f17b8e23ac",
+        "total_tokens": 12826
+      },
+      "wall_s": 3.084
+    },
+    {
+      "abort_reason": "model_error:RuntimeError",
+      "case_id": "jd/tenacity#382",
+      "detail": "cached OpenRouter error: {'message': 'request exceeded 180s', 'type': 'wall_clock_timeout'}",
+      "group": "rescued",
+      "solved": false,
+      "usage": {
+        "completion_tokens": 0,
+        "cost_usd": 0.0,
+        "latency_s": 180.0,
+        "prompt_tokens": 0,
+        "request_hash": "024f6f4acf34af777d2bede5044c3f86e31416f75519e7172ce301967090ad93",
+        "total_tokens": 0
+      },
+      "wall_s": 0.193
+    },
+    {
+      "abort_reason": null,
+      "case_id": "jd/tenacity#387",
+      "group": "rescued",
+      "solution_patch": "--- a/tenacity/_asyncio.py\n+++ b/tenacity/_asyncio.py\n@@ -1,3 +1,4 @@\n+import asyncio\n # Copyright 2016 \u00c9tienne Bersac\n # Copyright 2016 Julien Danjou\n # Copyright 2016 Joshua Harlow\n@@ -93,3 +94,10 @@ class AsyncRetrying(BaseRetrying):\n         async_wrapped.retry_with = fn.retry_with  # type: ignore[attr-defined]\n \n         return async_wrapped  # type: ignore[return-value]\n+\n+    def __iter__(self):\n+        raise TypeError(\"AsyncRetrying does not support synchronous iteration. Use 'async for' instead.\")\n+\n+    def __next__(self):\n+        raise TypeError(\"AsyncRetrying does not support synchronous iteration. Use 'async for' instead.\")\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 2.203,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 189,
+        "cost_usd": 0.00014504,
+        "latency_s": 6.421,
+        "prompt_tokens": 917,
+        "request_hash": "d51d33bb806403b161a6dd15577a411b7a0c6e10b136e77d3fa75f2e41415867",
+        "total_tokens": 1106
+      },
+      "wall_s": 2.724
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "jd/tenacity#451",
+      "group": "rescued",
+      "solution_patch": "--- tenacity/retry.py\n+++ tenacity/retry.py\n@@ -1,3 +1,4 @@\n+import asyncio\n # Copyright 2016\u20132021 Julien Danjou\n # Copyright 2016 Joshua Harlow\n # Copyright 2013-2014 Ray Holder\n@@ -20,7 +21,7 @@\n     \"\"\"Abstract base class for retry strategies.\"\"\"\n \n     @abc.abstractmethod\n-    def __call__(self, retry_state: \"RetryCallState\") -> bool:\n+    def __call__(self, retry_state: \"RetryCallState\") -> t.Union[bool, t.Awaitable[bool]]:\n         pass\n \n     def __and__(self, other: \"retry_base\") -> \"retry_all\":\n@@ -30,7 +31,7 @@\n         return retry_any(self, other)\n \n \n-RetryBaseT = typing.Union[retry_base, typing.Callable[[\"RetryCallState\"], bool]]\n+RetryBaseT = typing.Union[retry_base, typing.Callable[[\"RetryCallState\"], t.Union[bool, t.Awaitable[bool]]]]\n \n \n class _retry_never(retry_base):\n@@ -38,7 +39,7 @@\n \n     def __call__(self, retry_state: \"RetryCallState\") -> bool:\n         return False\n-\n+    \n \n retry_never = _retry_never()\n \n@@ -50,7 +51,7 @@\n         return True\n \n \n-retry_always = _retry_always()\n+retry_always = _retry_always()\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.048,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: tenacity/retry.py:50\nerror: tenacity/retry.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 363,
+        "cost_usd": 0.00087507,
+        "latency_s": 9.798,
+        "prompt_tokens": 8997,
+        "request_hash": "d9b768c231af1dd49cf38b5556e616138bdabeaa2b33a2f46bbffe1e559a4a10",
+        "total_tokens": 9360
+      },
+      "wall_s": 0.6
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "jd/tenacity#463",
+      "group": "rescued",
+      "solution_patch": "--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -20,6 +20,7 @@\n import typing as t\n\n import tenacity\n+from tenacity import after_nothing as sync_after_nothing\n from tenacity import AttemptManager\n from tenacity import BaseRetrying\n from tenacity import DoAttempt\n@@ -37,6 +38,9 @@\n from .retry import retry_if_result  # noqa\n from ..retry import RetryBaseT as SyncRetryBaseT\n\n+if t.TYPE_CHECKING:\n+    import trio\n+\n if t.TYPE_CHECKING:\n     from tenacity.stop import StopBaseT\n     from tenacity.wait import WaitBaseT\n@@ -49,6 +53,12 @@\n     import asyncio\n\n     return asyncio.sleep(duration)\n+\n+\n+def _trio_sleep(duration: float) -> t.Awaitable[None]:\n+    import trio\n+\n+    return trio.sleep(duration)\n\n\n class AsyncRetrying(BaseRetrying):\n@@ -70,6 +80,10 @@\n             t.Optional[\n                 t.Callable[[\"RetryCallState\"], t.Union[t.Any, t.Awaitable[t.Any]]]\n             ] = None,\n+        sleep: t.Callable[\n+            [t.Union[int, float]], t.Union[None, t.Awaitable[None]]\n+        ] = _trio_sleep if t.TYPE_CHECKING else asyncio_sleep,\n+        # Allow Trio usage without manual sleep parameter\n     ) -> None:\n         super().__init__(\n             sleep=sleep,  # type: ignore[arg-type]\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.042,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: tenacity/asyncio/__init__.py:70\nerror: tenacity/asyncio/__init__.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 378,
+        "cost_usd": 0.0001957053,
+        "latency_s": 103.824,
+        "prompt_tokens": 1947,
+        "request_hash": "fd0f8428a77919dc738950b62977a82525a59aacac252c3fcae5722949e8f91a",
+        "total_tokens": 2325
+      },
+      "wall_s": 0.49
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "jd/tenacity#541",
+      "group": "rescued",
+      "solution_patch": "--- tenacity/wait.py\n+++ tenacity/wait.py\n@@ -1,3 +1,4 @@\n+import typing\n # Copyright 2016\u20132021 Julien Danjou\n # Copyright 2016 Joshua Harlow\n # Copyright 2013-2014 Ray Holder\n@@ -10,7 +11,6 @@\n import abc\n import random\n-import typing\n \n from tenacity import _utils\n \n@@ -18,6 +18,7 @@\n     from tenacity import RetryCallState\n \n \n+WaitBaseT = typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], typing.Union[float, int]]]\n class wait_base(abc.ABC):\n     \"\"\"Abstract base class for wait strategies.\"\"\"\n \n@@ -33,9 +34,6 @@\n         return self.__add__(other)\n \n \n-WaitBaseT = typing.Union[\n-    wait_base, typing.Callable[[\"RetryCallState\"], typing.Union[float, int]]\n-]\n \n \n class wait_fixed(wait_base):\n@@ -143,3 +141,27 @@\n             result = self.initial * exp + jitter\n         except OverflowError:\n             result = self.max\n         return max(0, min(result, self.max))\n+\n+\n+class wait_exception(wait_base):\n+    \"\"\"Wait strategy that determines the wait time based on the exception raised.\n+\n+    This strategy allows users to provide a callable that takes the exception\n+    and returns the wait time. This is useful when different exceptions should\n+    result in different wait times.\n+    \"\"\"\n+\n+    def __init__(\n+        self,\n+        exception_func: typing.Callable[[BaseException], _utils.time_unit_type],\n+        default: _utils.time_unit_type = 0,\n+    ) -> None:\n+        self.exception_func = exception_func\n+        self.default = _utils.to_seconds(default)\n+\n+    def __call__(self, retry_state: \"RetryCallState\") -> float:\n+        if retry_state.outcome is not None and retry_state.outcome.failed:\n+            exception = retry_state.outcome.exception()\n+            if exception is not None:\n+                return _utils.to_seconds(self.exception_func(exception))\n+        return self.default\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.027,
+        "exit_code": 2,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 496,
+        "cost_usd": 0.00084582,
+        "latency_s": 27.385,
+        "prompt_tokens": 8406,
+        "request_hash": "244bc5c5f491a3d3aadc7aa9e0b0951e66de832c58828108328586b7b5584c4e",
+        "total_tokens": 8902
+      },
+      "wall_s": 2.484
+    },
+    {
+      "abort_reason": null,
+      "case_id": "jd/tenacity#628",
+      "group": "rescued",
+      "solution_patch": "--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -196,14 +196,16 @@ class wait_exponential_jitter(wait_base):\n     def __init__(\n         self,\n-        initial: float = 1,\n-        max: float = _utils.MAX_WAIT,\n+        initial: _utils.time_unit_type = 1,\n+        max: _utils.time_unit_type = _utils.MAX_WAIT,\n         exp_base: float = 2,\n-        jitter: float = 1,\n+        jitter: _utils.time_unit_type = 1,\n+        min: _utils.time_unit_type = 0,\n     ) -> None:\n-        self.initial = initial\n-        self.max = max\n+        self.initial = _utils.to_seconds(initial)\n+        self.max = _utils.to_seconds(max)\n         self.exp_base = exp_base\n-        self.jitter = jitter\n+        self.jitter = _utils.to_seconds(jitter)\n+        self.min = _utils.to_seconds(min)\n \n     def __call__(self, retry_state: \"RetryCallState\") -> float:\n         jitter = random.uniform(0, self.jitter)\n@@ -212,4 +214,4 @@ class wait_exponential_jitter(wait_base):\n             result = self.initial * exp + jitter\n         except OverflowError:\n             result = self.max\n-        return max(0, min(result, self.max))\n+        return max(self.min, min(result, self.max))\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 3.48,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 345,
+        "cost_usd": 0.00027477,
+        "latency_s": 4.353,
+        "prompt_tokens": 2363,
+        "request_hash": "7ba20bb5399d56bb7cfd30f2dbde8eb597f2a246342770b498cba3d8970c62b4",
+        "total_tokens": 2708
+      },
+      "wall_s": 3.919
+    },
+    {
+      "abort_reason": null,
+      "case_id": "jd/tenacity#646",
+      "group": "rescued",
+      "solution_patch": "--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -82,6 +82,8 @@ class wait_chain(wait_base):\n \n     def __init__(self, *strategies: wait_base) -> None:\n         self.strategies = strategies\n+        if not strategies:\n+            raise ValueError(\"At least one wait strategy must be provided\")\n \n     def __call__(self, retry_state: \"RetryCallState\") -> float:\n         wait_func_no = min(max(retry_state.attempt_number, 1), len(self.strategies))\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 3.622,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 132,
+        "cost_usd": 0.00039046,
+        "latency_s": 2.756,
+        "prompt_tokens": 2525,
+        "request_hash": "d930346d122b17efbd1777d6e679db744dc573d39c222bbbac3a6a3618494261",
+        "total_tokens": 2657
+      },
+      "wall_s": 4.103
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "jd/tenacity#694",
+      "group": "rescued",
+      "solution_patch": "--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -164,7 +164,7 @@ class BaseRetrying(ABC):\n     def __init__(\n         self,\n         sleep: t.Callable[[int | float], None] = sleep,\n-        stop: \"StopBaseT\" = stop_never,\n-        wait: \"WaitBaseT\" = wait_none(),\n+        stop: \"t.Union[StopBaseT, t.Callable[..., t.Any]]\" = stop_never,\n+        wait: \"t.Union[WaitBaseT, t.Callable[..., t.Any], int, float, None]\" = wait_none(),\n         retry: \"RetryBaseT\" = retry_if_exception_type(),\n         before: t.Callable[[\"RetryCallState\"], None] = before_nothing,\n         after: t.Callable[[\"RetryCallState\"], None] = after_nothing,\n@@ -177,7 +177,14 @@ class BaseRetrying(ABC):\n         self.sleep = sleep\n         self.stop = stop\n-        self.wait = wait\n+        # Ensure wait is always a callable (strategy or function)\n+        if wait is None or (isinstance(wait, (int, float)) and not wait):\n+            self.wait = wait_none()\n+        elif callable(wait):\n+            self.wait = wait\n+        else:\n+            # Fallback: convert to wait_fixed if numeric\n+            self.wait = wait_fixed(int(wait)) if wait else wait_none()\n         self.retry = retry\n         self.before = before\n         self.after = after\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -68,7 +68,7 @@ class AsyncRetrying(BaseRetrying):\n     def __init__(\n         self,\n         sleep: t.Callable[[int | float], t.Awaitable[None] | None] = _portable_async_sleep,\n-        stop: \"StopBaseT\" = tenacity.stop.stop_never,\n-        wait: \"WaitBaseT\" = tenacity.wait.wait_none(),\n+        stop: \"t.Union[StopBaseT, t.Callable[..., t.Any]]\" = tenacity.stop.stop_never,\n+        wait: \"t.Union[WaitBaseT, t.Callable[..., t.Any], int, float, None]\" = tenacity.wait.wait_none(),\n         retry: \"SyncRetryBaseT | RetryBaseT\" = tenacity.retry_if_exception_type(),\n         before: t.Callable[[\"RetryCallState\"], t.Awaitable[None] | None] = before_nothing,\n         after: t.Callable[[\"RetryCallState\"], t.Awaitable[None] | None] = after_nothing,\n@@ -85,7 +85,14 @@ class AsyncRetrying(BaseRetrying):\n         super().__init__(\n             sleep=sleep,  # type: ignore[arg-type]\n             stop=stop,\n-            wait=wait,\n+            # Apply same falsy-fix as BaseRetrying\n+            wait=(\n+                tenacity.wait.wait_none() if wait is None or\n+                (isinstance(wait, (int, float)) and not wait)\n+                else (\n+                    tenacity.wait.wait_fixed(int(wait)) if isinstance(wait, (int, float)) and wait\n+                    else wait\n+                )\n+            ),\n             retry=retry,  # type: ignore[arg-type]\n             before=before,  # type: ignore[arg-type]\n             after=after,  # type: ignore[arg-type]\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -78,7 +78,13 @@ class wait_combine(wait_base):\n \n     @override\n     def __call__(self, retry_state: \"RetryCallState\") -> float:\n-        return sum(x(retry_state=retry_state) for x in self.wait_funcs)\n+        result = 0.0\n+        for x in self.wait_funcs:\n+            try:\n+                result += x(retry_state=retry_state)  # positional arg for callable\n+            except TypeError:\n+                result += x()  # backup for old-style callables\n+        return result\n \n \n class wait_chain(wait_base):\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.032,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: tenacity/__init__.py:177\nerror: tenacity/__init__.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 997,
+        "cost_usd": 0.0010324062,
+        "latency_s": 113.917,
+        "prompt_tokens": 12738,
+        "request_hash": "846b0cc8a5af79a5c8c393c66b8c71400b1f28a2e3c9df3e96356728940afda3",
+        "total_tokens": 13735
+      },
+      "wall_s": 0.447
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "marshmallow-code/marshmallow#1965",
+      "group": "rescued",
+      "solution_patch": "--- a/src/marshmallow/decorators.py\n+++ b/src/marshmallow/decorators.py\n@@ -103,9 +103,9 @@ class MarshmallowHook:\n     __marshmallow_hook__: dict[str, list[tuple[bool, Any]]] | None = None\n \n \n-def validates(field_name: str) -> Callable[..., Any]:\n+def validates(*field_names: str) -> Callable[..., Any]:\n     \"\"\"Register a field validator.\n \n-    :param field_name: Name of the field that the method validates.\n+    :param field_names: Names of the fields that the method validates.\n     \"\"\"\n-    return set_hook(None, VALIDATES, field_name=field_name)\n+    return set_hook(None, VALIDATES, field_names=field_names)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.059,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/marshmallow/decorators.py:103\nerror: src/marshmallow/decorators.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 279,
+        "cost_usd": 0.0009842112,
+        "latency_s": 8.988,
+        "prompt_tokens": 11647,
+        "request_hash": "ebea9ab4a9371c3c56538eb0329a59bbaf3757705cd963cc53eebc81f50dfcbf",
+        "total_tokens": 11926
+      },
+      "wall_s": 0.586
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "marshmallow-code/marshmallow#2722",
+      "group": "rescued",
+      "solution_patch": "--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -22,12 +22,11 @@ from collections.abc import Mapping as _Mapping\n from marshmallow import class_registry, types, utils, validate\n-from marshmallow.base import FieldABC\n from marshmallow.exceptions import (\n-    FieldInstanceResolutionError,\n+    _FieldInstanceResolutionError as FieldInstanceResolutionError,\n     StringNotCollectionError,\n     ValidationError,\n )\n from marshmallow.utils import (\n     is_aware,\n     is_collection,\n-    resolve_field_instance,\n+    _resolve_field_instance as resolve_field_instance,\n )\n from marshmallow.utils import (\n@@ -91,7 +90,7 @@ class _BaseFieldKwargs(typing.TypedDict, total=False):\n     metadata: typing.Mapping[str, typing.Any] | None\n \n \n-class Field(FieldABC):\n+class Field:\n     \"\"\"Basic field from which other fields should extend. It applies no\n     formatting by default, and should only be used in cases where\n     data does not need to be formatted before being serialized or deserialized.\n@@ -301,7 +300,7 @@ class Field(FieldABC):\n         self.name = self.name or field_name\n         self.root = self.root or (\n-            self.parent.root if isinstance(self.parent, FieldABC) else self.parent\n+            self.parent.root if isinstance(self.parent, Field) else self.parent\n         )\n \n     def _serialize(\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.32,
+        "exit_code": 4,
+        "stage": "test",
+        "stderr_tail": "ImportError while loading conftest '/tmp/crucible-74jgphe4/repo/tests/conftest.py'.\ntests/conftest.py:5: in <module>\n    from tests.base import Blog, User, UserSchema\ntests/base.py:12: in <module>\n    from marshmallow import Schema, fields, missing, post_load, validate\nsrc/marshmallow/__init__.py:10: in <module>\n    from marshmallow.schema import Schema, SchemaOpts\nsrc/marshmallow/schema.py:17: in <module>\n    from marshmallow import fields as ma_fields\nsrc/marshmallow/fields.py:29: in <module>\n    from marshmallow.exceptions import (\nE   ImportError: cannot import name '_FieldInstanceResolutionError' from 'marshmallow.exceptions' (/tmp/crucible-74jgphe4/repo/src/marshmallow/exceptions.py)\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 472,
+        "cost_usd": 0.0008869665,
+        "latency_s": 43.911,
+        "prompt_tokens": 11895,
+        "request_hash": "953c5ebcfe7dceac1ae2921f1c6e658d2896cc62f20fb6d5a286bba6a171bcc7",
+        "total_tokens": 12367
+      },
+      "wall_s": 1.791
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "marshmallow-code/marshmallow#3016",
+      "group": "rescued",
+      "solution_patch": "--- a/src/marshmallow/validate.py\n+++ b/src/marshmallow/validate.py\n@@ -131,7 +131,7 @@ class URL(Validator):\n                     r\"(?::\\d+)?\",\n                 )\n             )\n-            relative_part = r\"(?:/?|[/?]\\S+)\\Z\"\n+            relative_part = r\"(?:/?|[/?]\\S*)\\Z\"\n \n             if relative:\n                 if absolute:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.004,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 102,
+        "cost_usd": 0.00058653,
+        "latency_s": 2.169,
+        "prompt_tokens": 6313,
+        "request_hash": "dc9f288f768bf1ff1f7cd3031436f3f8dbef73b428175cd7ffda6297777cf27c",
+        "total_tokens": 6415
+      },
+      "wall_s": 2.36
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#1304",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -1151,6 +1151,9 @@ class Parameter(object):\n             value = os.environ.get(env_var)\n             if value is not None:\n                 return value\n+        # If the environment variable exists but is empty, treat it as unset\n+        if env_var is not None and os.environ.get(env_var) == '':\n+            return None\n         return None\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.093,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: src/click/core.py: No such file or directory\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 448,
+        "cost_usd": 0.0008060717,
+        "latency_s": 48.272,
+        "prompt_tokens": 10763,
+        "request_hash": "3d54117ad3e220ddfef25e3b86514fc4592a53b173237f765ae48e46bc2943de",
+        "total_tokens": 11211
+      },
+      "wall_s": 0.704
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#1309",
+      "group": "rescued",
+      "solution_patch": "--- click/termui.py\n+++ click/termui.py\n@@ -47,7 +47,7 @@\n def _build_prompt(text, suffix, show_default=False, default=None, show_choices=True, type=None):\n     prompt = text\n     if type is not None and show_choices and isinstance(type, Choice):\n         prompt += ' (' + \", \".join(map(str, type.choices)) + ')'\n     if default is not None and show_default:\n-        prompt = '%s [%s]' % (prompt, default)\n+        prompt = '%s [%s]' % (prompt, default)\n     return prompt + suffix\n```\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.958,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 144,
+        "cost_usd": 0.00053775,
+        "latency_s": 2.083,
+        "prompt_tokens": 5687,
+        "request_hash": "4889c59298895b62176a7a7cb0743fcc8c48c4dbe4f14f723e2dc5a3ff28e332",
+        "total_tokens": 5831
+      },
+      "wall_s": 2.588
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#1312",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/testing.py\n+++ b/src/click/testing.py\n@@ -62,7 +62,7 @@ class Result:\n     \"\"\"Holds the captured result of an invoked CLI script.\"\"\"\n\n     def __init__(\n-        self, runner, stdout_bytes, stderr_bytes, exit_code, exception, exc_info=None\n+        self, runner, stdout_bytes, stderr_bytes, exit_code, exception, exc_info=None, return_value=None\n     ):\n         #: The runner that created the result\n         self.runner = runner\n@@ -72,6 +72,8 @@ class Result:\n         self.exit_code = exit_code\n         #: The exception that happened if one did.\n         self.exception = exception\n+        #: The return value of the invoked command, if any.\n+        self.return_value = return_value\n         #: The traceback\n         self.exc_info = exc_info\n\n@@ -215,7 +217,7 @@ class CliRunner:\n             try:\n                 cli.main(args=args or (), prog_name=prog_name, **extra)\n             except SystemExit as e:\n                 exc_info = sys.exc_info()\n                 exit_code = e.code\n                 if exit_code is None:\n                     exit_code = 0\n\n                 if exit_code != 0:\n                     exception = e\n\n                 if not isinstance(exit_code, int):\n                     sys.stdout.write(str(exit_code))\n                     sys.stdout.write(\"\\n\")\n                     exit_code = 1\n\n             except Exception as e:\n                 if not catch_exceptions:\n                     raise\n                 exception = e\n                 exit_code = 1\n                 exc_info = sys.exc_info()\n             finally:\n                 sys.stdout.flush()\n                 stdout = outstreams[0].getvalue()\n                 if self.mix_stderr:\n                     stderr = None\n                 else:\n                     stderr = outstreams[1].getvalue()\n\n         return Result(\n             runner=self,\n             stdout_bytes=stdout,\n             stderr_bytes=stderr,\n             exit_code=exit_code,\n             exception=exception,\n             exc_info=exc_info,\n+            return_value=return_value,\n         )\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 1.897,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 461,
+        "cost_usd": 0.000295274,
+        "latency_s": 4.813,
+        "prompt_tokens": 2746,
+        "request_hash": "012a7b691a228764c6f9112734cea48db8e5c2d26d0ef59be80b5b99a9a8b71a",
+        "total_tokens": 3207
+      },
+      "wall_s": 2.491
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#1318",
+      "group": "rescued",
+      "solution_patch": "--- click/types.py\n+++ click/types.py\n@@ -107,7 +107,7 @@\n             normed_choices = [choice.lower() for choice in normed_choices]\n \n         if normed_value in normed_choices:\n-            return normed_value\n+            return self.choices[normed_choices.index(normed_value)]\n \n         self.fail('invalid choice: %s. (choose from %s)' %\n                   (value, ', '.join(self.choices)), param, ctx)\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 2.038,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 115,
+        "cost_usd": 0.00046642176,
+        "latency_s": 6.896,
+        "prompt_tokens": 5554,
+        "request_hash": "5c24e3b0095f90ea7c8084cf16898951d1ad54d262332518d2edc7baa359820a",
+        "total_tokens": 5669
+      },
+      "wall_s": 2.441
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#1504",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/_bashcomplete.py\n+++ b/src/click/_bashcomplete.py\n@@ -155,6 +155,9 @@ def get_choices(cli, prog_name, args, incomplete):\n                 completions.extend(\n                     [(o, param.help) for o in param_opts if o.startswith(incomplete)]\n                 )\n+        # Always suggest --help as a completion candidate\n+        if incomplete.startswith(\"--\"):\n+            completions.append((\"--help\", \"Show this message and exit.\"))\n         return completions\n     # completion for option values from user supplied values\n     for param in ctx.command.params:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.139,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 141,
+        "cost_usd": 0.00046774,
+        "latency_s": 3.536,
+        "prompt_tokens": 3059,
+        "request_hash": "c8bd36dd9acdc8b8cdb985fb9e13672aefd9cc5101bd6b59073e6f11f38ecbb1",
+        "total_tokens": 3200
+      },
+      "wall_s": 2.615
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#1916",
+      "group": "rescued",
+      "solution_patch": "Let me analyze the issue. When a parameter has an invalid default value, the help text fails to display with an error instead of showing the available options. This happens because when formatting help text, the default value is being processed/validated, which can raise an error.\n\nThe fix should be in the `Parameter.get_help_record` method or similar, where default values are processed for display. Let me look at the relevant code in `core.py` to find where defaults are processed for help display.\n\nThe issue is likely in the `Parameter` class's `get_help_record` method, which processes the default value for display. When the default is invalid, it raises an error instead of gracefully handling it.\n\nLet me search for where defaults are processed in help formatting. The key method is likely `get_help_record` in the `Parameter` class. Since we don't have the full `Parameter` class in the provided file, let me check what's available.\n\nLooking at the code, I can see that `Parameter` is imported but not defined in this file. The issue is likely in the `Parameter.get_help_record` method which processes defaults for display. The fix should catch exceptions when processing the default value and fall back to showing the raw default value.\n\nSince I don't have the full `Parameter` class definition, I need to find where the default value is processed for help display. The most likely location is in the `get_help_record` method of the `Parameter` class, which is in a different file (likely `core.py` but not shown in the parent source).\n\nHowever, looking at the provided code, I can see that `Parameter` is referenced but not defined. The fix needs to be in the `Parameter` class's `get_help_record` method. Since I don't have that code, I'll need to make the fix based on the available information.\n\nThe issue is that when a default value is invalid (e.g., a string that can't be converted to the parameter type), the help text generation fails. The fix should wrap the default value processing in a try-except block and fall back to showing the raw default value.\n\nLet me look at what's available in the provided code. The `Parameter` class is not defined here, but it's imported. The fix needs to be in the `Parameter` class's `get_help_record` method.\n\nSince I can only modify the provided files, and the `Parameter` class isn't in the provided files, I need to check if there's a way to fix this in the `Command` class or elsewhere.\n\nActually, looking more carefully, the issue might be in how defaults are processed during help generation. The `get_help_record` method of `Parameter` likely calls `self.type_cast_value` or similar to process the default, which can raise an error.\n\nSince I don't have the `Parameter` class definition, I'll need to make the fix in the `Command` class's help formatting methods. Let me look at `format_help` or `get_help` methods.\n\nLooking at the `Command` class, I see `get_help` is inherited from `BaseCommand` and calls `self.command.get_help(self)`. The actual help formatting happens in `format_help` which is not shown.\n\nWait, let me re-read the problem. The issue is that when a parameter has an invalid default value, help text fails to display. This means the error occurs during help generation, likely when processing the default value for display.\n\nThe fix should be in the `Parameter.get_help_record` method, but since that's not in the provided files, I need to find another approach. Let me check if there's a way to fix this in the `Command` class.\n\nActually, looking at the code more carefully, I see that `Parameter` is imported from `.core` but the class definition isn't shown. The fix needs to be in the `Parameter` class's `get_help_record` method.\n\nSince I can only modify the provided files, and the `Parameter` class isn't defined in them, I need to check if there's a way to fix this in the `Command` class.\n\nWait - let me re-read the problem. The issue is that help text fails to display with an error. This happens during help generation. The most likely place is in `Parameter.get_help_record` which processes the default value.\n\nSince I don't have the `Parameter` class, I'll need to make the fix in the `Command` class's help formatting. Let me look at `format_help` method.\n\nActually, I realize the `Parameter` class might be defined in the same file but not shown in the parent source. Let me check if there's a way to fix this in the `Command` class.\n\nLooking at the `Command` class, I see `get_help` is inherited from `BaseCommand`. The actual help formatting happens in `format_help` which is not shown.\n\nLet me look at what methods are available. The `Command` class has `get_usage`, `get_params`, `format_usage`, `collect_usage_pieces`, `get_help_option_names`, `get_help_option`, `make_parser`, and `parse_args`.\n\nThe help formatting likely happens in a `format_help` method that's not shown. But the issue is in how defaults are processed.\n\nSince I can't modify the `Parameter` class directly, I need to find another way. Let me check if there's a way to catch the error in the `Command` class.\n\nActually, looking at the code, I see that `Parameter` is imported from `.core` but the class definition isn't shown. The fix needs to be in the `Parameter` class's `get_help_record` method.\n\nSince I can only modify the provided files, and the `Parameter` class isn't defined in them, I need to check if there's a way to fix this in the `Command` class.\n\nWait - let me re-read the problem statement. It says \"When a parameter has an invalid default value, help text fails to display with an error instead of showing the available options.\" This means the error occurs during help generation.\n\nThe most likely fix is in the `Parameter.get_help_record` method, which processes the default value for display. The fix would be to wrap the default value processing in a try-except block.\n\nSince I don't have the `Parameter` class definition, I'll need to make the fix in the `Command` class. Let me look at how help is generated.\n\nLooking at the `Command` class, I see that `get_help` is inherited from `BaseCommand`. The actual help formatting happens in `format_help` which is not shown.\n\nLet me check if there's a way to fix this in the `Command` class by overriding the help generation.\n\nActually, I think the fix should be in the `Parameter` class, but since it's not in the provided files, I need to find another approach.\n\nLet me look at the `Command` class more carefully. The `get_params` method returns the parameters. The help formatting likely iterates over these parameters and calls `get_help_record` on each.\n\nSince I can't modify the `Parameter` class, I'll need to modify the `Command` class to catch exceptions when processing parameter help records.\n\nBut wait - the `Command` class doesn't have a `format_help` method shown. Let me check if there's one.\n\nLooking at the code, I see that `Command` inherits from `BaseCommand` which has `get_help` that raises `NotImplementedError`. The `Command` class must override `get_help` or `format_help`.\n\nSince I don't see `format_help` in the provided code, I need to check if it's defined elsewhere.\n\nActually, let me look at the `Command` class methods:\n- `to_info_dict`\n- `get_usage`\n- `get_params`\n- `format_usage`\n- `collect_usage_pieces`\n- `get_help_option_names`\n- `get_help_option`\n- `make_parser`\n- `parse_args`\n\nThere's no `format_help` or `get_help` method shown. These must be inherited from `BaseCommand` or defined elsewhere.\n\nGiven the constraints, I think the fix needs to be in the `Parameter` class, but since it's not in the provided files, I'll need to make the fix in the `Command` class.\n\nLet me look at the `Command` class's `get_params` method - it returns the parameters. The help formatting likely iterates over these and calls `get_help_record`.\n\nSince I can't modify the `Parameter` class, I'll need to modify the `Command` class to catch exceptions when processing parameter help records.\n\nBut wait - the `Command` class doesn't have a `format_help` method shown. Let me check if there's one.\n\nActually, I think the fix should be in the `Parameter` class's `get_help_record` method. Since I don't have that code, I'll need to make the fix in the `Command` class.\n\nLet me look at the `Command` class's `get_help` method. It's not shown, but it's likely defined in the `Command` class.\n\nGiven the constraints, I'll make the fix in the `Command` class by overriding the help generation to catch exceptions when processing parameter defaults.\n\nActually, let me reconsider. The issue is that when a parameter has an invalid default value,\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.086,
+        "exit_code": 128,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: No valid patches in input (allow with \"--allow-empty\")\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 2000,
+        "cost_usd": 0.00170184,
+        "latency_s": 15.643,
+        "prompt_tokens": 11195,
+        "request_hash": "73da78b86d5c2e053710a0afc4b63d3f7c87f7a70f0c3a28623886d3c27d9464",
+        "total_tokens": 13195
+      },
+      "wall_s": 0.568
+    },
+    {
+      "abort_reason": null,
+      "case_id": "pallets/click#2094",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/types.py\n+++ b/src/click/types.py\n@@ -573,17 +573,8 @@ class Path(ParamType):\n         if not is_dash:\n             if self.resolve_path:\n                 # Get the absolute directory containing the path.\n-                dir_ = os.path.dirname(os.path.abspath(rv))\n-\n-                # Resolve a symlink. realpath on Windows Python < 3.9\n-                # doesn't resolve symlinks. This might return a relative\n-                # path even if the path to the link is absolute.\n-                if os.path.islink(rv):\n-                    rv = os.readlink(rv)\n-\n-                # Join dir_ with the resolved symlink if the resolved\n-                # path is relative. This will make it relative to the\n-                # original containing directory.\n-                if not os.path.isabs(rv):\n-                    rv = os.path.join(dir_, rv)\n+                # Use os.path.realpath to resolve all symlinks and\n+                # return an absolute path. This handles symlinks\n+                # correctly on all platforms.\n+                rv = os.path.realpath(rv)\n \n             try:\n                 st = os.stat(rv)\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 2.176,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 272,
+        "cost_usd": 0.001228244,
+        "latency_s": 4.316,
+        "prompt_tokens": 8622,
+        "request_hash": "bfcedb58bf33d930948241656a751917d7805d237bc1be713cb4d624c1562a7f",
+        "total_tokens": 8894
+      },
+      "wall_s": 2.681
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2248",
+      "group": "rescued",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -2364,6 +2364,12 @@\n         self.multiple: bool = multiple\n         self.count: bool = count\n         self.allow_from_autoenv: bool = allow_from_autoenv\n+\n+        if multiple and is_flag:\n+            raise TypeError(\n+                \"'multiple' and 'is_flag' are not compatible.\"\n+            )\n+\n         self._count_stack: t.List[int] = []\n \n     def to_info_dict(self) -> t.Dict[str, t.Any]:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.091,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:2364\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 124,
+        "cost_usd": 0.0007809725,
+        "latency_s": 15.97,
+        "prompt_tokens": 11195,
+        "request_hash": "e11b0d4b17f30258eb67c5cec1dea962f6838abe03851a18f3836876bb217101",
+        "total_tokens": 11319
+      },
+      "wall_s": 0.505
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2509",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -1895,7 +1895,7 @@\n \n         if self.show_default is False:\n             return None\n-        if self.show_default is None:\n+        if self.show_default is None or self.show_default is True:\n             ctx_show_default = ctx.show_default if ctx else None\n             if ctx_show_default is None:\n                 ctx_show_default = self.parent.show_default if self.parent else None\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.11,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:1895\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 201,
+        "cost_usd": 0.0007927542,
+        "latency_s": 37.188,
+        "prompt_tokens": 11178,
+        "request_hash": "56b77e386a694467b82be4bd3b22bbee177a7cb3a1a9f6417d840905c7d0eb2e",
+        "total_tokens": 11379
+      },
+      "wall_s": 0.639
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2680",
+      "group": "rescued",
+      "solution_patch": "This should be called even if `Exit` is raised. But the problem might be that `Exit` is caught somewhere and the context manager's `__exit__` is never reached.\n\nActually, looking at `Context.invoke`:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.101,
+        "exit_code": 128,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: No valid patches in input (allow with \"--allow-empty\")\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 2000,
+        "cost_usd": 0.00136818,
+        "latency_s": 22.718,
+        "prompt_tokens": 11202,
+        "request_hash": "8394d8e83e06dd8a770fac1ab07645e0cb0d793118bfe767943d730bec3ac592",
+        "total_tokens": 13202
+      },
+      "wall_s": 0.718
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "pallets/click#2728",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/types.py\n+++ b/src/click/types.py\n@@ -573,7 +573,7 @@ class Path(ParamType):\n                 st = os.stat(rv)\n             except OSError:\n                 if not self.exists:\n-                    return self.coerce_path_result(rv)\n+                    return self.coerce_path_result(value)\n                 self.fail(\n                     _(\"{name} {filename!r} does not exist.\").format(\n                         name=self.name.title(), filename=format_filename(value)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.03,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 113,
+        "cost_usd": 0.00081036,
+        "latency_s": 3.561,
+        "prompt_tokens": 8778,
+        "request_hash": "baf006d73a7ca641e0d9272f63c541c66b6daeb934c61d11b949f01faf8274ca",
+        "total_tokens": 8891
+      },
+      "wall_s": 2.615
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2829",
+      "group": "rescued",
+      "solution_patch": "--- src/click/core.py\n+++ src/click/core.py\n@@ -1757,7 +1757,7 @@\n         if self.is_flag:\n             return self.default if self.default is not None else False\n         else:\n-            return self.default\n+            return self.default if self.default is not None else None\n \n     def get_help_record(self, ctx: Context) -> tuple[str, str] | None:\n         if self.hidden:\n@@ -1795,7 +1795,7 @@\n         if self.is_flag:\n             return self.default if self.default is not None else False\n         else:\n-            return self.default\n+            return self.default if self.default is not None else None\n \n     def make_metavar(self) -> str:\n         if self.metavar is not None:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.113,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:1757\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 174,
+        "cost_usd": 0.0016149,
+        "latency_s": 3.846,
+        "prompt_tokens": 11187,
+        "request_hash": "64eadadc430a97b6c5efc3c5218926d2f0896617d81998f03c39dd7de6a9bb25",
+        "total_tokens": 11361
+      },
+      "wall_s": 0.706
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "pallets/click#2930",
+      "group": "rescued",
+      "solution_patch": "--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -1477,7 +1477,7 @@ class Option(Parameter):\n         if self.flag_value is not None:\n             # For flag options, the value is the flag value itself.\n             value = self.flag_value\n-        elif self.type is not None:\n+        elif self.type is not None and not self.is_flag:\n             # For options with a type, use the type to process the value.\n             value = self.type_cast_value(ctx, value)\n         else:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.087,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/click/core.py:1477\nerror: src/click/core.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 120,
+        "cost_usd": 0.0009221184,
+        "latency_s": 6.154,
+        "prompt_tokens": 11195,
+        "request_hash": "20166d02714eaf3cf9cbb842776901cc1d92a62c7254d046898d9304b3677889",
+        "total_tokens": 11315
+      },
+      "wall_s": 0.709
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "python-attrs/attrs#1001",
+      "group": "rescued",
+      "solution_patch": "--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1,6 +1,7 @@\n # SPDX-License-Identifier: MIT\n \n import copy\n+import inspect\n import linecache\n import sys\n import types\n@@ -1064,6 +1065,10 @@ class _ClassBuilder:\n         cd[\"__qualname__\"] = self._cls.__qualname__\n \n         # Create new class based on old class and our methods.\n+        # Preserve abstractness for dict classes (Python 3.10+)\n+        if not self._slots and hasattr(self._cls, '__abstractmethods__'):\n+            cd['__abstractmethods__'] = self._cls.__abstractmethods__\n+        \n         cls = type(self._cls)(self._cls.__name__, self._cls.__bases__, cd)\n \n         # The following is a fix for\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.686,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 302,
+        "cost_usd": 0.00181188,
+        "latency_s": 6.601,
+        "prompt_tokens": 12338,
+        "request_hash": "0f457555a68be50566e1914e1c140303dda05d93b54b105058ced3181504e49a",
+        "total_tokens": 12640
+      },
+      "wall_s": 3.304
+    },
+    {
+      "abort_reason": null,
+      "case_id": "python-attrs/attrs#1085",
+      "group": "rescued",
+      "solution_patch": "--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1070,6 +1070,10 @@ class _ClassBuilder:\n         def slots_setstate(self, state):\n             \"\"\"\n             Automatically created by attrs.\n             \"\"\"\n+            # Handle pickles from older versions of attrs that used tuples\n+            if not isinstance(state, dict):\n+                state = {name: state[i] for i, name in enumerate(state_attr_names)}\n             __bound_setattr = _obj_setattr.__get__(self)\n             for name in state_attr_names:\n                 if name in state:\n",
+      "solved": true,
+      "test_result": {
+        "duration_s": 2.102,
+        "exit_code": 0,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": true
+      },
+      "usage": {
+        "completion_tokens": 191,
+        "cost_usd": 0.001023477,
+        "latency_s": 2.918,
+        "prompt_tokens": 12332,
+        "request_hash": "bf2e942b91a29efa657f79fd1fbad7d01e00f849801261eccf07ec728e24fb98",
+        "total_tokens": 12523
+      },
+      "wall_s": 2.614
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "python-attrs/attrs#1203",
+      "group": "rescued",
+      "solution_patch": "--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1,3 +1,4 @@\n+import types\n # SPDX-License-Identifier: MIT\n \n import contextlib\n@@ -2332,3 +2333,33 @@ def fields_dict(cls):\n         return {a.name: a for a in fields(cls)}\n \n     return {}\n+\n+\n+def make_class(name, attrs, bases=(object,), **kwargs):\n+    \"\"\"\n+    Create a new class with *attrs* attributes.\n+\n+    :param str name: The name of the new class.\n+    :param dict attrs: A dictionary mapping attribute names to `attr.ib`\n+        definitions.\n+    :param tuple bases: Base classes for the new class.\n+    :param **kwargs: Additional keyword arguments passed to `attr.s`.\n+\n+    :return: A new class with the given attributes.\n+    :rtype: type\n+\n+    .. versionadded:: 24.1.0\n+    \"\"\"\n+    # Create a new class using types.new_class to preserve type information\n+    # (e.g., generic parameters).\n+    cls = types.new_class(name, bases, {}, lambda ns: ns)\n+\n+    # Set the attributes on the class\n+    for attr_name, attr_def in attrs.items():\n+        setattr(cls, attr_name, attr_def)\n+\n+    # Apply the attrs decorator with the given keyword arguments\n+    # We use these=attrs to avoid scanning the class body for attributes\n+    cls = attrs(cls, these=attrs, **kwargs)\n+\n+    return cls\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.061,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: src/attr/_make.py:2332\nerror: src/attr/_make.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 431,
+        "cost_usd": 0.00184828,
+        "latency_s": 6.771,
+        "prompt_tokens": 12340,
+        "request_hash": "6096e4e3f37dff9dbf6a908c75b916d5f1202daa98687b73b88de1c701a0ebec",
+        "total_tokens": 12771
+      },
+      "wall_s": 0.483
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "python-attrs/attrs#1263",
+      "group": "rescued",
+      "solution_patch": "--- src/attr/_make.py\n+++ src/attr/_make.py\n@@ -1,3 +1,4 @@\n+import warnings\n # SPDX-License-Identifier: MIT\n \n import contextlib\n@@ -1000,6 +1001,9 @@\n         self._has_custom_setattr = has_custom_setattr\n         self._wrote_own_setattr = False\n \n+        if repr_ns is not None:\n+            warnings.warn(\"The `repr_ns` parameter is deprecated and will be removed in a future version.\", DeprecationWarning, stacklevel=2)\n+\n         self._cls_dict[\"__attrs_attrs__\"] = self._attrs\n \n         if frozen:\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.068,
+        "exit_code": 4,
+        "stage": "test",
+        "stderr_tail": "ImportError while loading conftest '/tmp/crucible-0_ao_vxs/repo/conftest.py'.\nconftest.py:9: in <module>\n    from attr._compat import PY_3_10_PLUS\nsrc/attr/__init__.py:10: in <module>\n    from . import converters, exceptions, filters, setters, validators\nsrc/attr/converters.py:11: in <module>\n    from ._make import NOTHING, Factory, pipe\nsrc/attr/_make.py:3057: in <module>\n    @attrs(slots=True, hash=True)\n     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsrc/attr/_make.py:1625: in wrap\n    builder = _ClassBuilder(\nsrc/attr/_make.py:760: in __init__\n    if repr_ns is not None:\n       ^^^^^^^\nE   NameError: name 'repr_ns' is not defined\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 154,
+        "cost_usd": 0.00176008,
+        "latency_s": 4.2,
+        "prompt_tokens": 12264,
+        "request_hash": "6378bb7843792bcb247cd288727bc4937c282c000ef87b521b78a7451774907e",
+        "total_tokens": 12418
+      },
+      "wall_s": 2.521
+    },
+    {
+      "abort_reason": "tests_failed",
+      "case_id": "python-attrs/attrs#925",
+      "group": "rescued",
+      "solution_patch": "--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -1,3 +1,4 @@\n+\n # SPDX-License-Identifier: MIT\n \n \"\"\"\n@@ -290,6 +291,8 @@ def deep_iterable(member_validator, iterable_validator=None):\n \n     .. versionadded:: 19.1.0\n \n+    :param member_validator: Validator(s) to apply to iterable members.\n+        If a list is passed, validators are combined using `and_`.\n     :raises TypeError: if any sub-validators fail\n     \"\"\"\n     return _DeepIterable(member_validator, iterable_validator)\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 2.304,
+        "exit_code": 1,
+        "stage": "test",
+        "stderr_tail": "",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 156,
+        "cost_usd": 0.00035594496,
+        "latency_s": 4.728,
+        "prompt_tokens": 4102,
+        "request_hash": "c56be78779aa07e514770416c88754031a15f541f28150ccec2bbb9827ef9aaf",
+        "total_tokens": 4258
+      },
+      "wall_s": 2.757
+    },
+    {
+      "abort_reason": "solution_patch_apply",
+      "case_id": "python-attrs/attrs#993",
+      "group": "rescued",
+      "solution_patch": "--- a/setup.py\n+++ b/setup.py\n@@ -1,6 +1,5 @@\n # SPDX-License-Identifier: MIT\n \n-import codecs\n import os\n import re\n \n@@ -30,7 +29,6 @@ CLASSIFIERS = [\n     \"Programming Language :: Python\",\n     \"Programming Language :: Python :: 3\",\n     \"Programming Language :: Python :: 3\",\n-    \"Programming Language :: Python :: 3.6\",\n     \"Programming Language :: Python :: 3.7\",\n     \"Programming Language :: Python :: 3.8\",\n     \"Programming Language :: Python :: 3.9\",\n@@ -103,7 +101,7 @@ def read(*parts):\n     Build an absolute path from *parts* and return the contents of the\n     resulting file.  Assume UTF-8 encoding.\n     \"\"\"\n-    with codecs.open(os.path.join(HERE, *parts), \"rb\", \"utf-8\") as f:\n+    with open(os.path.join(HERE, *parts), \"r\", encoding=\"utf-8\") as f:\n         return f.read()\n \n \n@@ -155,7 +153,7 @@ if __name__ == \"__main__\":\n         package_dir={\"\": \"src\"},\n-        python_requires=\">=3.6\",\n+        python_requires=\">=3.7\",\n         zip_safe=False,\n         classifiers=CLASSIFIERS,\n         install_requires=INSTALL_REQUIRES,\n--- a/src/attr/__init__.py\n+++ b/src/attr/__init__.py\n@@ -1,7 +1,6 @@\n # SPDX-License-Identifier: MIT\n \n import sys\n-import warnings\n \n from functools import partial\n \n@@ -18,12 +17,6 @@ from ._next_gen import define, field, frozen, mutable\n from ._version_info import VersionInfo\n \n \n-if sys.version_info < (3, 7):  # pragma: no cover\n-    warnings.warn(\n-        \"Running attrs on Python 3.6 is deprecated & we intend to drop \"\n-        \"support soon. If that's a problem for you, please let us know why & \"\n-        \"we MAY re-evaluate: <https://github.com/python-attrs/attrs/pull/993>\",\n-        DeprecationWarning,\n-    )\n \n __version__ = \"22.3.0.dev0\"\n--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -14,11 +14,7 @@ from ._make import _AndValidator, and_, attrib, attrs\n from .converters import default_if_none\n from .exceptions import NotCallableError\n \n-\n-try:\n-    Pattern = re.Pattern\n-except AttributeError:  # Python <3.7 lacks a Pattern type.\n-    Pattern = type(re.compile(\"\"))\n+Pattern = re.Pattern\n \n \n __all__ = [\n",
+      "solved": false,
+      "test_result": {
+        "duration_s": 0.078,
+        "exit_code": 1,
+        "stage": "solution_patch_apply",
+        "stderr_tail": "error: patch failed: setup.py:30\nerror: setup.py: patch does not apply\n",
+        "transitioned_tests_pass": false
+      },
+      "usage": {
+        "completion_tokens": 642,
+        "cost_usd": 0.000953568,
+        "latency_s": 10.115,
+        "prompt_tokens": 7230,
+        "request_hash": "8c2023c51a5afe9fedf4eb92daa4ac4ebbc55a2ad938437ec33e7839a3fa6b5f",
+        "total_tokens": 7872
+      },
+      "wall_s": 0.693
+    }
+  ],
+  "schema_version": 1,
+  "single_attempt": true,
+  "spend_cap_usd": 12.0,
+  "step_cap": 1,
+  "test_wall_cap_s": 600,
+  "total_spend_usd": 0.05889525826
+}

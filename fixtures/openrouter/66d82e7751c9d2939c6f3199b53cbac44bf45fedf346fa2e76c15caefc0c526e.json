@@ -1,0 +1,69 @@
+{
+  "latency_s": 4.758,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd support for cached_properties to slotted attrs classes.\n\nPR body:\n# Summary\r\n\r\nProof of concept for detecting and adapting cached_property decorated functions for slotted classes.  This addresses:\r\n\r\n\r\n Caching dynamic properties when using slots=True. #164 \r\n\r\n# Pull Request Check List\r\n\r\n<!--\r\nThis is just a friendly reminder about the most common mistakes.\r\nPlease make sure that you tick all boxes.\r\nBut please read our [contribution guide](https://github.com/python-attrs/attrs/blob/main/.github/CONTRIBUTING.md) at least once, it will save you unnecessary review cycles!\r\n\r\nIf an item doesn't apply to your pull request, **check it anyway** to make it apparent that there's nothing left to do.\r\nIf your pull request is a documentation fix or a trivial typo, feel free to delete the whole thing.\r\n-->\r\n\r\n- [x] Do **not** open pull requests from your `main` branch \u2013 **use a separate branch**!\r\n  - There's a ton of footguns waiting if you don't heed this warning. You can still go back to your project, create a branch from your main branch, push it, and open the pull request from the new branch.\r\n  - This is not a pre-requisite for your your pull request to be accepted, but **you have been warned**.\r\n- [x] Added **tests** for changed code.\r\n  Our CI fails if coverage is not 100%.\r\n- [x] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [x] ...and used in the stub test file `tests/typing_example.py`.\r\n    - [x] If they've been added to `attr/__init__.pyi`, they've *also* been re-imported in `attrs/__init__.pyi`.\r\n- [x] Updated **documentation** for changed code.\r\n    - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [x] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n          The next version is the second number in the current release + 1.\r\n          The first number represents the current year.\r\n          So if the current version on PyPI is 22.2.0, the next version is gonna be 22.3.0.\r\n          If the next version is the first in the new year, it'll be 23.1.0.\r\n- [x] Documentation in `.rst` and `.md` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [x] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n- [x] Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\r\n\r\n<!--\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!\r\nThis checklist is here to *help* you, not to deter you from contributing!\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1200.change.md b/changelog.d/1200.change.md\nnew file mode 100644\nindex 00000000..402252bb\n--- /dev/null\n+++ b/changelog.d/1200.change.md\n@@ -0,0 +1 @@\n+Slotted classes now transform `functools.cached_property` decorated methods to support equivalent semantics.\ndiff --git a/docs/how-does-it-work.md b/docs/how-does-it-work.md\nindex 72972e75..7acc8121 100644\n--- a/docs/how-does-it-work.md\n+++ b/docs/how-does-it-work.md\n@@ -96,3 +96,23 @@ Pick what's more important to you.\n You should avoid instantiating lots of frozen slotted classes (i.e. `@frozen`) in performance-critical code.\n \n Frozen dict classes have barely a performance impact, unfrozen slotted classes are even *faster* than unfrozen dict classes (i.e. regular classes).\n+\n+\n+(how-slotted-cached_property)=\n+\n+## Cached Properties on Slotted Classes.\n+\n+By default, the standard library `functools.cached_property` decorator does not work on slotted classes,\n+because it requires a `__dict__` to store the cached value.\n+This could be surprising when uses *attrs*, as makes using slotted classes so easy,\n+so attrs will convert `functools.cached_property` decorated methods, when constructing slotted classes.\n+\n+Getting this working is achieved by:\n+* Adding names to `__slots__` for the wrapped methods.\n+* Adding a `__getattr__` method to set values on the wrapped methods.\n+\n+For most users this should mean that it works transparently.\n+\n+Note that the implementation does not guarantee that the wrapped method is called\n+only once in multi-threaded usage.  This matches the implementation of `cached_property`\n+in python v3.12.\ndiff --git a/src/attr/_compat.py b/src/attr/_compat.py\nindex 26da29cf..46b05ca4 100644\n--- a/src/attr/_compat.py\n+++ b/src/attr/_compat.py\n@@ -10,6 +10,7 @@ from typing import _GenericAlias\n \n \n PYPY = platform.python_implementation() == \"PyPy\"\n+PY_3_8_PLUS = sys.version_info[:2] >= (3, 8)\n PY_3_9_PLUS = sys.version_info[:2] >= (3, 9)\n PY310 = sys.version_info[:2] >= (3, 10)\n PY_3_12_PLUS = sys.version_info[:2] >= (3, 12)\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 8a4e6581..10b4eca7 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -3,7 +3,9 @@\n import contextlib\n import copy\n import enum\n+import functools\n import inspect\n+import itertools\n import linecache\n import sys\n import types\n@@ -16,6 +18,7 @@ from operator import itemgetter\n from . import _compat, _config, setters\n from ._compat import (\n     PY310,\n+    PY_3_8_PLUS,\n     _AnnotationExtractor,\n     get_generic_base,\n )\n@@ -597,6 +600,62 @@ def _transform_attrs(\n     return _Attributes((AttrsClass(attrs), base_attrs, base_attr_map))\n \n \n+def _make_cached_property_getattr(\n+    cached_properties,\n+    original_getattr,\n+    cls,\n+):\n+    lines = [\n+        # Wrapped to get `__class__` into closure cell for super()\n+        # (It will be replaced with the newly constructed class after construction).\n+        \"def wrapper():\",\n+        \"    __class__ = _cls\",\n+        \"    def __getattr__(self, item, cached_properties=cached_properties, original_getattr=original_getattr, _cached_setattr_get=_cached_setattr_get):\",\n+        \"         func = cached_properties.get(item)\",\n+        \"         if func is not None:\",\n+        \"              result = func(self)\",\n+        \"              _setter = _cached_setattr_get(self)\",\n+        \"              _setter(item, result)\",\n+        \"              return result\",\n+    ]\n+    if original_getattr is not None:\n+        lines.append(\n+            \"         return original_getattr(self, item)\",\n+        )\n+    else:\n+        lines.extend(\n+            [\n+                \"         if hasattr(super(), '__getattr__'):\",\n+                \"              return super().__getattr__(item)\",\n+                \"         original_error = f\\\"'{self.__class__.__name__}' object has no attribute '{item}'\\\"\",\n+                \"         raise AttributeError(original_error)\",\n+            ]\n+        )\n+\n+    lines.extend(\n+        [\n+            \"    return __getattr__\",\n+            \"__getattr__ = wrapper()\",\n+        ]\n+    )\n+\n+    unique_filename = _generate_unique_filename(cls, \"getattr\")\n+\n+    glob = {\n+        \"cached_properties\": cached_properties,\n+        \"_cached_setattr_get\": _obj_setattr.__get__,\n+        \"_cls\": cls,\n+        \"original_getattr\": original_getattr,\n+    }\n+\n+    return _make_method(\n+        \"__getattr__\",\n+        \"\\n\".join(lines),\n+        unique_filename,\n+        glob,\n+    )\n+\n+\n def _frozen_setattrs(self, name, value):\n     \"\"\"\n     Attached to frozen classes as __setattr__.\n@@ -857,9 +916,46 @@ class _ClassBuilder:\n         ):\n             names += (\"__weakref__\",)\n \n+        if PY_3_8_PLUS:\n+            cached_properties = {\n+                name: cached_property.func\n+                for name, cached_property in cd.items()\n+                if isinstance(cached_property, functools.cached_property)\n+            }\n+        else:\n+            # `functools.cached_property` was introduced in 3.8.\n+            # So can't be used before this.\n+            cached_properties = {}\n+\n+        # Collect methods with a `__class__` reference that are shadowed in the new class.\n+        # To know to update them.\n+        additional_closure_functions_to_update = []\n+        if cached_properties:\n+            # Add cached properties to names for slotting.\n+            names += tuple(cached_properties.keys())\n+\n+            for name in cached_properties:\n+                # Clear out function from class to avoid clashing.\n+                del cd[name]\n+\n+            class_annotations = _get_annotations(self._cls)\n+            for name, func in cached_properties.items():\n+                annotation = inspect.signature(func).return_annotation\n+                if annotation is not inspect.Parameter.empty:\n+                    class_annotations[name] = annotation\n+\n+            original_getattr = cd.get(\"__getattr__\")\n+            if original_getattr is not None:\n+                additional_closure_functions_to_update.append(original_getattr)\n+\n+            cd[\"__getattr__\"] = _make_cached_property_getattr(\n+                cached_properties, original_getattr, self._cls\n+            )\n+\n         # We only add the names of attributes that aren't inherited.\n         # Setting __slots__ to inherited attributes wastes memory.\n         slot_names = [name for name in names if name not in base_names]\n+\n         # There are slots for attributes from current class\n         # that are defined in parent classes.\n         # As their descriptors may be overridden by a child class,\n@@ -873,6 +969,7 @@ class _ClassBuilder:\n         cd.update(reused_slots)\n         if self._cache_hash:\n             slot_names.append(_hash_cache_field)\n+\n         cd[\"__slots__\"] = tuple(slot_names)\n \n         cd[\"__qualname__\"] = self._cls.__qualname__\n@@ -886,7 +983,9 @@ class _ClassBuilder:\n         # compiler will bake a reference to the class in the method itself\n         # as `method.__closure__`.  Since we replace the class with a\n         # clone, we rewrite these references so it keeps working.\n-        for item in cls.__dict__.values():\n+        for item in itertools.chain(\n+            cls.__dict__.values(), additional_closure_functions_to_update\n+        ):\n             if isinstance(item, (classmethod, staticmethod)):\n                 # Class- and staticmethods hide their functions inside.\n                 # These might need to be rewritten as well.\n@@ -909,7 +1008,6 @@ class _ClassBuilder:\n                 else:\n                     if match:\n                         cell.cell_contents = cls\n-\n         return cls\n \n     def add_repr(self, ns):\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "66d82e7751c9d2939c6f3199b53cbac44bf45fedf346fa2e76c15caefc0c526e",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Slotted classes using `@attr.s(slots=True)` do not support `functools.cached_property` decorators, causing them to fail at runtime.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078605,
+    "id": "gen-1788078605-QcnpM0a5Zv2HevRRGqxH",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 35,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00024603264,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.6448e-06,
+        "upstream_inference_cost": 0.00024603264,
+        "upstream_inference_prompt_cost": 0.00024038784
+      },
+      "is_byok": false,
+      "prompt_tokens": 2981,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 3016
+    }
+  },
+  "schema_version": 1
+}

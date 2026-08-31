@@ -170,4 +170,6 @@ def test_new_test_file_patch_applies_and_transition_is_detected(tmp_path, monkey
     assert result["transition_tests"] == [
         {"nodeid": "tests/test_new.py::test_value", "parent": "failed", "fix": "passed"}
     ]
+    assert result["transition_kind"] == "assertion_failure"
+    assert result["transition_scope"] == "exact_nodeid"
     assert [call[2] for call in calls] == [fix, fix, None, None]

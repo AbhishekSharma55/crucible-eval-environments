@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.949,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAlways return originally passed choice for Choice()\n\nPR body:\ncloses #1277\r\nreplaces #1278\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 99250d56..92654ca6 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -13,12 +13,16 @@ Unreleased\n - Remove unused compat shim for ``bytes``. (`#1195`_)\n - Expand unit testing around termui, especially getchar (Windows). (`#1116`_)\n -   Fix output on Windows Python 2.7 built with MSVC 14. #1342\n+- Always return of of the passed choices for ``click.Choice`` (`#1277`, `#1318`)\n \n .. _#1167: https://github.com/pallets/click/pull/1167\n .. _#1151: https://github.com/pallets/click/pull/1151\n .. _#1185: https://github.com/pallets/click/issues/1185\n .. _#1195: https://github.com/pallets/click/pull/1195\n .. _#1116: https://github.com/pallets/click/issues/1116\n+.. _#1277: https://github.com/pallets/click/issues/1277\n+.. _#1318: https://github.com/pallets/click/pull/1318\n+\n \n Version 7.0\n -----------\ndiff --git a/click/types.py b/click/types.py\nindex 1f88032f..b88d15ee 100644\n--- a/click/types.py\n+++ b/click/types.py\n@@ -133,6 +133,10 @@ class Choice(ParamType):\n     You should only pass a list or tuple of choices. Other iterables\n     (like generators) may lead to surprising results.\n \n+    The resulting value will always be one of the originally passed choices\n+    regardless of ``case_sensitive`` or any ``ctx.token_normalize_func``\n+    being specified.\n+\n     See :ref:`choice-opts` for an example.\n \n     :param case_sensitive: Set to false to make choices case\n@@ -152,29 +156,34 @@ class Choice(ParamType):\n         return 'Choose from:\\n\\t%s.' % ',\\n\\t'.join(self.choices)\n \n     def convert(self, value, param, ctx):\n-        # Exact match\n-        if value in self.choices:\n-            return value\n-\n         # Match through normalization and case sensitivity\n         # first do token_normalize_func, then lowercase\n         # preserve original `value` to produce an accurate message in\n         # `self.fail`\n         normed_value = value\n-        normed_choices = self.choices\n+        normed_choices = {choice: choice for choice in self.choices}\n \n-        if ctx is not None and \\\n-           ctx.token_normalize_func is not None:\n+        if ctx is not None and ctx.token_normalize_func is not None:\n             normed_value = ctx.token_normalize_func(value)\n-            normed_choices = [ctx.token_normalize_func(choice) for choice in\n-                              self.choices]\n+            normed_choices = {\n+                ctx.token_normalize_func(normed_choice): original\n+                for normed_choice, original in normed_choices.items()\n+            }\n \n         if not self.case_sensitive:\n-            normed_value = normed_value.lower()\n-            normed_choices = [choice.lower() for choice in normed_choices]\n+            if PY2:\n+                lower = str.lower\n+            else:\n+                lower = str.casefold\n+\n+            normed_value = lower(normed_value)\n+            normed_choices = {\n+                lower(normed_choice): original\n+                for normed_choice, original in normed_choices.items()\n+            }\n \n         if normed_value in normed_choices:\n-            return normed_value\n+            return normed_choices[normed_value]\n \n         self.fail('invalid choice: %s. (choose from %s)' %\n                   (value, ', '.join(self.choices)), param, ctx)\ndiff --git a/docs/options.rst b/docs/options.rst\nindex b1d0dcf9..e3cb0869 100644\n--- a/docs/options.rst\n+++ b/docs/options.rst\n@@ -315,14 +315,17 @@ Choice Options\n \n Sometimes, you want to have a parameter be a choice of a list of values.\n In that case you can use :class:`Choice` type.  It can be instantiated\n-with a list of valid values.\n+with a list of valid values.  The originally passed choice will be returned,\n+not the str passed on the command line.  Token normalization functions and\n+``case_sensitive=False`` can cause the two to be different but still match.\n \n Example:\n \n .. click:example::\n \n     @click.command()\n-    @click.option('--hash-type', type=click.Choice(['md5', 'sha1']))\n+    @click.option('--hash-type',\n+                  type=click.Choice(['MD5', 'SHA1'], case_sensitive=False))\n     def digest(hash_type):\n         click.echo(hash_type)\n \n@@ -330,6 +333,8 @@ What it looks like:\n \n .. click:run::\n \n+    invoke(digest, args=['--hash-type=MD5'])\n+    println()\n     invoke(digest, args=['--hash-type=md5'])\n     println()\n     invoke(digest, args=['--hash-type=foo'])\n@@ -341,6 +346,9 @@ What it looks like:\n     You should only pass the choices as list or tuple.  Other iterables (like\n     generators) may lead to surprising results.\n \n+    Choices should be unique after considering the effects of\n+    ``case_sensitive`` and any specified token normalization function.\n+\n .. _option-prompting:\n \n Prompting\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "20071d689430d4038472423244c52d1ce1e0f6911d00daa5502352cb4a902d4b",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using `click.Choice` with case-insensitive matching or a token normalization function, the value returned to the user is the normalized version of their input rather than the originally specified choice from the list.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078407,
+    "id": "gen-1788078407-6BvyjE6l4FUyQEZ2si8j",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 42,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00012192768,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.77376e-06,
+        "upstream_inference_cost": 0.00012192768,
+        "upstream_inference_prompt_cost": 0.00011515392
+      },
+      "is_byok": false,
+      "prompt_tokens": 1428,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1470
+    }
+  },
+  "schema_version": 1
+}

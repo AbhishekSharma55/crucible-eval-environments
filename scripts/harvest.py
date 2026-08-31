@@ -164,8 +164,12 @@ def main() -> int:
             parent_test_outcomes[outcome] += 1
         for outcome in ((runs.get("fix") or [{}])[0].get("outcomes") or {}).values():
             fix_test_outcomes[outcome] += 1
-        for transition in validation.get("transition_tests") or []:
-            transition_parent_outcomes[transition["parent"]] += 1
+        # Collection errors can fan out one parent failure to every test in a
+        # newly collectable file.  They remain recorded on each candidate but
+        # are intentionally excluded from aggregate per-test statistics.
+        if validation.get("transition_kind") != "collection_error":
+            for transition in validation.get("transition_tests") or []:
+                transition_parent_outcomes[transition["parent"]] += 1
     dropped = [
         {"repo": item["repo"], "reason": item.get("drop_reason", "not accepted after probe")}
         for item in corpus["repos"]

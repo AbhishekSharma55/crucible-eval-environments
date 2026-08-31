@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.62,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfeat: improve consistency of many arg with nested schema\n\nPR body:\nFor nested field, we can get some inconsistencies between `field.many` and `field.schema.many`.\r\n\r\nHere is a proposal to handle inconsistency edge cases (see tests).\r\n\r\nPS: Such inconsistencies have some effects on automatic  swagger generation in `flask_appbuilder` (and thus in projects using it, as `superset`).\r\nThis will solve https://github.com/apache/superset/issues/33884.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 2459c8c0..37fa3021 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -180,4 +180,5 @@ Contributors (chronological)\n - Nicolas Simonds `@0xDEC0DE <https://github.com/0xDEC0DE>`_\n - Florian Laport `@Florian-Laport <https://github.com/Florian-Laport>`_\n - `@agentgodzilla <https://github.com/agentgodzilla>`_\n-- Xiao `@T90REAL <https://github.com/T90REAL>`_\n\\ No newline at end of file\n+- Xiao `@T90REAL <https://github.com/T90REAL>`_\n+- jfo `@jafournier <https://github.com/jafournier>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 7b62c722..cf156c09 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,15 @@\n Changelog\n =========\n \n+\n+4.2.0 (unreleased)\n+------------------\n+\n+Other changes:\n+\n+- ``many`` argument of ``Nested`` properly overrides schema instance\n+  value (:pr:`2854`). Thanks :user:`jafournier` for the PR.\n+\n 4.1.2 (2025-12-19)\n ------------------\n \ndiff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py\nindex 16ca9bd5..5d3d64a9 100644\n--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -482,6 +482,9 @@ class Nested(Field):\n     :param only: A list or tuple of fields to marshal. If `None`, all fields are marshalled.\n         This parameter takes precedence over ``exclude``.\n     :param many: Whether the field is a collection of objects.\n+        If `None` (default), and nested `Schema` instance is provided, ``many`` is not overridden.\n+        If `None` (default), and `Schema` subclass is provided, schema instance sets ``many`` as False.\n+        If `True | False` nested `[nested_field].schema.many` is overridden.\n     :param unknown: Whether to exclude, include, or raise an error for unknown\n         fields in the data. Use `EXCLUDE`, `INCLUDE` or `RAISE`.\n     :param kwargs: The same keyword arguments that :class:`Field` receives.\n@@ -502,7 +505,7 @@ class Nested(Field):\n         *,\n         only: types.StrSequenceOrSet | None = None,\n         exclude: types.StrSequenceOrSet = (),\n-        many: bool = False,\n+        many: bool | None = None,\n         unknown: types.UnknownOption | None = None,\n         **kwargs: Unpack[_BaseFieldKwargs],\n     ):\n@@ -537,7 +540,7 @@ class Nested(Field):\n \n             if isinstance(nested, Schema):\n                 self._schema = copy.copy(nested)\n-                # Respect only and exclude passed from parent and re-initialize fields\n+                # Respect only and exclude and many passed from parent and re-initialize fields\n                 set_class = typing.cast(\"type[set]\", self._schema.set_class)\n                 if self.only is not None:\n                     if self._schema.only is not None:\n@@ -548,6 +551,8 @@ class Nested(Field):\n                 if self.exclude:\n                     original = self._schema.exclude\n                     self._schema.exclude = set_class(self.exclude) | set_class(original)\n+                if self.many is not None:\n+                    self._schema.many = self.many\n                 self._schema._init_fields()\n             else:\n                 if isinstance(nested, type) and issubclass(nested, Schema):\n@@ -560,7 +565,7 @@ class Nested(Field):\n                 else:\n                     schema_class = class_registry.get_class(nested, all=False)\n                 self._schema = schema_class(\n-                    many=self.many,\n+                    many=bool(self.many),\n                     only=self.only,\n                     exclude=self.exclude,\n                     load_only=self._nested_normalized_option(\"load_only\"),\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "100bb37ba6d30f7f34e9b5c55d7f8b8cd7ad450ea86699f969e4a21577fb8a0a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a `Nested` field is used with a schema instance, the `many` argument passed to the `Nested` field is ignored, and the schema instance's own `many` value is used instead. This causes inconsistent behavior between `field.many` and `field.schema.many`, which can lead to incorrect serialization/deserialization of nested collections and issues in downstream tools like automatic Swagger generation.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078397,
+    "id": "gen-1788078397-QmhtzjvX2Aqb19rx8xga",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Novita",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 87,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00019222,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.436e-05,
+        "upstream_inference_cost": 0.00019222,
+        "upstream_inference_prompt_cost": 0.00016786
+      },
+      "is_byok": false,
+      "prompt_tokens": 1199,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1286
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,69 @@
+{
+  "latency_s": 8.172,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #4295:\nIn my project, I had the same situation as described in #4095 and my workaround was the same (casting exception to appropriate type). Reading release notes for Flask 2.0.2 I wanted to try to remove the `cast`, however, `mypy` is complaining about incompatible types. \r\n\r\nThe example I am using is:\r\n```python\r\n    # other stuff omitted for brevity, e.g. log initialization, import jsonify, etc\r\n    from flask.typing import ResponseReturnValue\r\n\r\n    @app.errorhandler(Exception)\r\n    def handle_any_exception(e: Exception) -> ResponseReturnValue:\r\n        \"\"\"\r\n        Base exception handler, just log an exception and return 500\r\n        \"\"\"\r\n        log.exception(\"unexpected error\")\r\n        return jsonify({\r\n            \"message\": str(e)\r\n        }), 500\r\n```\r\n\r\nError `mypy` is reporting:\r\n```\r\nxxx/__init__.py: note: In function \"register_error_handlers\":\r\nxxx/__init__.py:115: error: Argument 1 has incompatible type\r\n\"Callable[[Exception], Union[Union[Response, Any, Dict[str, Any], Generator[Any, None, None]], Tuple[Union[Response, Any, Dict[str, Any], Generator[Any, None, None]], Union[Headers, Dict[str, Union[str, List[str], Tuple[str, ...]]], List[Tuple[str, Union[str, List[str], Tuple[str, ...]]]]]], Tuple[Union[Response, Any, Dict[str, Any], Generator[Any, None, None]], int], Tuple[Union[Response, Any, Dict[str, Any], Generator[Any, None, None]], int, Union[Headers, Dict[str, Union[str, List[str], Tuple[str, ...]]], List[Tuple[str, Union[str, List[str], Tuple[str, ...]]]]]], Callable[[Dict[str, Any], StartResponse], Iterable[bytes]]]]\";\r\nexpected \"ErrorHandlerCallable[Exception]\"  [arg-type]\r\n        @app.errorhandler(Exception)\r\n         ^\r\nFound 1 error in 1 file (checked 8 source files)\r\n```\r\n\r\nUsing `app.register_error_handler` gives the same result. \r\n\r\nWith 2.0.2 release, `cast` is not a workaround any more, since it fails before that. \r\n\r\nOf course, I did not need `cast` here earlier, since I am handling the base exception, but the same behavior exists when I am trying to handle `werkzeug.exceptions.HTTPException`. \r\n\r\nI expected `mypy` type check to pass with provided code.\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.10.0 and 3.9.7\r\n- Flask version: 2.0.2\r\n\n\nPR title:\nfix errorhandler type check\n\nPR body:\n- fixes #4295\r\n\r\nNot really sure what was wrong with the original code and why it did not work, but I could reproduce it consistently. This change simplifies `typing.py` and it passes my local tests. I have tried `mypy` with following combinations (results in the comments):\r\n\r\n```python\r\nfrom werkzeug.exceptions import HTTPException\r\n\r\nclass MyHTTPException(HTTPException): pass\r\n\r\n\r\n# PASS - base case\r\n@app.errorhandler(Exception)\r\ndef handle_any_exception(e: Exception) -> tuple[str, int]:\r\n    return \"generic error\", 500\r\n\r\n\r\n# PASS - non-base exception, using werkzeug.exceptions.HTTPExceptions as example\r\n@app.errorhandler(HTTPException)\r\ndef handle_http_exception(e: HTTPException) -> ResponseReturnValue:\r\n    log.exception(\"unknown error\", exc_info=e)\r\n    return \"ERROR\", e.code\r\n\r\n\r\n# PASS - handling more specific exception, accepting more general one as parameter, should work\r\n@app.errorhandler(HTTPException)\r\ndef handle_http_exception_lower_type(e: Exception) -> ResponseReturnValue:\r\n    return str(e), 500\r\n\r\n\r\n# PASS - custom defined exception in error handler, base exception as parameter\r\n@app.errorhandler(MyHTTPException)\r\ndef handle_my_http_exception(e: HTTPException) -> ResponseReturnValue:\r\n    return \"error\", e.code\r\n\r\n\r\n# FAIL - since handler is accepting broader exception than declared in errorhandler parameter\r\n@app.errorhandler(Exception)\r\ndef handle_any_exception_wrong_parameter(e: HTTPException) -> ResponseReturnValue:\r\n    return str(e), e.code\r\n\r\n\r\n# FAIL - unrelated exceptions\r\n@app.errorhandler(KeyError)\r\ndef handler_value_error(e: ValueError) -> tuple[str, int]:\r\n    return \"value error\", 500\r\n\r\n\r\n# PASS - works as before, no changes\r\n@app.errorhandler(404)\r\ndef handle_404(error: Exception) -> tuple[str, int]:\r\n    return \"not found\", 404\r\n```\r\n\r\nEquivalent calls to `app.register_error_handler` behave the same as a decorator usage, as expected.\r\n\r\nI did not find any tests of framework to tests typing, that is why I performed manually local testing. If I should change the code to test this change, please do let me know.\r\n\r\nPlease let me know if I should have done something different regarding `CHANGES.rst`.\r\nChecklist:\r\n\r\n- [ ] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [x] Add or update relevant docs, in the docs folder and in code.\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold patch:\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 98139ae0..db65ee16 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -9,6 +9,7 @@ Unreleased\n     removed in Werkzeug 2.1. It is now also deprecated in Flask, to be\n     removed in Flask 2.1, while remaining compatible with both in\n     2.0.x. Use ``response.request.environ`` instead. :pr:`4341`\n+-   Fix type annotation for ``errorhandler`` decorator. :issue:`4295`\n \n \n Version 2.0.2\ndiff --git a/src/flask/typing.py b/src/flask/typing.py\nindex f1c84670..93896f80 100644\n--- a/src/flask/typing.py\n+++ b/src/flask/typing.py\n@@ -46,11 +46,4 @@ TemplateGlobalCallable = t.Callable[..., t.Any]\n TemplateTestCallable = t.Callable[..., bool]\n URLDefaultCallable = t.Callable[[str, dict], None]\n URLValuePreprocessorCallable = t.Callable[[t.Optional[str], t.Optional[dict]], None]\n-\n-\n-if t.TYPE_CHECKING:\n-    import typing_extensions as te\n-\n-    class ErrorHandlerCallable(te.Protocol[GenericException]):\n-        def __call__(self, error: GenericException) -> ResponseReturnValue:\n-            ...\n+ErrorHandlerCallable = t.Callable[[GenericException], ResponseReturnValue]\n\n\nRelevant source files at the broken parent:\n\n--- src/flask/typing.py ---\nimport typing as t\n\n\nif t.TYPE_CHECKING:\n    from _typeshed.wsgi import WSGIApplication  # noqa: F401\n    from werkzeug.datastructures import Headers  # noqa: F401\n    from .wrappers import Response  # noqa: F401\n\n# The possible types that are directly convertible or are a Response object.\nResponseValue = t.Union[\n    \"Response\",\n    t.AnyStr,\n    t.Dict[str, t.Any],  # any jsonify-able dict\n    t.Generator[t.AnyStr, None, None],\n]\nStatusCode = int\n\n# the possible types for an individual HTTP header\nHeaderName = str\nHeaderValue = t.Union[str, t.List[str], t.Tuple[str, ...]]\n\n# the possible types for HTTP headers\nHeadersValue = t.Union[\n    \"Headers\", t.Dict[HeaderName, HeaderValue], t.List[t.Tuple[HeaderName, HeaderValue]]\n]\n\n# The possible types returned by a route function.\nResponseReturnValue = t.Union[\n    ResponseValue,\n    t.Tuple[ResponseValue, HeadersValue],\n    t.Tuple[ResponseValue, StatusCode],\n    t.Tuple[ResponseValue, StatusCode, HeadersValue],\n    \"WSGIApplication\",\n]\n\nGenericException = t.TypeVar(\"GenericException\", bound=Exception, contravariant=True)\n\nAppOrBlueprintKey = t.Optional[str]  # The App key is None, whereas blueprints are named\nAfterRequestCallable = t.Callable[[\"Response\"], \"Response\"]\nBeforeFirstRequestCallable = t.Callable[[], None]\nBeforeRequestCallable = t.Callable[[], t.Optional[ResponseReturnValue]]\nTeardownCallable = t.Callable[[t.Optional[BaseException]], None]\nTemplateContextProcessorCallable = t.Callable[[], t.Dict[str, t.Any]]\nTemplateFilterCallable = t.Callable[..., t.Any]\nTemplateGlobalCallable = t.Callable[..., t.Any]\nTemplateTestCallable = t.Callable[..., bool]\nURLDefaultCallable = t.Callable[[str, dict], None]\nURLValuePreprocessorCallable = t.Callable[[t.Optional[str], t.Optional[dict]], None]\n\n\nif t.TYPE_CHECKING:\n    import typing_extensions as te\n\n    class ErrorHandlerCallable(te.Protocol[GenericException]):\n        def __call__(self, error: GenericException) -> ResponseReturnValue:\n            ...\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.125
+  },
+  "request_hash": "85e6792711abfa4d6c3e98b848ae44694b7981cc7c546006ad09aef681201445",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_typing_errorhandler.py\",\n  \"content\": \"import sys\\nimport typing as t\\n\\nimport pytest\\n\\n\\n@pytest.mark.skipif(\\n    sys.version_info < (3, 8),\\n    reason=\\\"requires typing_extensions or Python 3.8+\\\",\\n)\\ndef test_errorhandler_type_check() -> None:\\n    \\\"\\\"\\\"Test that errorhandler decorator accepts callables with\\n    parameter type that is a supertype of the exception type.\\\"\\\"\\\"\\n    from flask import Flask\\n    from flask.typing import ResponseReturnValue\\n\\n    app = Flask(__name__)\\n\\n    # This should type-check without error.\\n    @app.errorhandler(Exception)\\n    def handle_any_exception(e: Exception) -> ResponseReturnValue:\\n        return \\\"generic error\\\", 500\\n\\n    # This should also type-check.\\n    @app.errorhandler(ValueError)\\n    def handle_value_error(e: Exception) -> ResponseReturnValue:\\n        return \\\"value error\\\", 500\\n\\n    # This should fail type-checking because handler parameter is\\n    # narrower than the exception type.\\n    with pytest.raises(TypeError):\\n        @app.errorhandler(Exception)\\n        def handle_bad(e: ValueError) -> ResponseReturnValue:\\n            return \\\"bad\\\", 500\\n\\n    # This should fail type-checking because exception types are unrelated.\\n    with pytest.raises(TypeError):\\n        @app.errorhandler(KeyError)\\n        def handler_value_error(e: ValueError) -> ResponseReturnValue:\\n            return \\\"value error\\\", 500\\n\\n    # This should type-check without error.\\n    @app.errorhandler(404)\\n    def handle_404(error: Exception) -> ResponseReturnValue:\\n        return \\\"not found\\\", 404\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788099766,
+    "id": "gen-1788099766-vpAZVS0ODDrPRNozhN89",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 404,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00029214,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.272e-05,
+        "upstream_inference_cost": 0.00029214,
+        "upstream_inference_prompt_cost": 0.00021942
+      },
+      "is_byok": false,
+      "prompt_tokens": 2438,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2842
+    }
+  },
+  "schema_version": 1
+}

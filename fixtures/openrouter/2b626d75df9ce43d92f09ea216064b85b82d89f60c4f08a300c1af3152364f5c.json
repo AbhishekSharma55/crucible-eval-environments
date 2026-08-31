@@ -1,0 +1,69 @@
+{
+  "latency_s": 18.222,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFix handling data_key in ValidationErrors raised in schema validators\n\nPR body:\ncloses https://github.com/marshmallow-code/marshmallow/issues/2170\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 144ff9af..5a9c176f 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -10,6 +10,11 @@ Features:\n - Typing: Improve type coverage of `marshmallow.Schema.SchemaMeta` (:pr:`2761`).\n - Typing: `marshmallow.Schema.loads` parameter allows `bytes` and `bytesarray` (:pr:`2769`).\n \n+Bug fixes:\n+\n+- Respect ``data_key`` when schema validators raise a `ValidationError <marshmallow.exceptions.ValidationError>` \n+  with a ``field_name`` argument (:issue:`2170`). Thanks :user:`matejsp` for reporting.\n+\n Documentation:\n \n - Add :doc:`upgrading guides <upgrading>` for 3.24 and 3.26 (:pr:`2780`).\ndiff --git a/src/marshmallow/decorators.py b/src/marshmallow/decorators.py\nindex eefba6c1..5ffa3f4f 100644\n--- a/src/marshmallow/decorators.py\n+++ b/src/marshmallow/decorators.py\n@@ -69,7 +69,10 @@ from __future__ import annotations\n \n import functools\n from collections import defaultdict\n-from typing import Any, Callable, cast\n+from typing import TYPE_CHECKING, Any, Callable, cast\n+\n+if TYPE_CHECKING:\n+    from marshmallow import types\n \n PRE_DUMP = \"pre_dump\"\n POST_DUMP = \"post_dump\"\n@@ -92,7 +95,7 @@ def validates(field_name: str) -> Callable[..., Any]:\n \n \n def validates_schema(\n-    fn: Callable[..., Any] | None = None,\n+    fn: types.SchemaValidator | None = None,\n     pass_many: bool = False,  # noqa: FBT001, FBT002\n     pass_original: bool = False,  # noqa: FBT001, FBT002\n     skip_on_field_errors: bool = True,  # noqa: FBT001, FBT002\ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex 6009a436..44c15d5b 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -27,7 +27,7 @@ from marshmallow.decorators import (\n     VALIDATES_SCHEMA,\n )\n from marshmallow.error_store import ErrorStore\n-from marshmallow.exceptions import StringNotCollectionError, ValidationError\n+from marshmallow.exceptions import SCHEMA, StringNotCollectionError, ValidationError\n from marshmallow.orderedset import OrderedSet\n from marshmallow.utils import (\n     EXCLUDE,\n@@ -824,15 +824,15 @@ class Schema(base.SchemaABC, metaclass=SchemaMeta):\n \n     def _run_validator(\n         self,\n-        validator_func,\n+        validator_func: types.SchemaValidator,\n         output,\n         *,\n         original_data,\n-        error_store,\n-        many,\n-        partial,\n-        pass_original,\n-        index=None,\n+        error_store: ErrorStore,\n+        many: bool,\n+        partial: bool | types.StrSequenceOrSet | None,\n+        pass_original: bool,\n+        index: int | None = None,\n     ):\n         try:\n             if pass_original:  # Pass original, raw data (before unmarshalling)\n@@ -840,7 +840,26 @@ class Schema(base.SchemaABC, metaclass=SchemaMeta):\n             else:\n                 validator_func(output, partial=partial, many=many)\n         except ValidationError as err:\n-            error_store.store_error(err.messages, err.field_name, index=index)\n+            field_name = err.field_name\n+            data_key: str\n+            if field_name == SCHEMA:\n+                data_key = SCHEMA\n+            else:\n+                field_obj: Field | None = None\n+                try:\n+                    field_obj = self.fields[field_name]\n+                except KeyError:\n+                    if field_name in self.declared_fields:\n+                        field_obj = self.declared_fields[field_name]\n+                if field_obj:\n+                    data_key = (\n+                        field_obj.data_key\n+                        if field_obj.data_key is not None\n+                        else field_name\n+                    )\n+                else:\n+                    data_key = field_name\n+            error_store.store_error(err.messages, data_key, index=index)\n \n     def validate(\n         self,\ndiff --git a/src/marshmallow/types.py b/src/marshmallow/types.py\nindex 97cb44c1..599f6b49 100644\n--- a/src/marshmallow/types.py\n+++ b/src/marshmallow/types.py\n@@ -16,6 +16,17 @@ StrSequenceOrSet = typing.Union[typing.Sequence[str], typing.AbstractSet[str]]\n Validator = typing.Callable[[typing.Any], typing.Any]\n \n \n+class SchemaValidator(typing.Protocol):\n+    def __call__(\n+        self,\n+        output: typing.Any,\n+        original_data: typing.Any = ...,\n+        *,\n+        partial: bool | StrSequenceOrSet | None = None,\n+        many: bool = False,\n+    ) -> None: ...\n+\n+\n class RenderModule(typing.Protocol):\n     def dumps(\n         self, obj: typing.Any, *args: typing.Any, **kwargs: typing.Any\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "2b626d75df9ce43d92f09ea216064b85b82d89f60c4f08a300c1af3152364f5c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a schema-level validator raises a `ValidationError` with a `field_name` set to a field that has a `data_key`, the errors are stored under the field name instead of the `data_key`.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078372,
+    "id": "gen-1788078372-gcSZwlTmGLNOGgMqajwT",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 44,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001015693,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.392e-06,
+        "upstream_inference_cost": 0.0001015693,
+        "upstream_inference_prompt_cost": 9.41773e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1387,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1431
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,69 @@
+{
+  "latency_s": 10.254,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nswitch to pyproject.toml\n\nPR body:\n(empty)\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/.flake8 b/.flake8\nnew file mode 100644\nindex 00000000..c53acebc\n--- /dev/null\n+++ b/.flake8\n@@ -0,0 +1,25 @@\n+[flake8]\n+extend-select =\n+    # bugbear\n+    B\n+    # bugbear opinions\n+    B9\n+    # implicit str concat\n+    ISC\n+extend-ignore =\n+    # slice notation whitespace, invalid\n+    E203\n+    # line length, handled by bugbear B950\n+    E501\n+    # bare except, handled by bugbear B001\n+    E722\n+    # zip with strict=, requires python >= 3.10\n+    B905\n+    # string formatting opinion, B028 renamed to B907\n+    B028\n+    B907\n+# up to 88 allowed by bugbear B950\n+max-line-length = 80\n+per-file-ignores =\n+    # __init__ exports names\n+    src/click/__init__.py: F401\ndiff --git a/.github/workflows/tests.yaml b/.github/workflows/tests.yaml\nindex b757fa01..85e748b6 100644\n--- a/.github/workflows/tests.yaml\n+++ b/.github/workflows/tests.yaml\n@@ -50,7 +50,7 @@ jobs:\n         uses: actions/cache@v3\n         with:\n           path: ./.mypy_cache\n-          key: mypy|${{ matrix.python }}|${{ hashFiles('setup.cfg') }}\n+          key: mypy|${{ matrix.python }}|${{ hashFiles('pyproject.toml') }}\n         if: matrix.tox == 'typing'\n       - run: pip install tox\n       - run: tox run -e ${{ matrix.tox }}\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex fcc1ea1a..39ad6ee8 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -5,6 +5,9 @@ Version 8.2.0\n \n Unreleased\n \n+-   Use modern packaging metadata with ``pyproject.toml`` instead of ``setup.cfg``.\n+    :pr:`326`\n+\n \n Version 8.1.4\n -------------\ndiff --git a/pyproject.toml b/pyproject.toml\nnew file mode 100644\nindex 00000000..36ed838b\n--- /dev/null\n+++ b/pyproject.toml\n@@ -0,0 +1,63 @@\n+[project]\n+name = \"click\"\n+description = \"Composable command line interface toolkit\"\n+readme = \"README.rst\"\n+license = {text = \"BSD-3-Clause\"}\n+maintainers = [{name = \"Pallets\", email = \"contact@palletsprojects.com\"}]\n+authors = [{name = \"Armin Ronacher\", email = \"armin.ronacher@active-4.com\"}]\n+classifiers = [\n+    \"Development Status :: 5 - Production/Stable\",\n+    \"Intended Audience :: Developers\",\n+    \"License :: OSI Approved :: BSD License\",\n+    \"Operating System :: OS Independent\",\n+    \"Programming Language :: Python\",\n+]\n+requires-python = \">=3.7\"\n+dependencies = [\n+    \"colorama; platform_system == 'Windows'\",\n+    \"importlib-metadata; python_version < '3.8'\",\n+]\n+dynamic = [\"version\"]\n+\n+[project.urls]\n+Donate = \"https://palletsprojects.com/donate\"\n+Documentation = \"https://click.palletsprojects.com/\"\n+Changes = \"https://click.palletsprojects.com/changes/\"\n+\"Source Code\" = \"https://github.com/pallets/click/\"\n+\"Issue Tracker\" = \"https://github.com/pallets/click/issues/\"\n+Twitter = \"https://twitter.com/PalletsTeam\"\n+Chat = \"https://discord.gg/pallets\"\n+\n+[build-system]\n+requires = [\"setuptools\"]\n+build-backend = \"setuptools.build_meta\"\n+\n+[tool.setuptools.dynamic]\n+version = {attr = \"click.__version__\"}\n+\n+[tool.pytest.ini_options]\n+testpaths = [\"tests\"]\n+filterwarnings = [\"error\"]\n+\n+[tool.coverage.run]\n+branch = true\n+source = [\"click\", \"tests\"]\n+\n+[tool.coverage.paths]\n+source = [\"src\", \"*/site-packages\"]\n+\n+[tool.mypy]\n+python_version = \"3.7\"\n+files = [\"src/click\"]\n+show_error_codes = true\n+pretty = true\n+strict = true\n+local_partial_types = true\n+warn_unreachable = true\n+\n+[[tool.mypy.overrides]]\n+module = [\n+    \"colorama.*\",\n+    \"importlib_metadata.*\"\n+]\n+ignore_missing_imports = true\ndiff --git a/setup.cfg b/setup.cfg\ndeleted file mode 100644\nindex 0d9b7ac5..00000000\n--- a/setup.cfg\n+++ /dev/null\n@@ -1,107 +0,0 @@\n-[metadata]\n-name = click\n-version = attr: click.__version__\n-url = https://palletsprojects.com/p/click/\n-project_urls =\n-    Donate = https://palletsprojects.com/donate\n-    Documentation = https://click.palletsprojects.com/\n-    Changes = https://click.palletsprojects.com/changes/\n-    Source Code = https://github.com/pallets/click/\n-    Issue Tracker = https://github.com/pallets/click/issues/\n-    Twitter = https://twitter.com/PalletsTeam\n-    Chat = https://discord.gg/pallets\n-license = BSD-3-Clause\n-license_files = LICENSE.rst\n-author = Armin Ronacher\n-author_email = armin.ronacher@active-4.com\n-maintainer = Pallets\n-maintainer_email = contact@palletsprojects.com\n-description = Composable command line interface toolkit\n-long_description = file: README.rst\n-long_description_content_type = text/x-rst\n-classifiers =\n-    Development Status :: 5 - Production/Stable\n-    Intended Audience :: Developers\n-    License :: OSI Approved :: BSD License\n-    Operating System :: OS Independent\n-    Programming Language :: Python\n-\n-[options]\n-packages = find:\n-package_dir = = src\n-include_package_data = True\n-python_requires = >= 3.7\n-# Dependencies are in setup.py for GitHub's dependency graph.\n-\n-[options.packages.find]\n-where = src\n-\n-[tool:pytest]\n-testpaths = tests\n-filterwarnings =\n-    error\n-\n-[coverage:run]\n-branch = True\n-source =\n-    click\n-    tests\n-\n-[coverage:paths]\n-source =\n-    src\n-    */site-packages\n-\n-[flake8]\n-# B = bugbear\n-# E = pycodestyle errors\n-# F = flake8 pyflakes\n-# W = pycodestyle warnings\n-# B9 = bugbear opinions\n-# ISC = implicit str concat\n-select = B, E, F, W, B9, ISC\n-ignore =\n-    # slice notation whitespace, invalid\n-    E203\n-    # line length, handled by bugbear B950\n-    E501\n-    # bare except, handled by bugbear B001\n-    E722\n-    # bin op line break, invalid\n-    W503\n-    # zip with strict=, requires python >= 3.10\n-    B905\n-    # string formatting opinion, B028 renamed to B907\n-    B028\n-    B907\n-# up to 88 allowed by bugbear B950\n-max-line-length = 80\n-per-file-ignores =\n-    # __init__ exports names\n-    src/click/__init__.py: F401\n-\n-[mypy]\n-files = src/click\n-python_version = 3.7\n-show_error_codes = True\n-disallow_subclassing_any = True\n-disallow_untyped_calls = True\n-disallow_untyped_defs = True\n-disallow_incomplete_defs = True\n-disallow_any_generics = True\n-check_untyped_defs = True\n-no_implicit_optional = True\n-local_partial_types = True\n-no_implicit_reexport = True\n-strict_equality = True\n-warn_redundant_casts = True\n-warn_unused_configs = True\n-warn_unused_ignores = True\n-warn_return_any = True\n-warn_unreachable = True\n-\n-[mypy-colorama.*]\n-ignore_missing_imports = True\n-\n-[mypy-importlib_metadata.*]\n-ignore_missing_imports = True\ndiff --git a/setup.py b/setup.py\ndeleted file mode 100644\nindex 0a74d414..00000000\n--- a/setup.py\n+++ /dev/null\n@@ -1,9 +0,0 @@\n-from setuptools import setup\n-\n-setup(\n-    name=\"click\",\n-    install_requires=[\n-        \"colorama; platform_system == 'Windows'\",\n-        \"importlib-metadata; python_version < '3.8'\",\n-    ],\n-)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.375
+  },
+  "request_hash": "210dd2532e34a9372de388f7e5c7ef5249031dde97613f07436733b16b1f98b4",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The project no longer supports Python 2.7 and now requires Python 3.8 or newer.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078686,
+    "id": "gen-1788078686-WANLCfI2NO9y7622ZPgS",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 22,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001557241,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.696e-06,
+        "upstream_inference_cost": 0.0001557241,
+        "upstream_inference_prompt_cost": 0.0001520281
+      },
+      "is_byok": false,
+      "prompt_tokens": 2239,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2261
+    }
+  },
+  "schema_version": 1
+}

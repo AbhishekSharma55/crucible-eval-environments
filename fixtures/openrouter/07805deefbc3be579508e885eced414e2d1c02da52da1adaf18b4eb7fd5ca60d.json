@@ -1,0 +1,74 @@
+{
+  "latency_s": 4.853,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nRespect enabled=False on the direct-call path\n\nPR body:\n`Retrying(enabled=False)(fn)` and `AsyncRetrying(enabled=False)(fn)` ignore `enabled=False` on the direct-call path \u2014 they run the full retry loop and wrap the original exception in `RetryError`, instead of calling the function once and propagating its exception.\n\nPR #643 added the `enabled=False` short-circuit to the iterator protocols (`__iter__`/`__aiter__`/`__anext__`) but the direct-call protocol (`__call__`) was left behind, since `iter()` itself never consults `enabled`. The fix adds the same short-circuit at the top of each `__call__` (awaiting coroutine callables for the async path).\n\nVerified both ways: old runs the function 5\u00d7 and raises `RetryError` (sync and async); fixed calls once and raises the original `ValueError`, matching the iterator/decorator paths. 154 existing tests green; +4 regression tests (which fail on the unfixed code) \u2192 158 passed.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex 530b63a..e466003 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -538,6 +538,9 @@ class Retrying(BaseRetrying):\n         *args: t.Any,\n         **kwargs: t.Any,\n     ) -> WrappedFnReturnT:\n+        if not self.enabled:\n+            return fn(*args, **kwargs)\n+\n         self.begin()\n \n         retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\ndiff --git a/tenacity/asyncio/__init__.py b/tenacity/asyncio/__init__.py\nindex aa4a756..3292a6c 100644\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -113,10 +113,15 @@ class AsyncRetrying(BaseRetrying):\n     async def __call__(  # type: ignore[override]\n         self, fn: WrappedFn, *args: t.Any, **kwargs: t.Any\n     ) -> WrappedFnReturnT:\n+        is_async = _utils.is_coroutine_callable(fn)\n+        if not self.enabled:\n+            if is_async:\n+                return await fn(*args, **kwargs)  # type: ignore[no-any-return]\n+            return fn(*args, **kwargs)  # type: ignore[return-value]\n+\n         self.begin()\n \n         retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\n-        is_async = _utils.is_coroutine_callable(fn)\n         while True:\n             do = await self.iter(retry_state=retry_state)\n             if isinstance(do, DoAttempt):\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "07805deefbc3be579508e885eced414e2d1c02da52da1adaf18b4eb7fd5ca60d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "length",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When `enabled=False` is passed to `Retrying` or `AsyncRetrying`, calling the retry object directly (e.g., `Retrying",
+          "reasoning": "We need to write a concise problem statement about externally observable bug. PR title says \"Respect enabled=False on the direct-call path\". Bug: When using `Retrying(enabled=False)` or `AsyncRetrying(enabled=False)` and calling the retry object directly (e.g., `Retrying(enabled=False)(fn)`), it ignores the `enabled=False` setting. It runs the full retry loop and wraps any exception in `RetryError` instead of just calling the function once and letting exceptions propagate normally. The fix adds a short-circuit at the start of `__call__` to check `enabled` and directly call the function without any retry logic. So the problem statement: Retrying or AsyncRetrying with enabled=False does not work when used as a direct call; the retry still occurs and exceptions are wrapped. The symptom: function called multiple times and exceptions wrapped. Should not reveal implementation details like the fix being adding a check in __call__. So statement: When `enabled=False` is passed to `Retrying` or `AsyncRetrying`, direct invocation via `__call__` ignores the flag, causing the function to be retried multiple times and exceptions to be wrapped in `RetryError` instead of being called once and propagating the original exception.",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement about externally observable bug. PR title says \"Respect enabled=False on the direct-call path\". Bug: When using `Retrying(enabled=False)` or `AsyncRetrying(enabled=False)` and calling the retry object directly (e.g., `Retrying(enabled=False)(fn)`), it ignores the `enabled=False` setting. It runs the full retry loop and wraps any exception in `RetryError` instead of just calling the function once and letting exceptions propagate normally. The fix adds a short-circuit at the start of `__call__` to check `enabled` and directly call the function without any retry logic. So the problem statement: Retrying or AsyncRetrying with enabled=False does not work when used as a direct call; the retry still occurs and exceptions are wrapped. The symptom: function called multiple times and exceptions wrapped. Should not reveal implementation details like the fix being adding a check in __call__. So statement: When `enabled=False` is passed to `Retrying` or `AsyncRetrying`, direct invocation via `__call__` ignores the flag, causing the function to be retried multiple times and exceptions to be wrapped in `RetryError` instead of being called once and propagating the original exception.",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "length"
+      }
+    ],
+    "created": 1788078215,
+    "id": "gen-1788078215-yyN7gW22M4zCDsS7oYXQ",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Novita",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 300,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 267
+      },
+      "cost": 0.00019012,
+      "cost_details": {
+        "upstream_inference_completions_cost": 8.4e-05,
+        "upstream_inference_cost": 0.00019012,
+        "upstream_inference_prompt_cost": 0.00010612
+      },
+      "is_byok": false,
+      "prompt_tokens": 758,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1058
+    }
+  },
+  "schema_version": 1
+}

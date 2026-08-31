@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.055,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nRestore progressbar iterator interface; add test\n\nPR body:\n- add a test for iterating on a progressbar with next()\r\n- implement `next()` in terms of `iter(ProgressBar)`, which is already well-defined\r\n- add a note about slow operations with progressbar to narrative docs\r\n\r\nOne of the keys to this working is that `ProgressBar.generator` is consuming an iterable and doesn't store any important state in local variables, making it re-entry safe.\r\n\r\nI wasn't sure how we can best hint in the public docs that simply walking the bar and stopping one step short of finishing will result in the progress bar \"hanging\" unfinished. Noting that we work well with things like `time.sleep()` seems like a decent way of advertising positively something which we support *and* guiding anyone going off-book into proper usage.\r\n\r\ncloses #1125\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 92ace492..ff3f5596 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -27,6 +27,9 @@ Unreleased\n     defaults globally. :issue:`1018`\n -   Handle ``env MYPATH=''`` as though the option were not passed.\n     :issue:`1196`\n+-   It is once again possible to call ``next(bar)`` on an active\n+    progress bar instance. :issue:`1125`\n+\n \n Version 7.0\n -----------\ndiff --git a/click/_termui_impl.py b/click/_termui_impl.py\nindex 00a8e5ef..c3e14c6c 100644\n--- a/click/_termui_impl.py\n+++ b/click/_termui_impl.py\n@@ -108,6 +108,17 @@ class ProgressBar(object):\n         self.render_progress()\n         return self.generator()\n \n+    def __next__(self):\n+        # Iteration is defined in terms of a generator function,\n+        # returned by iter(self); use that to define next(). This works\n+        # because `self.iter` is an iterable consumed by that generator,\n+        # so it is re-entry safe. Calling `next(self.generator())`\n+        # twice works and does \"what you want\".\n+        return next(iter(self))\n+\n+    # Python 2 compat\n+    next = __next__\n+\n     def is_fast(self):\n         return time.time() - self.start <= self.short_limit\n \n@@ -270,11 +281,17 @@ class ProgressBar(object):\n         self.finished = True\n \n     def generator(self):\n+        \"\"\"Return a generator which yields the items added to the bar\n+        during construction, and updates the progress bar *after* the\n+        yielded block returns.\n         \"\"\"\n-        Returns a generator which yields the items added to the bar during\n-        construction, and updates the progress bar *after* the yielded block\n-        returns.\n-        \"\"\"\n+        # WARNING: the iterator interface for `ProgressBar` relies on\n+        # this and only works because this is a simple generator which\n+        # doesn't create or manage additional state. If this function\n+        # changes, the impact should be evaluated both against\n+        # `iter(bar)` and `next(bar)`. `next()` in particular may call\n+        # `self.generator()` repeatedly, and this must remain safe in\n+        # order for that interface to work.\n         if not self.entered:\n             raise RuntimeError('You need to use progress bars in a with block.')\n \ndiff --git a/docs/utils.rst b/docs/utils.rst\nindex 7250d848..4ac3374e 100644\n--- a/docs/utils.rst\n+++ b/docs/utils.rst\n@@ -389,6 +389,16 @@ but you know the length, you can explicitly provide it::\n         for user in bar:\n             modify_the_user(user)\n \n+Note that :func:`progressbar` updates the bar *after* each iteration of the\n+loop. So code like this will render correctly::\n+\n+    import time\n+\n+    with click.progressbar([1, 2, 3]) as bar:\n+        for x in bar:\n+            print('sleep({})...'.format(x))\n+            time.sleep(x)\n+\n Another useful feature is to associate a label with the progress bar which\n will be shown preceding the progress bar::\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "b897c9ba308d38ab485dbb0264b36fa4c1178fa430fd9ac73589df71011060ae",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `next()` function cannot be used to iterate over a progress bar instance.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078410,
+    "id": "gen-1788078410-X7sqGgx5PxUQAFi730ov",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "CoreWeave",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 17,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00015582,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.76e-06,
+        "upstream_inference_cost": 0.00015582,
+        "upstream_inference_prompt_cost": 0.00015106
+      },
+      "is_byok": false,
+      "prompt_tokens": 1079,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1096
+    }
+  },
+  "schema_version": 1
+}

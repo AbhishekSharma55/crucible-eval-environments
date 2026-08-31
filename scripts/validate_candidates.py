@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-from pathlib import Path
 from typing import Any
 
 from scripts.harvest import ROOT, build_candidate, cached_prs, static_reason
+from scripts.phase2_common import narrow_collection_transitions
 from scripts.run_tests import run_tests
 
 
@@ -27,9 +27,12 @@ def fingerprint(result: dict[str, Any]) -> tuple[int, str | None, tuple[tuple[st
     return result["exit_code"], result.get("stage"), tuple(sorted(result["outcomes"].items()))
 
 
-def transition_tests(parent: dict[str, Any], fix: dict[str, Any]) -> list[dict[str, str]]:
-    """Return exact and collection-error tests that become passing."""
+def transition_tests(
+    parent: dict[str, Any], fix: dict[str, Any], candidate: dict[str, Any] | None = None
+) -> tuple[list[dict[str, str]], str | None, str | None]:
+    """Return credited transitions, their kind, and collection narrowing scope."""
     changed: list[dict[str, str]] = []
+    collection_changed: list[dict[str, str]] = []
     parent_outcomes = parent["outcomes"]
     fix_outcomes = fix["outcomes"]
     for nodeid, outcome in sorted(parent_outcomes.items()):
@@ -39,8 +42,14 @@ def transition_tests(parent: dict[str, Any], fix: dict[str, Any]) -> list[dict[s
             path = nodeid.removeprefix("collection::")
             for fix_nodeid, fix_outcome in sorted(fix_outcomes.items()):
                 if fix_outcome == "passed" and (fix_nodeid == path or fix_nodeid.startswith(f"{path}::")):
-                    changed.append({"nodeid": fix_nodeid, "parent": "error", "fix": "passed"})
-    return changed
+                    collection_changed.append({"nodeid": fix_nodeid, "parent": "error", "fix": "passed"})
+    if collection_changed:
+        narrowed, scope = narrow_collection_transitions(candidate, collection_changed)
+        changed.extend(narrowed)
+        return changed, "collection_error", scope
+    if changed:
+        return changed, "assertion_failure", "exact_nodeid"
+    return changed, None, None
 
 
 def passing_regressed(parent: dict[str, Any], fix: dict[str, Any]) -> list[str]:
@@ -84,8 +93,11 @@ def validate(candidate: dict[str, Any], image: str) -> dict[str, Any]:
         reason = "tests_no_clean_fail_to_pass"
         note = "selected tests also pass with the transplanted test patch at the parent commit"
     else:
-        transitions = transition_tests(parent_runs[0], fix_runs[0])
+        transitions, transition_kind, transition_scope = transition_tests(parent_runs[0], fix_runs[0], candidate)
         regressions = passing_regressed(parent_runs[0], fix_runs[0])
+    if reason is not None:
+        transition_kind = None
+        transition_scope = None
     if reason is None and regressions:
         reason = "tests_no_clean_fail_to_pass"
         note = "a test that passed at the parent did not remain passing at the fix"
@@ -93,7 +105,7 @@ def validate(candidate: dict[str, Any], image: str) -> dict[str, Any]:
         reason = "tests_no_clean_fail_to_pass"
         note = "no failing or erroring test at the parent became passing at the fix"
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "repo": candidate["repo"],
         "pr_number": candidate["pr_number"],
         "test_selector": selector,
@@ -101,6 +113,8 @@ def validate(candidate: dict[str, Any], image: str) -> dict[str, Any]:
         "merge_commit_sha": candidate["merge_commit_sha"],
         "runs": {"parent": parent_runs, "fix": fix_runs},
         "transition_tests": transitions,
+        "transition_kind": transition_kind,
+        "transition_scope": transition_scope,
         "previously_passing_regressions": regressions,
         "rejection_reason": reason,
         "note": note,

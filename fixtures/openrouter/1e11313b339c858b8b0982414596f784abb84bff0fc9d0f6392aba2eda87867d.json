@@ -1,0 +1,332 @@
+{
+  "latency_s": 4.201,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: jd/tenacity#384\nRepository: jd/tenacity\nBroken parent: f1aafdaf5e76c64979f8dc215213e5fe1b9b2994\nFixed commit: d9438b3a4080441904a2a2ea482a6d539f94cb5c\n\nLinked issues:\nIssue #324:\nI am using custom callbacks for `stop` and `wait` in the form of functions accepting a retry state, passing them to the `Retrying` context manager, as documented in [the Custom Callbacks section](https://tenacity.readthedocs.io/en/latest/#other-custom-callbacks). With the latest version of tenacity, this is now causing `mypy` failures since `BaseRetrying` [now only accepts `wait` and `stop` callbacks](https://github.com/jd/tenacity/blob/a7f548520e4ee871ad8aeb354ecfa1a324c8ca19/tenacity/__init__.py#L228-L230) that are function objects of a class inheriting from `wait_base` and `stop_base`. The same will also happen if a `retry` custom callback was provided.\r\n\r\nThese changes were introduced in #304. \r\n\r\nSince wait_base and stop_base aren't exposed as part of the public API, I believe this should be updated in order to enable using `Retrying` directly with `stop`, `wait` and `retry` custom callbacks as documented.\r\n\r\nSmall example causing `mypy` failures:\r\n``` python\r\nimport tenacity\r\n\r\ndef my_stop(retry_state: tenacity.RetryCallState) -> bool:\r\n    return True\r\n\r\n\r\ndef my_retry(retry_state: tenacity.RetryCallState) -> bool:\r\n    return False\r\n\r\n\r\ndef my_wait(retry_state: tenacity.RetryCallState) -> bool:\r\n    return False\r\n\r\n\r\nfor attempt in tenacity.Retrying(retry=my_retry, wait=my_wait, stop=my_stop):\r\n    with attempt:\r\n        pass\r\n```\r\n\r\n`mypy` output:\r\n\r\n``` shell\r\n$ python3.9 -m mypy test.py \r\ntest.py:15: error: Argument \"retry\" to \"Retrying\" has incompatible type \"Callable[[RetryCallState], bool]\"; expected \"retry_base\"\r\ntest.py:15: error: Argument \"wait\" to \"Retrying\" has incompatible type \"Callable[[RetryCallState], bool]\"; expected \"wait_base\"\r\ntest.py:15: error: Argument \"stop\" to \"Retrying\" has incompatible type \"Callable[[RetryCallState], bool]\"; expected \"stop_base\"\r\nFound 3 errors in 1 file (checked 1 source file)\r\n```\r\n\r\nIf we change the same example to use the `@retry` decorator instead of the `Retrying` context manager, `mypy` reports no errors:\r\n\r\n``` python\r\nimport tenacity\r\n\r\ndef my_stop(retry_state: tenacity.RetryCallState) -> bool:\r\n    return True\r\n\r\n\r\ndef my_retry(retry_state: tenacity.RetryCallState) -> bool:\r\n    return False\r\n\r\n\r\ndef my_wait(retry_state: tenacity.RetryCallState) -> bool:\r\n    return False\r\n\r\n@tenacity.retry(wait=my_wait, stop=my_stop, retry=my_retry)\r\ndef retryable_function():\r\n    pass\r\n\r\nretryable_function()\r\n```\r\n\r\n`mypy` output:\r\n```\r\n$ python3.9 -m mypy test.py \r\nSuccess: no issues found in 1 source file\r\n```\n\nPull request title:\nfix(mypy): add missing typing\n\nPull request body:\nRuntime callbacks for retry/stop/wait allow to pass a function or a\r\nclass that inherit from retry_base/wait_base/stop_base.\r\n\r\nThis fixes the typing when a function is used.\r\n\r\nFixes #324\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex d110a78..1f26ecd 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -86,8 +86,9 @@ except ImportError:\n if t.TYPE_CHECKING:\n     import types\n \n-    from .wait import wait_base\n-    from .stop import stop_base\n+    from .retry import RetryBaseT\n+    from .stop import StopBaseT\n+    from .wait import WaitBaseT\n \n \n WrappedFn = t.TypeVar(\"WrappedFn\", bound=t.Callable[..., t.Any])\n@@ -217,9 +218,9 @@ class BaseRetrying(ABC):\n     def __init__(\n         self,\n         sleep: t.Callable[[t.Union[int, float]], None] = sleep,\n-        stop: \"stop_base\" = stop_never,\n-        wait: \"wait_base\" = wait_none(),\n-        retry: retry_base = retry_if_exception_type(),\n+        stop: \"StopBaseT\" = stop_never,\n+        wait: \"WaitBaseT\" = wait_none(),\n+        retry: \"RetryBaseT\" = retry_if_exception_type(),\n         before: t.Callable[[\"RetryCallState\"], None] = before_nothing,\n         after: t.Callable[[\"RetryCallState\"], None] = after_nothing,\n         before_sleep: t.Optional[t.Callable[[\"RetryCallState\"], None]] = None,\n@@ -242,8 +243,8 @@ class BaseRetrying(ABC):\n     def copy(\n         self,\n         sleep: t.Union[t.Callable[[t.Union[int, float]], None], object] = _unset,\n-        stop: t.Union[\"stop_base\", object] = _unset,\n-        wait: t.Union[\"wait_base\", object] = _unset,\n+        stop: t.Union[\"StopBaseT\", object] = _unset,\n+        wait: t.Union[\"WaitBaseT\", object] = _unset,\n         retry: t.Union[retry_base, object] = _unset,\n         before: t.Union[t.Callable[[\"RetryCallState\"], None], object] = _unset,\n         after: t.Union[t.Callable[[\"RetryCallState\"], None], object] = _unset,\n@@ -337,14 +338,14 @@ class BaseRetrying(ABC):\n             return DoAttempt()\n \n         is_explicit_retry = fut.failed and isinstance(fut.exception(), TryAgain)\n-        if not (is_explicit_retry or self.retry(retry_state=retry_state)):\n+        if not (is_explicit_retry or self.retry(retry_state)):\n             return fut.result()\n \n         if self.after is not None:\n             self.after(retry_state)\n \n         self.statistics[\"delay_since_first_attempt\"] = retry_state.seconds_since_start\n-        if self.stop(retry_state=retry_state):\n+        if self.stop(retry_state):\n             if self.retry_error_callback:\n                 return self.retry_error_callback(retry_state)\n             retry_exc = self.retry_error_cls(fut)\n@@ -353,7 +354,7 @@ class BaseRetrying(ABC):\n             raise retry_exc from fut.exception()\n \n         if self.wait:\n-            sleep = self.wait(retry_state=retry_state)\n+            sleep = self.wait(retry_state)\n         else:\n             sleep = 0.0\n         retry_state.next_action = RetryAction(sleep)\ndiff --git a/tenacity/retry.py b/tenacity/retry.py\nindex 73cb268..765b6fe 100644\n--- a/tenacity/retry.py\n+++ b/tenacity/retry.py\n@@ -36,6 +36,9 @@ class retry_base(abc.ABC):\n         return retry_any(self, other)\n \n \n+RetryBaseT = typing.Union[retry_base, typing.Callable[[\"RetryCallState\"], bool]]\n+\n+\n class _retry_never(retry_base):\n     \"\"\"Retry strategy that never rejects any result.\"\"\"\n \ndiff --git a/tenacity/stop.py b/tenacity/stop.py\nindex 48b0a4e..e647860 100644\n--- a/tenacity/stop.py\n+++ b/tenacity/stop.py\n@@ -38,6 +38,9 @@ class stop_base(abc.ABC):\n         return stop_any(self, other)\n \n \n+StopBaseT = typing.Union[stop_base, typing.Callable[[\"RetryCallState\"], bool]]\n+\n+\n class stop_any(stop_base):\n     \"\"\"Stop if any of the stop condition is valid.\"\"\"\n \ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex 0e4d78f..7a793b2 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -41,6 +41,9 @@ class wait_base(abc.ABC):\n         return self.__add__(other)\n \n \n+WaitBaseT = typing.Union[wait_base, typing.Callable[[\"RetryCallState\"], bool]]\n+\n+\n class wait_fixed(wait_base):\n     \"\"\"Wait strategy that waits a fixed amount of time between each retry.\"\"\"\n \n\n\nChanged source paths:\n- tenacity/__init__.py\n- tenacity/retry.py\n- tenacity/stop.py\n- tenacity/wait.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by exploring the test structure and understanding the conventions",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"tenacity\"}",
+              "name": "list_tests"
+            },
+            "id": "call_9cd3c737e2054c76a3a5591a",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"tenacity\", \"ranked_test_files\": [{\"fixtures\": [\"mock_sleep\"], \"opening_excerpt\": \"   1 | # Copyright 2016\\u20132021 Julien Danjou\\n   2 | # Copyright 2016 Joshua Harlow\\n   3 | # Copyright 2013 Ray Holder\\n   4 | #\\n   5 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   6 | # you may not use this file except in compliance with the License.\\n   7 | # You may obtain a copy of the License at\\n   8 | #\\n   9 | # http://www.apache.org/licenses/LICENSE-2.0\\n  10 | #\\n  11 | # Unless required by applicable law or agreed to in writing, software\\n  12 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  13 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  14 | # See the License for the specific language governing permissions and\\n  15 | # limitations under the License.\\n  16 | import datetime\\n  17 | import logging\\n  18 | import re\\n  19 | import sys\\n  20 | import time\\n  21 | import typing\\n  22 | import unittest\\n  23 | import warnings\\n  24 | from contextlib import contextmanager\\n  25 | from copy import copy\\n  26 | from fractions import Fraction\\n  27 | \\n  28 | import pytest\\n  29 | \\n  30 | import tenacity\\n  31 | from tenacity import RetryCallState, RetryError, Retrying, retry\\n  32 | \\n  33 | _unset = object()\\n  34 | \\n  35 | \\n  36 | def _make_unset_exception(func_name, **kwargs):\\n...[TRUNCATED; use read_file('tests/test_tenacity.py', start, end) for another window]...\", \"path\": \"tests/test_tenacity.py\", \"test_names\": [\"test_retrying_repr\", \"test_callstate_repr\", \"test_never_stop\", \"test_stop_any\", \"test_stop_all\", \"test_stop_or\", \"test_stop_and\", \"test_stop_after_attempt\", \"test_stop_after_delay\", \"test_legacy_explicit_stop_type\", \"test_stop_func_with_retry_state\", \"test_no_sleep\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import logging\\n   2 | import random\\n   3 | import unittest.mock\\n   4 | \\n   5 | from tenacity import _utils  # noqa\\n   6 | from tenacity import after_log\\n   7 | \\n   8 | from . import test_tenacity\\n   9 | \\n  10 | \\n  11 | class TestAfterLogFormat(unittest.TestCase):\\n  12 |     def setUp(self) -> None:\\n  13 |         self.log_level = random.choice((logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL))\\n  14 |         self.previous_attempt_number = random.randint(1, 512)\\n  15 | \\n  16 |     def test_01_default(self):\\n  17 |         \\\"\\\"\\\"Test log formatting.\\\"\\\"\\\"\\n  18 |         log = unittest.mock.MagicMock(spec=\\\"logging.Logger.log\\\")\\n  19 |         logger = unittest.mock.MagicMock(spec=\\\"logging.Logger\\\", log=log)\\n  20 | \\n  21 |         sec_format = \\\"%0.3f\\\"\\n  22 |         delay_since_first_attempt = 0.1\\n  23 | \\n  24 |         retry_state = test_tenacity.make_retry_state(self.previous_attempt_number, delay_since_first_attempt)\\n  25 |         fun = after_log(logger=logger, log_level=self.log_level)  # use default sec_format\\n  26 |         fun(retry_state)\\n  27 |         fn_name = \\\"<unknown>\\\" if retry_state.fn is None else _utils.get_callback_name(retry_state.fn)\\n  28 |         log.assert_called_once_with(\\n  29 |             self.log_level,\\n  30 |             f\\\"Finished call to '{fn_name}' \\\"\\n  31 |             f\\\"after {sec_format % retry_state.seconds_since_start}(s), \\\"\\n  32 |             f\\\"this was the {_utils.to_ordinal(retry_state.attempt_number)} time calling it.\\\",\\n  33 |         )\\n  34 | \\n  35 |     def test_02_custom_sec_format(self):\\n  36 |         \\\"\\\"\\\"Test log formatting with custom int format..\\\"\\\"\\\"\\n...[TRUNCATED; use read_file('tests/test_after.py', start, end) for another window]...\", \"path\": \"tests/test_after.py\", \"test_names\": [\"test_01_default\", \"test_02_custom_sec_format\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # coding: utf-8\\n   2 | # Copyright 2016 \\u00c9tienne Bersac\\n   3 | #\\n   4 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   5 | # you may not use this file except in compliance with the License.\\n   6 | # You may obtain a copy of the License at\\n   7 | #\\n   8 | # http://www.apache.org/licenses/LICENSE-2.0\\n   9 | #\\n  10 | # Unless required by applicable law or agreed to in writing, software\\n  11 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  12 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  13 | # See the License for the specific language governing permissions and\\n  14 | # limitations under the License.\\n  15 | \\n  16 | import asyncio\\n  17 | import inspect\\n  18 | import unittest\\n  19 | from functools import wraps\\n  20 | \\n  21 | from tenacity import AsyncRetrying, RetryError\\n  22 | from tenacity import _asyncio as tasyncio\\n  23 | from tenacity import retry, retry_if_result, stop_after_attempt\\n  24 | from tenacity.wait import wait_fixed\\n  25 | \\n  26 | from .test_tenacity import NoIOErrorAfterCount, current_time_ms\\n  27 | \\n  28 | \\n  29 | def asynctest(callable_):\\n  30 |     @wraps(callable_)\\n  31 |     def wrapper(*a, **kw):\\n  32 |         loop = asyncio.get_event_loop()\\n  33 |         return loop.run_until_complete(callable_(*a, **kw))\\n  34 | \\n  35 |     return wrapper\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_asyncio.py', start, end) for another window]...\", \"path\": \"tests/test_asyncio.py\", \"test_names\": [\"test_retry\", \"test_iscoroutinefunction\", \"test_retry_using_async_retying\", \"test_stop_after_attempt\", \"test_repr\", \"test_retry_attributes\", \"test_attempt_number_is_correct_for_interleaved_coroutines\", \"test_do_max_attempts\", \"test_reraise\", \"test_sleeps\", \"test_retry_with_result\", \"test\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # coding: utf-8\\n   2 | # Copyright 2017 Elisey Zanko\\n   3 | #\\n   4 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   5 | # you may not use this file except in compliance with the License.\\n   6 | # You may obtain a copy of the License at\\n   7 | #\\n   8 | # http://www.apache.org/licenses/LICENSE-2.0\\n   9 | #\\n  10 | # Unless required by applicable law or agreed to in writing, software\\n  11 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  12 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  13 | # See the License for the specific language governing permissions and\\n  14 | # limitations under the License.\\n  15 | \\n  16 | import unittest\\n  17 | \\n  18 | from tenacity import RetryError, retry, stop_after_attempt\\n  19 | from tenacity import tornadoweb\\n  20 | \\n  21 | from tornado import gen\\n  22 | from tornado import testing\\n  23 | \\n  24 | from .test_tenacity import NoIOErrorAfterCount\\n  25 | \\n  26 | \\n  27 | @retry\\n  28 | @gen.coroutine\\n  29 | def _retryable_coroutine(thing):\\n  30 |     yield gen.sleep(0.00001)\\n  31 |     thing.go()\\n  32 | \\n  33 | \\n  34 | @retry(stop=stop_after_attempt(2))\\n  35 | @gen.coroutine\\n  36 | def _retryable_coroutine_with_2_attempts(thing):\\n...[TRUNCATED; use read_file('tests/test_tornado.py', start, end) for another window]...\", \"path\": \"tests/test_tornado.py\", \"test_names\": [\"test_retry\", \"test_stop_after_attempt\", \"test_repr\", \"test_old_tornado\"]}, {\"fixtures\": [], \"opening_excerpt\": \"\", \"path\": \"tests/__init__.py\", \"test_names\": []}], \"total_test_python_files\": 5}",
+        "role": "tool",
+        "tool_call_id": "call_9cd3c737e2054c76a3a5591a"
+      },
+      {
+        "content": "Let me look at the main test file to understand conventions, especially around `Retrying` usage and the `mock_sleep` fixture.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 80, \"path\": \"tests/test_tenacity.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_c88f162d5d9b42d7a8dcacd4",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"mock_sleep\"}",
+              "name": "search"
+            },
+            "id": "call_e78f2b03f80f4bbdaef464fa",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | # Copyright 2016\\u20132021 Julien Danjou\\n   2 | # Copyright 2016 Joshua Harlow\\n   3 | # Copyright 2013 Ray Holder\\n   4 | #\\n   5 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   6 | # you may not use this file except in compliance with the License.\\n   7 | # You may obtain a copy of the License at\\n   8 | #\\n   9 | # http://www.apache.org/licenses/LICENSE-2.0\\n  10 | #\\n  11 | # Unless required by applicable law or agreed to in writing, software\\n  12 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  13 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  14 | # See the License for the specific language governing permissions and\\n  15 | # limitations under the License.\\n  16 | import datetime\\n  17 | import logging\\n  18 | import re\\n  19 | import sys\\n  20 | import time\\n  21 | import typing\\n  22 | import unittest\\n  23 | import warnings\\n  24 | from contextlib import contextmanager\\n  25 | from copy import copy\\n  26 | from fractions import Fraction\\n  27 | \\n  28 | import pytest\\n  29 | \\n  30 | import tenacity\\n  31 | from tenacity import RetryCallState, RetryError, Retrying, retry\\n  32 | \\n  33 | _unset = object()\\n  34 | \\n  35 | \\n  36 | def _make_unset_exception(func_name, **kwargs):\\n  37 |     missing = []\\n  38 |     for k, v in kwargs.items():\\n  39 |         if v is _unset:\\n  40 |             missing.append(k)\\n  41 |     missing_str = \\\", \\\".join(repr(s) for s in missing)\\n  42 |     return TypeError(func_name + \\\" func missing parameters: \\\" + missing_str)\\n  43 | \\n  44 | \\n  45 | def _set_delay_since_start(retry_state, delay):\\n  46 |     # Ensure outcome_timestamp - start_time is *exactly* equal to the delay to\\n  47 |     # avoid complexity in test code.\\n  48 |     retry_state.start_time = Fraction(retry_state.start_time)\\n  49 |     retry_state.outcome_timestamp = retry_state.start_time + Fraction(delay)\\n  50 |     assert retry_state.seconds_since_start == delay\\n  51 | \\n  52 | \\n  53 | def make_retry_state(previous_attempt_number, delay_since_first_attempt, last_result=None):\\n  54 |     \\\"\\\"\\\"Construct RetryCallState for given attempt number & delay.\\n  55 | \\n  56 |     Only used in testing and thus is extra careful about timestamp arithmetics.\\n  57 |     \\\"\\\"\\\"\\n  58 |     required_parameter_unset = previous_attempt_number is _unset or delay_since_first_attempt is _unset\\n  59 |     if required_parameter_unset:\\n  60 |         raise _make_unset_exception(\\n  61 |             \\\"wait/stop\\\",\\n  62 |             previous_attempt_number=previous_attempt_number,\\n  63 |             delay_since_first_attempt=delay_since_first_attempt,\\n  64 |         )\\n  65 | \\n  66 |     retry_state = RetryCallState(None, None, (), {})\\n  67 |     retry_state.attempt_number = previous_attempt_number\\n  68 |     if last_result is not None:\\n  69 |         retry_state.outcome = last_result\\n  70 |     else:\\n  71 |         retry_state.set_result(None)\\n  72 |     _set_delay_since_start(retry_state, delay_since_first_attempt)\\n  73 |     return retry_state\\n  74 | \\n  75 | \\n  76 | class TestBase(unittest.TestCase):\\n  77 |     def test_retrying_repr(self):\\n  78 |         class ConcreteRetrying(tenacity.BaseRetrying):\\n  79 |             def __call__(self, fn, *args, **kwargs):\\n  80 |                 pass\\n...[WINDOWED READ; 1523 later lines omitted]...\", \"end\": 80, \"ok\": true, \"path\": \"tests/test_tenacity.py\", \"start\": 1, \"total_lines\": 1603}",
+        "role": "tool",
+        "tool_call_id": "call_c88f162d5d9b42d7a8dcacd4"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 5, \"matches\": [\"tests/test_tenacity.py:1577:    def mock_sleep(self, monkeypatch):\", \"tests/test_tenacity.py:1588:    def test_decorated(self, mock_sleep):\", \"tests/test_tenacity.py:1591:        assert mock_sleep.call_count == 4\", \"tests/test_tenacity.py:1593:    def test_decorated_retry_with(self, mock_sleep):\", \"tests/test_tenacity.py:1599:        assert mock_sleep.call_count == 1\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"mock_sleep\"}",
+        "role": "tool",
+        "tool_call_id": "call_e78f2b03f80f4bbdaef464fa"
+      },
+      {
+        "content": "Let me look at the `mock_sleep` fixture and nearby tests to understand the",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 1603, \"path\": \"tests/test_tenacity.py\", \"start\": 1570}",
+              "name": "read_file"
+            },
+            "id": "call_e8bd965556db474bb9bfe2a1",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"1570 |         raise NotImplementedError()\\n1571 | \\n1572 |     @retry(**RETRY_ARGS)\\n1573 |     def _decorated_fail(self):\\n1574 |         self._fail()\\n1575 | \\n1576 |     @pytest.fixture()\\n1577 |     def mock_sleep(self, monkeypatch):\\n1578 |         class MockSleep:\\n1579 |             call_count = 0\\n1580 | \\n1581 |             def __call__(self, seconds):\\n1582 |                 self.call_count += 1\\n1583 | \\n1584 |         sleep = MockSleep()\\n1585 |         monkeypatch.setattr(tenacity.nap.time, \\\"sleep\\\", sleep)\\n1586 |         yield sleep\\n1587 | \\n1588 |     def test_decorated(self, mock_sleep):\\n1589 |         with pytest.raises(RetryError):\\n1590 |             self._decorated_fail()\\n1591 |         assert mock_sleep.call_count == 4\\n1592 | \\n1593 |     def test_decorated_retry_with(self, mock_sleep):\\n1594 |         fail_faster = self._decorated_fail.retry_with(\\n1595 |             stop=tenacity.stop_after_attempt(2),\\n1596 |         )\\n1597 |         with pytest.raises(RetryError):\\n1598 |             fail_faster()\\n1599 |         assert mock_sleep.call_count == 1\\n1600 | \\n1601 | \\n1602 | if __name__ == \\\"__main__\\\":\\n1603 |     unittest.main()\\n...[WINDOWED READ; 1569 earlier lines omitted]...\", \"end\": 1603, \"ok\": true, \"path\": \"tests/test_tenacity.py\", \"start\": 1570, \"total_lines\": 1603}",
+        "role": "tool",
+        "tool_call_id": "call_e8bd965556db474bb9bfe2a1"
+      },
+      {
+        "content": "Now let me look at the `stop_func_with_retry_state` test to see how custom callbacks are tested:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"stop_func_with_retry_state\"}",
+              "name": "search"
+            },
+            "id": "call_52853b1c90c9448b9af4deb1",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\"tests/test_tenacity.py:168:    def test_stop_func_with_retry_state(self):\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"stop_func_with_retry_state\"}",
+        "role": "tool",
+        "tool_call_id": "call_52853b1c90c9448b9af4deb1"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 195, \"path\": \"tests/test_tenacity.py\", \"start\": 160}",
+              "name": "read_file"
+            },
+            "id": "call_16bb1af62e9340c6b516f35e",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 160 |                 r = Retrying(stop=tenacity.stop_after_delay(delay))\\n 161 |                 self.assertFalse(r.stop(make_retry_state(2, 0.999)))\\n 162 |                 self.assertTrue(r.stop(make_retry_state(2, 1)))\\n 163 |                 self.assertTrue(r.stop(make_retry_state(2, 1.001)))\\n 164 | \\n 165 |     def test_legacy_explicit_stop_type(self):\\n 166 |         Retrying(stop=\\\"stop_after_attempt\\\")\\n 167 | \\n 168 |     def test_stop_func_with_retry_state(self):\\n 169 |         def stop_func(retry_state):\\n 170 |             rs = retry_state\\n 171 |             return rs.attempt_number == rs.seconds_since_start\\n 172 | \\n 173 |         r = Retrying(stop=stop_func)\\n 174 |         self.assertFalse(r.stop(make_retry_state(1, 3)))\\n 175 |         self.assertFalse(r.stop(make_retry_state(100, 99)))\\n 176 |         self.assertTrue(r.stop(make_retry_state(101, 101)))\\n 177 | \\n 178 | \\n 179 | class TestWaitConditions(unittest.TestCase):\\n 180 |     def test_no_sleep(self):\\n 181 |         r = Retrying()\\n 182 |         self.assertEqual(0, r.wait(make_retry_state(18, 9879)))\\n 183 | \\n 184 |     def test_fixed_sleep(self):\\n 185 |         for wait in (1, datetime.timedelta(seconds=1)):\\n 186 |             with self.subTest():\\n 187 |                 r = Retrying(wait=tenacity.wait_fixed(wait))\\n 188 |                 self.assertEqual(1, r.wait(make_retry_state(12, 6546)))\\n 189 | \\n 190 |     def test_incrementing_sleep(self):\\n 191 |         for start, increment in ((500, 100), (datetime.timedelta(seconds=500), datetime.timedelta(seconds=100))):\\n 192 |             with self.subTest():\\n 193 |                 r = Retrying(wait=tenacity.wait_incrementing(start=start, increment=increment))\\n 194 |                 self.assertEqual(500, r.wait(make_retry_state(1, 6546)))\\n 195 |                 self.assertEqual(600, r.wait(make_retry_state(2, 6546)))\\n...[WINDOWED READ; 159 earlier lines omitted; 1408 later lines omitted]...\", \"end\": 195, \"ok\": true, \"path\": \"tests/test_tenacity.py\", \"start\": 160, \"total_lines\": 1603}",
+        "role": "tool",
+        "tool_call_id": "call_16bb1af62e9340c6b516f35e"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 401975697,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "1e11313b339c858b8b0982414596f784abb84bff0fc9d0f6392aba2eda87867d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Now I understand the pattern. The issue is about type annotations - the `BaseRetrying.__init__` parameters `stop`, `wait`, and `retry` accept plain functions but the type annotations say they only accept `stop_base`, `wait_base`, and `retry_base` respectively. The fix adds union types `StopBaseT`, `WaitBaseT`, and `RetryBaseT` that also accept `Callable[[RetryCallState], bool]`.\n\nThis is a typing-only change, so a runtime regression test needs to verify that passing plain functions for `stop`, `wait`, and `retry` works correctly at runtime (which it already did before the fix - the issue is only about mypy types). Let me check if there's already a test that exercises this pattern with `Retrying` directly (not just `stop`).\n\nLet me look at how `retry` callbacks are used:\n\n",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"retry=.*retry_if\"}",
+                "name": "search"
+              },
+              "id": "call_82b67f7bc4264788a929f936",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788119547,
+    "id": "gen-1788119547-AMNwwV1u1c68LuC7BX05",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 239,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000231492296,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.760904e-05,
+        "upstream_inference_cost": 0.000231492296,
+        "upstream_inference_prompt_cost": 0.000193883256
+      },
+      "is_byok": false,
+      "prompt_tokens": 8813,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 7936,
+        "video_tokens": 0
+      },
+      "total_tokens": 9052
+    }
+  },
+  "schema_version": 1
+}

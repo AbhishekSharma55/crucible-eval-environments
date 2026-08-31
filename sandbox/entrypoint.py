@@ -43,12 +43,25 @@ def apply_patch(checkout: Path, patch: bytes) -> subprocess.CompletedProcess[byt
     )
 
 
+def apply_solution_patch(checkout: Path, patch: bytes) -> subprocess.CompletedProcess[bytes]:
+    """Apply common unified-diff variants without changing proposed content."""
+    text = patch.decode(errors="replace")
+    headers = [line for line in text.splitlines() if line.startswith(("--- ", "+++ "))]
+    prefixed = any(line.startswith(("--- a/", "+++ b/")) for line in headers)
+    command = ["git", "apply", "--whitespace=nowarn", "--recount"]
+    if headers and not prefixed:
+        command.extend(["-p", "0"])
+    command.append("-")
+    return subprocess.run(command, cwd=checkout, input=patch, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run pytest at a historical commit")
     parser.add_argument("repo")
     parser.add_argument("commit")
     parser.add_argument("test_selector", nargs="*", help="pytest node IDs or paths")
     parser.add_argument("--test-patch-from", help="fix commit used to build and transplant the selected test-only patch")
+    parser.add_argument("--solution-patch", help="solver-produced patch file to apply after the test transplant")
     args = parser.parse_args()
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -101,6 +114,22 @@ def main() -> int:
                     "duration_s": round(time.monotonic() - started, 3),
                     "per_test_status": [],
                     "stage": "test_patch_apply",
+                }, sort_keys=True))
+                return applied.returncode
+
+        if args.solution_patch:
+            solution = Path(args.solution_patch).read_bytes()
+            applied = apply_solution_patch(checkout, solution)
+            if applied.returncode:
+                print(json.dumps({
+                    "repo": args.repo,
+                    "commit": args.commit,
+                    "exit_code": applied.returncode,
+                    "stdout": applied.stdout.decode(errors="replace"),
+                    "stderr": applied.stderr.decode(errors="replace"),
+                    "duration_s": round(time.monotonic() - started, 3),
+                    "per_test_status": [],
+                    "stage": "solution_patch_apply",
                 }, sort_keys=True))
                 return applied.returncode
 

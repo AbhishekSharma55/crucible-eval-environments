@@ -1,0 +1,69 @@
+{
+  "latency_s": 3.74,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nshow help text with invalid default\n\nPR body:\nIf `ctx.resilient_parsing` is enabled, type casting can fail when getting the default, and the raw invalid value will be returned instead. Showing help text temporarily enables resilient parsing mode when fetching the default. I wasn't sure what the effect would be of enabling that for the entire help formatting, so it's just local to the default right now.\r\n\r\n<!--\r\nLink to relevant issues or previous PRs, one per line. Use \"fixes\" to\r\nautomatically close an issue.\r\n-->\r\n\r\n- fixes #1899\r\n\r\n<!--\r\nEnsure each step in CONTRIBUTING.rst is complete by adding an \"x\" to\r\neach box below.\r\n\r\nIf only docs were changed, these aren't relevant and can be removed.\r\n-->\r\n\r\nChecklist:\r\n\r\n- [x] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [x] Add or update relevant docs, in the docs folder and in code.\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 6d807d18..9bc6e54a 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -25,6 +25,8 @@ Unreleased\n     ``default_map`` lookups. When using patterns like ``AliasedGroup``,\n     override ``resolve_command`` to change the name that is returned if\n     needed. :issue:`1895`\n+-   If a default value is invalid, it does not prevent showing help\n+    text. :issue:`1889`\n \n \n Version 8.0.0\ndiff --git a/src/click/core.py b/src/click/core.py\nindex 3a7533be..7000cffc 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -2196,6 +2196,10 @@ class Parameter:\n         :param call: If the default is a callable, call it. Disable to\n             return the callable instead.\n \n+        .. versionchanged:: 8.0.1\n+            Type casting can fail in resilient parsing mode. Invalid\n+            defaults will not prevent showing help text.\n+\n         .. versionchanged:: 8.0\n             Looks at ``ctx.default_map`` first.\n \n@@ -2214,7 +2218,13 @@ class Parameter:\n \n             value = value()\n \n-        return self.type_cast_value(ctx, value)\n+        try:\n+            return self.type_cast_value(ctx, value)\n+        except BadParameter:\n+            if ctx.resilient_parsing:\n+                return value\n+\n+            raise\n \n     def add_to_parser(self, parser: OptionParser, ctx: Context) -> None:\n         raise NotImplementedError()\n@@ -2700,14 +2710,24 @@ class Option(Parameter):\n                 )\n                 extra.append(_(\"env var: {var}\").format(var=var_str))\n \n-        default_value = self.get_default(ctx, call=False)\n+        # Temporarily enable resilient parsing to avoid type casting\n+        # failing for the default. Might be possible to extend this to\n+        # help formatting in general.\n+        resilient = ctx.resilient_parsing\n+        ctx.resilient_parsing = True\n+\n+        try:\n+            default_value = self.get_default(ctx, call=False)\n+        finally:\n+            ctx.resilient_parsing = resilient\n+\n         show_default_is_str = isinstance(self.show_default, str)\n \n         if show_default_is_str or (\n             default_value is not None and (self.show_default or ctx.show_default)\n         ):\n             if show_default_is_str:\n-                default_string: t.Union[str, t.Any] = f\"({self.show_default})\"\n+                default_string = f\"({self.show_default})\"\n             elif isinstance(default_value, (list, tuple)):\n                 default_string = \", \".join(str(d) for d in default_value)\n             elif callable(default_value):\n@@ -2719,7 +2739,7 @@ class Option(Parameter):\n                     (self.opts if self.default else self.secondary_opts)[0]\n                 )[1]\n             else:\n-                default_string = default_value\n+                default_string = str(default_value)\n \n             extra.append(_(\"default: {default}\").format(default=default_string))\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "2bb415dff44642de88ad445edb790734c5b9b9899aebd6f3a39cd23927791e74",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a parameter has an invalid default value, help text fails to display with an error instead of showing the available options.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078461,
+    "id": "gen-1788078461-7Da1kEVIv38mpxM375rh",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 25,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 8.23529e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.2e-06,
+        "upstream_inference_cost": 8.23529e-05,
+        "upstream_inference_prompt_cost": 7.81529e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1151,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1176
+    }
+  },
+  "schema_version": 1
+}

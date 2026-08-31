@@ -1,0 +1,69 @@
+{
+  "latency_s": 10.411,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFix backward compatibility with pickles before v22.2.0\n\nPR body:\n# Summary\r\n\r\nUnfortunately we're using `django-redis` to cache some `attrs` instances and the change to make `__getstate__` and `__setstate__` use `dict` values instead of `tuple` values prevents reading any values from the cache when updating to `attrs>=22.2.0`. We get an `AttributeError` raised for all attributes.\r\n\r\nThis happens because the tuple of values stored in the original pickle is checked for the name of the attribute and so none of the attributes are set on unpickle.\r\n\r\nTo address this I've made a change so that `__setstate__` will still be able to handle values pickled as `tuple`s allowing existing pickles to be unpickled.\r\n\r\nThe test just contains a pre-pickled value due to the complexities around tying to mock methods on a slotted as documented[^1].\r\n\r\nI realise that documentation also mentions that we should \"think twice\" before using pickle, but sometimes those decisions predate our involvement in a project! In addition, pretty much all of Django's cache implementations are built around using pickle by default. This change will allow an easier path to upgrade by unpickling and repickling all values in the cache.\r\n\r\nRegression in 89a890a3262273514619d1881c6a8b0fe26c66ac.\r\n\r\n[^1]: https://www.attrs.org/en/latest/glossary.html#term-slotted-classes\r\n\r\n# Pull Request Check List\r\n\r\n<!--\r\nThis is just a friendly reminder about the most common mistakes.\r\nPlease make sure that you tick all boxes.\r\nBut please read our [contribution guide](https://github.com/python-attrs/attrs/blob/main/.github/CONTRIBUTING.md) at least once, it will save you unnecessary review cycles!\r\n\r\nIf an item doesn't apply to your pull request, **check it anyway** to make it apparent that there's nothing left to do.\r\nIf your pull request is a documentation fix or a trivial typo, feel free to delete the whole thing.\r\n-->\r\n\r\n- [x] Added **tests** for changed code.\r\n  Our CI fails if coverage is not 100%.\r\n- [x] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [x] ...and used in the stub test file `tests/typing_example.py`.\r\n    - [x] If they've been added to `attr/__init__.pyi`, they've *also* been re-imported in `attrs/__init__.pyi`.\r\n- [x] Updated **documentation** for changed code.\r\n    - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [x] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n          Find the appropriate next version in our [``__init__.py``](https://github.com/python-attrs/attrs/blob/main/src/attr/__init__.py) file.\r\n- [x] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [x] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n- [x] Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\r\n\r\n<!--\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!\r\nThis checklist is here to *help* you, not to deter you from contributing!\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1085.change.md b/changelog.d/1085.change.md\nnew file mode 100644\nindex 00000000..483fc87d\n--- /dev/null\n+++ b/changelog.d/1085.change.md\n@@ -0,0 +1 @@\n+Restored ability to unpickle instances pickled before 22.2.0.\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 1bb0f508..014b7bc2 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -934,9 +934,15 @@ class _ClassBuilder:\n             Automatically created by attrs.\n             \"\"\"\n             __bound_setattr = _obj_setattr.__get__(self)\n-            for name in state_attr_names:\n-                if name in state:\n-                    __bound_setattr(name, state[name])\n+            if isinstance(state, tuple):\n+                # Backward compatibility with attrs instances pickled with\n+                # attrs versions before v22.2.0 which stored tuples.\n+                for name, value in zip(state_attr_names, state):\n+                    __bound_setattr(name, value)\n+            else:\n+                for name in state_attr_names:\n+                    if name in state:\n+                        __bound_setattr(name, state[name])\n \n             # The hash code cache is not included when the object is\n             # serialized, but it still needs to be initialized to None to\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "261b3174bc88a0046d8d208872ddc5085bc0c445084abcc229954c4e5f48a385",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Starting with attrs version 22.2.0, pickled instances created by earlier versions of attrs cannot be unpickled; unpickling an older pickle raises an `AttributeError` because the unpickling code expects a dict but encounters a tuple.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078593,
+    "id": "gen-1788078593-oKxXrFkSIKCNr3gIWsjI",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 55,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001074913,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.24e-06,
+        "upstream_inference_cost": 0.0001074913,
+        "upstream_inference_prompt_cost": 9.82513e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1447,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1502
+    }
+  },
+  "schema_version": 1
+}

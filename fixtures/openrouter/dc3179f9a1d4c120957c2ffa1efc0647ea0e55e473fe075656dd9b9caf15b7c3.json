@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.224,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nSpeedup `_setattr` usage and fix slight performance regressions\n\nPR body:\n# Summary\r\n\r\nFix slight performance regression of #898.\r\n\r\nI only noticed this after upgrading to 22.1.0, but the PR i made a while back to speedup the instantiation of frozen classes did so, but at a cost of not scaling correctly the more attributes that need to be set\r\n\r\nDidnt want to just revert the commit, so played around a bit and found some optimizations. which are in this pr. They include (partially) going back to some of the old code, but with some optimizations that makes it both scale better and perform better in simple tests, ending up being a win win. Sorry for the slight performance regression this issue caused. It didnt cross to me it wouldnt scale well.\r\n\r\n<details>\r\n  <summary>3 arguments performance</summary>\r\n\r\n### `attrs-21.4.0`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['x', 'y', 'z'], slots=True, frozen=True)\" \"C(1, 2, 3)\"\r\n.........................................\r\nMean +- std dev: 499 ns +- 26 ns\r\n```\r\n\r\n### `attrs-22.1.0`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['x', 'y', 'z'], slots=True, frozen=True)\" \"C(1, 2, 3)\"\r\n.........................................\r\nMean +- std dev: 450 ns +- 17 ns\r\n```\r\n\r\n### `this pr`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['a', 'b', 'c'], slots=True, frozen=True)\" \"C(1, 2, 3)\"\r\n.........................................\r\nMean +- std dev: 425 ns +- 16 ns\r\n```\r\n</details>\r\n\r\n<details>\r\n  <summary>10 arguments performace</summary>\r\n\r\n### `attrs-21.4.0`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], slots=True, frozen=True)\" \"C(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)\"\r\n.........................................\r\nMean +- std dev: 1.01 us +- 0.04 us\r\n```\r\n\r\n### `attrs-22.1.0`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], slots=True, frozen=True)\" \"C(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)\"\r\n.........................................\r\nMean +- std dev: 1.18 us +- 0.04 us\r\n```\r\n\r\n### `this pr`\r\n```\r\n$ pyperf timeit --rigorous -s \"import attr; C = attr.make_class('C', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], slots=True, frozen=True)\" \"C(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)\"\r\n.........................................\r\nMean +- std dev: 941 ns +- 45 ns\r\n```\r\n</details>\r\n\r\n# Pull Request Check List\r\n\r\n- [x] Added **tests** for changed code.\r\n  Our CI fails if coverage is not 100%.\r\n- [x] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [x] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [x] ...and used in the stub test file `tests/typing_example.py`.\r\n    - [x] If they've been added to `attr/__init__.pyi`, they've *also* been re-imported in `attrs/__init__.pyi`.\r\n- [x] Updated **documentation** for changed code.\r\n    - [x] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [x] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [x] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n          Find the appropriate next version in our [``__init__.py``](https://github.com/python-attrs/attrs/blob/main/src/attr/__init__.py) file.\r\n- [x] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [x] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n- [x] Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/991.change.rst b/changelog.d/991.change.rst\nnew file mode 100644\nindex 00000000..bc9487d1\n--- /dev/null\n+++ b/changelog.d/991.change.rst\n@@ -0,0 +1 @@\n+Fix slight performance regression in classes with custom ``__setattr__`` and speedup even more.\ndiff --git a/docs/how-does-it-work.rst b/docs/how-does-it-work.rst\nindex c7b40834..12528ab1 100644\n--- a/docs/how-does-it-work.rst\n+++ b/docs/how-does-it-work.rst\n@@ -94,9 +94,9 @@ This is (still) slower than a plain assignment:\n         -s \"import attr; C = attr.make_class('C', ['x', 'y', 'z'], slots=True, frozen=True)\" \\\n         \"C(1, 2, 3)\"\n   .........................................\n-  Mean +- std dev: 450 ns +- 26 ns\n+  Mean +- std dev: 425 ns +- 16 ns\n \n-So on a laptop computer the difference is about 230 nanoseconds (1 second is 1,000,000,000 nanoseconds).\n+So on a laptop computer the difference is about 200 nanoseconds (1 second is 1,000,000,000 nanoseconds).\n It's certainly something you'll feel in a hot loop but shouldn't matter in normal code.\n Pick what's more important to you.\n \ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex f3925826..0c2da5ed 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -915,7 +915,7 @@ class _ClassBuilder:\n             \"\"\"\n             Automatically created by attrs.\n             \"\"\"\n-            __bound_setattr = _obj_setattr.__get__(self, Attribute)\n+            __bound_setattr = _obj_setattr.__get__(self)\n             for name, value in zip(state_attr_names, state):\n                 __bound_setattr(name, value)\n \n@@ -2007,6 +2007,7 @@ def _make_init(\n         cache_hash,\n         base_attr_map,\n         is_exc,\n+        needs_cached_setattr,\n         has_cls_on_setattr,\n         attrs_init,\n     )\n@@ -2019,7 +2020,7 @@ def _make_init(\n     if needs_cached_setattr:\n         # Save the lookup overhead in __init__ if we need to circumvent\n         # setattr hooks.\n-        globs[\"_setattr\"] = _obj_setattr\n+        globs[\"_cached_setattr_get\"] = _obj_setattr.__get__\n \n     init = _make_method(\n         \"__attrs_init__\" if attrs_init else \"__init__\",\n@@ -2036,7 +2037,7 @@ def _setattr(attr_name, value_var, has_on_setattr):\n     \"\"\"\n     Use the cached object.setattr to set *attr_name* to *value_var*.\n     \"\"\"\n-    return \"_setattr(self, '%s', %s)\" % (attr_name, value_var)\n+    return \"_setattr('%s', %s)\" % (attr_name, value_var)\n \n \n def _setattr_with_converter(attr_name, value_var, has_on_setattr):\n@@ -2044,7 +2045,7 @@ def _setattr_with_converter(attr_name, value_var, has_on_setattr):\n     Use the cached object.setattr to set *attr_name* to *value_var*, but run\n     its converter first.\n     \"\"\"\n-    return \"_setattr(self, '%s', %s(%s))\" % (\n+    return \"_setattr('%s', %s(%s))\" % (\n         attr_name,\n         _init_converter_pat % (attr_name,),\n         value_var,\n@@ -2086,6 +2087,7 @@ def _attrs_to_init_script(\n     cache_hash,\n     base_attr_map,\n     is_exc,\n+    needs_cached_setattr,\n     has_cls_on_setattr,\n     attrs_init,\n ):\n@@ -2101,6 +2103,14 @@ def _attrs_to_init_script(\n     if pre_init:\n         lines.append(\"self.__attrs_pre_init__()\")\n \n+    if needs_cached_setattr:\n+        lines.append(\n+            # Circumvent the __setattr__ descriptor to save one lookup per\n+            # assignment.\n+            # Note _setattr will be used again below if cache_hash is True\n+            \"_setattr = _cached_setattr_get(self)\"\n+        )\n+\n     if frozen is True:\n         if slots is True:\n             fmt_setter = _setattr\n@@ -2315,7 +2325,7 @@ def _attrs_to_init_script(\n         if frozen:\n             if slots:\n                 # if frozen and slots, then _setattr defined above\n-                init_hash_cache = \"_setattr(self, '%s', %s)\"\n+                init_hash_cache = \"_setattr('%s', %s)\"\n             else:\n                 # if frozen and not slots, then _inst_dict defined above\n                 init_hash_cache = \"_inst_dict['%s'] = %s\"\n@@ -2428,7 +2438,7 @@ class Attribute:\n         )\n \n         # Cache this descriptor here to speed things up later.\n-        bound_setattr = _obj_setattr.__get__(self, Attribute)\n+        bound_setattr = _obj_setattr.__get__(self)\n \n         # Despite the big red warning, people *do* instantiate `Attribute`\n         # themselves.\n@@ -2525,7 +2535,7 @@ class Attribute:\n         self._setattrs(zip(self.__slots__, state))\n \n     def _setattrs(self, name_values_pairs):\n-        bound_setattr = _obj_setattr.__get__(self, Attribute)\n+        bound_setattr = _obj_setattr.__get__(self)\n         for name, value in name_values_pairs:\n             if name != \"metadata\":\n                 bound_setattr(name, value)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "dc3179f9a1d4c120957c2ffa1efc0647ea0e55e473fe075656dd9b9caf15b7c3",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When creating frozen, slotted classes with many attributes, instantiation performance degrades compared to earlier versions, making it slower than expected as the number of attributes increases.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078580,
+    "id": "gen-1788078580-RppCGuWORUMrIxazcOHB",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 34,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00023321186,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.49304e-06,
+        "upstream_inference_cost": 0.00023321186,
+        "upstream_inference_prompt_cost": 0.00022771882
+      },
+      "is_byok": false,
+      "prompt_tokens": 2819,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2853
+    }
+  },
+  "schema_version": 1
+}

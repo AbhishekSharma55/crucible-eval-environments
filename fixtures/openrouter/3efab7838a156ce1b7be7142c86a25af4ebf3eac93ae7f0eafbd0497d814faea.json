@@ -1,0 +1,69 @@
+{
+  "latency_s": 17.747,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #4098:\nThe typings in Flask 2.0.1 require a function decorated with `@app.template_global()` to take no arguments. As far as I\u2019m aware, template globals certainly are supposed to take arguments (e.g. the [example in the API documentation](https://flask.palletsprojects.com/en/2.0.x/api/#flask.Flask.template_global) takes one argument), so I assume this is not intended. I think this specific issue was introduced with #4071, which applied the `TemplateGlobalCallable` type alias to that decorator; however, the `TemplateGlobalCallable` type itself is already an alias for `t.Callable[[], t.Any]` (i.e., take no arguments and return anything) in Flask 2.0.0. I haven\u2019t checked yet if `app.add_template_global()` is affected.\r\n\r\nExample code:\r\n\r\n```python\r\nimport flask\r\n\r\n\r\napp = flask.Flask(__name__)\r\n\r\n\r\n@app.template_global()\r\ndef identity(arg: str) -> str:\r\n    return arg\r\n```\r\n\r\n> app.py:7: error: Argument 1 has incompatible type \"Callable[[str], str]\"; expected \"Callable[[], Any]\"\r\n> Found 1 error in 1 file (checked 1 source file)\r\n\r\nSample repository: https://github.com/lucaswerkmeister/repro-flask-mypy-template_global\r\n\r\nSteps to reproduce:\r\n\r\n```sh\r\ngit clone https://github.com/lucaswerkmeister/repro-flask-mypy-template_global\r\nmake -C repro-flask-mypy-template_global\r\n```\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.9.5\r\n- Flask version: 2.0.1\r\n- Mypy version: 0.812\r\n\n\nPR title:\nFixed static typing bug where app.template_global() doesn't accept arguments #4098\n\nPR body:\nChecklist:\r\n\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\r\nFixes this issue mentioned in #4098 where static type checker like `mypy` would raise an error if a `function` decorated by `global template` methods/decorators like `app.template_global()` requires an argument. \r\n\r\nfixes #4098\r\n\n\nGold patch:\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 3e79b5cb..7920e5ab 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -8,6 +8,8 @@ Unreleased\n -   Fix type annotation for ``teardown_request``. :issue:`4093`\n -   Fix type annotation for ``before_request`` and ``before_app_request``\n     decorators. :issue:`4104`\n+-   Fixed the issue where typing requires template global\n+    decorators to accept functions with no arguments. :issue:`4098`\n \n \n Version 2.0.1\ndiff --git a/src/flask/typing.py b/src/flask/typing.py\nindex 8d89839f..b1a6cbdc 100644\n--- a/src/flask/typing.py\n+++ b/src/flask/typing.py\n@@ -40,8 +40,8 @@ BeforeRequestCallable = t.Callable[[], t.Optional[ResponseReturnValue]]\n ErrorHandlerCallable = t.Callable[[Exception], ResponseReturnValue]\n TeardownCallable = t.Callable[[t.Optional[BaseException]], None]\n TemplateContextProcessorCallable = t.Callable[[], t.Dict[str, t.Any]]\n-TemplateFilterCallable = t.Callable[[t.Any], str]\n-TemplateGlobalCallable = t.Callable[[], t.Any]\n-TemplateTestCallable = t.Callable[[t.Any], bool]\n+TemplateFilterCallable = t.Callable[..., t.Any]\n+TemplateGlobalCallable = t.Callable[..., t.Any]\n+TemplateTestCallable = t.Callable[..., bool]\n URLDefaultCallable = t.Callable[[str, dict], None]\n URLValuePreprocessorCallable = t.Callable[[t.Optional[str], t.Optional[dict]], None]\n\n\nRelevant source files at the broken parent:\n\n--- src/flask/typing.py ---\nimport typing as t\n\n\nif t.TYPE_CHECKING:\n    from _typeshed.wsgi import WSGIApplication  # noqa: F401\n    from werkzeug.datastructures import Headers  # noqa: F401\n    from .wrappers import Response  # noqa: F401\n\n# The possible types that are directly convertible or are a Response object.\nResponseValue = t.Union[\n    \"Response\",\n    t.AnyStr,\n    t.Dict[str, t.Any],  # any jsonify-able dict\n    t.Generator[t.AnyStr, None, None],\n]\nStatusCode = int\n\n# the possible types for an individual HTTP header\nHeaderName = str\nHeaderValue = t.Union[str, t.List[str], t.Tuple[str, ...]]\n\n# the possible types for HTTP headers\nHeadersValue = t.Union[\n    \"Headers\", t.Dict[HeaderName, HeaderValue], t.List[t.Tuple[HeaderName, HeaderValue]]\n]\n\n# The possible types returned by a route function.\nResponseReturnValue = t.Union[\n    ResponseValue,\n    t.Tuple[ResponseValue, HeadersValue],\n    t.Tuple[ResponseValue, StatusCode],\n    t.Tuple[ResponseValue, StatusCode, HeadersValue],\n    \"WSGIApplication\",\n]\n\nAppOrBlueprintKey = t.Optional[str]  # The App key is None, whereas blueprints are named\nAfterRequestCallable = t.Callable[[\"Response\"], \"Response\"]\nBeforeFirstRequestCallable = t.Callable[[], None]\nBeforeRequestCallable = t.Callable[[], t.Optional[ResponseReturnValue]]\nErrorHandlerCallable = t.Callable[[Exception], ResponseReturnValue]\nTeardownCallable = t.Callable[[t.Optional[BaseException]], None]\nTemplateContextProcessorCallable = t.Callable[[], t.Dict[str, t.Any]]\nTemplateFilterCallable = t.Callable[[t.Any], str]\nTemplateGlobalCallable = t.Callable[[], t.Any]\nTemplateTestCallable = t.Callable[[t.Any], bool]\nURLDefaultCallable = t.Callable[[str, dict], None]\nURLValuePreprocessorCallable = t.Callable[[t.Optional[str], t.Optional[dict]], None]\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "3efab7838a156ce1b7be7142c86a25af4ebf3eac93ae7f0eafbd0497d814faea",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_typing_template_globals.py\",\n  \"content\": \"import flask\\n\\ndef test_template_global_callable_with_args() -> None:\\n    app = flask.Flask(__name__)\\n\\n    @app.template_global()\\n    def identity(arg: str) -> str:\\n        return arg\\n\\n    with app.app_context():\\n        assert app.jinja_env.globals[\\\"identity\\\"](\\\"hello\\\") == \\\"hello\\\"\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788097812,
+    "id": "gen-1788097812-f5Z52t0tx8HJ4yyRkYYB",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 116,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001331526,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.9488e-05,
+        "upstream_inference_cost": 0.0001331526,
+        "upstream_inference_prompt_cost": 0.0001136646
+      },
+      "is_byok": false,
+      "prompt_tokens": 1674,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1790
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,272 @@
+{
+  "latency_s": 20.037,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: pallets/flask#4350\nRepository: pallets/flask\nBroken parent: c5ca175004f1a153aff914eb14404973be05fb9b\nFixed commit: 7b0c82dfdc867641dd6e1b200f735bffd66e4c12\n\nLinked issues:\nIssue #4349:\nFor large chunks of JSON data, the following snippet (in e.g. any post request) is very slow under pypy:\r\n```python\r\nrequest.get_json()\r\n```\r\nin fact it's 4x slower than doing\r\n```python\r\nimport json\r\njson.loads(request.get_data())\r\n```\r\n\r\n## Expected behaviour\r\n\r\nI would expect using the default `get_json` to be the happy path and be as fast as the in-built `json.loads`.\r\n\r\n## Underlying cause\r\n\r\nI tracked this down to the use of the custom `JSONDecoder` class here: https://github.com/pallets/flask/blob/main/src/flask/json/__init__.py#L53\r\nEssentially pypy has a fast-path for the default `json.loads` - and if you use a hand-rolled decoder class you don't get to use that fast path.\r\nNote that the `JSONDecoder` class does nothing except add some docstrings, but it's very hard for pypy to know that without some horrible introspection of the decoder class every time you call json.loads.\r\n\r\n## Possible fix\r\n\r\nOnly set a custom `cls=` in `flask.json.load(s)` if something other than the default is set on `app.json_decoder`.\r\n\r\n\r\n## Environment:\r\n\r\n- Python version: pypy3.7\r\n- Flask version: 2.0.2\r\n\n\nPull request title:\nOnly use a custom JSONDecoder if needed\n\nPull request body:\nThe default JSONDecoder adds no extra functionality to `json.loads`, but using a custom class takes you off of an optimized fast path in pypy (it adds some overhead in cpython, but I think it's minimal). This change sticks with the default loading behaviour unless the user has specifically opted in to customising it.\r\n\r\n- fixes #4349\r\n\r\nChecklist:\r\n\r\n- [ ] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [ ] Add or update relevant docs, in the docs folder and in code.\r\n- [ ] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [ ] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\r\nNotes:\r\n- I can update the above if the general outline of the fix is acceptable\r\n- Testing performance is hard: but I can add a test to ensure the correct args are passed to `json.loads` in all cases.\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 05609229..1af03f26 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -12,6 +12,9 @@ Unreleased\n -   Fix type annotation for ``errorhandler`` decorator. :issue:`4295`\n -   Revert a change to the CLI that caused it to hide ``ImportError``\n     tracebacks when importing the application. :issue:`4307`\n+-   ``app.json_encoder`` and ``json_decoder`` are only passed to\n+    ``dumps`` and ``loads`` if they have custom behavior. This improves\n+    performance, mainly on PyPy. :issue:`4349`\n \n \n Version 2.0.2\ndiff --git a/src/flask/json/__init__.py b/src/flask/json/__init__.py\nindex 10d5123a..ccb9efb1 100644\n--- a/src/flask/json/__init__.py\n+++ b/src/flask/json/__init__.py\n@@ -81,6 +81,11 @@ def _dump_arg_defaults(\n         if bp is not None and bp.json_encoder is not None:\n             cls = bp.json_encoder\n \n+        # Only set a custom encoder if it has custom behavior. This is\n+        # faster on PyPy.\n+        if cls is not _json.JSONEncoder:\n+            kwargs.setdefault(\"cls\", cls)\n+\n         kwargs.setdefault(\"cls\", cls)\n         kwargs.setdefault(\"ensure_ascii\", app.config[\"JSON_AS_ASCII\"])\n         kwargs.setdefault(\"sort_keys\", app.config[\"JSON_SORT_KEYS\"])\n@@ -102,9 +107,10 @@ def _load_arg_defaults(\n         if bp is not None and bp.json_decoder is not None:\n             cls = bp.json_decoder\n \n-        kwargs.setdefault(\"cls\", cls)\n-    else:\n-        kwargs.setdefault(\"cls\", JSONDecoder)\n+        # Only set a custom decoder if it has custom behavior. This is\n+        # faster on PyPy.\n+        if cls not in {JSONDecoder, _json.JSONDecoder}:\n+            kwargs.setdefault(\"cls\", cls)\n \n \n def dumps(obj: t.Any, app: t.Optional[\"Flask\"] = None, **kwargs: t.Any) -> str:\n\n\nChanged source paths:\n- src/flask/json/__init__.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "I'll start by examining the relevant test files and source code.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/flask/json/__init__.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_f81804b85bdc4e9f8bdc3c45",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/flask/json/__init__.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app = Flask(__name__)\\n   4 | app.config[\\\"DEBUG\\\"] = True\\n   5 | from blueprintapp.apps.admin import admin\\n   6 | from blueprintapp.apps.frontend import frontend\\n   7 | \\n   8 | app.register_blueprint(admin)\\n   9 | app.register_blueprint(frontend)\", \"path\": \"tests/test_apps/blueprintapp/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Blueprint\\n   2 | from flask import render_template\\n   3 | \\n   4 | admin = Blueprint(\\n   5 |     \\\"admin\\\",\\n   6 |     __name__,\\n   7 |     url_prefix=\\\"/admin\\\",\\n   8 |     template_folder=\\\"templates\\\",\\n   9 |     static_folder=\\\"static\\\",\\n  10 | )\\n  11 | \\n  12 | \\n  13 | @admin.route(\\\"/\\\")\\n  14 | def index():\\n  15 |     return render_template(\\\"admin/index.html\\\")\\n  16 | \\n  17 | \\n  18 | @admin.route(\\\"/index2\\\")\\n  19 | def index2():\\n  20 |     return render_template(\\\"./admin/index.html\\\")\", \"path\": \"tests/test_apps/blueprintapp/apps/admin/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Blueprint\\n   2 | from flask import render_template\\n   3 | \\n   4 | frontend = Blueprint(\\\"frontend\\\", __name__, template_folder=\\\"templates\\\")\\n   5 | \\n   6 | \\n   7 | @frontend.route(\\\"/\\\")\\n   8 | def index():\\n   9 |     return render_template(\\\"frontend/index.html\\\")\\n  10 | \\n  11 | \\n  12 | @frontend.route(\\\"/missing\\\")\\n  13 | def missing_template():\\n  14 |     return render_template(\\\"missing_template.html\\\")\", \"path\": \"tests/test_apps/blueprintapp/apps/frontend/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | application = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/inner2/flask.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Module\\n   2 | \\n   3 | \\n   4 | mod = Module(__name__, \\\"foo\\\", subdomain=\\\"foo\\\")\", \"path\": \"tests/test_apps/subdomaintestmodule/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import datetime\\n   2 | import decimal\\n   3 | import io\\n   4 | import uuid\\n   5 | \\n   6 | import pytest\\n   7 | from werkzeug.http import http_date\\n   8 | \\n   9 | import flask\\n  10 | from flask import json\\n  11 | \\n  12 | \\n  13 | @pytest.mark.parametrize(\\\"debug\\\", (True, False))\\n  14 | def test_bad_request_debug_message(app, client, debug):\\n  15 |     app.config[\\\"DEBUG\\\"] = debug\\n  16 |     app.config[\\\"TRAP_BAD_REQUEST_ERRORS\\\"] = False\\n  17 | \\n  18 |     @app.route(\\\"/json\\\", methods=[\\\"POST\\\"])\\n  19 |     def post_json():\\n  20 |         flask.request.get_json()\\n  21 |         return None\\n  22 | \\n  23 |     rv = client.post(\\\"/json\\\", data=None, content_type=\\\"application/json\\\")\\n  24 |     assert rv.status_code == 400\\n  25 |     contains = b\\\"Failed to decode JSON object\\\" in rv.data\\n  26 |     assert contains == debug\\n  27 | \\n  28 | \\n  29 | def test_json_bad_requests(app, client):\\n  30 |     @app.route(\\\"/json\\\", methods=[\\\"POST\\\"])\\n  31 |     def return_json():\\n  32 |         return flask.jsonify(foo=str(flask.request.get_json()))\\n  33 | \\n  34 |     rv = client.post(\\\"/json\\\", data=\\\"malformed\\\", content_type=\\\"application/json\\\")\\n  35 |     assert rv.status_code == 400\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_json.py', start, end) for another window]...\", \"path\": \"tests/test_json.py\", \"test_names\": [\"test_bad_request_debug_message\", \"test_json_bad_requests\", \"test_json_custom_mimetypes\", \"test_json_as_unicode\", \"test_json_dump_to_file\", \"test_jsonify_basic_types\", \"test_jsonify_dicts\", \"test_jsonify_arrays\", \"test_jsonify_datetime\", \"test_jsonify_aware_datetimes\", \"test_jsonify_uuid_types\", \"test_json_decimal\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from datetime import datetime\\n   2 | from datetime import timezone\\n   3 | from uuid import uuid4\\n   4 | \\n   5 | import pytest\\n   6 | \\n   7 | from flask import Markup\\n   8 | from flask.json.tag import JSONTag\\n   9 | from flask.json.tag import TaggedJSONSerializer\\n  10 | \\n  11 | \\n  12 | @pytest.mark.parametrize(\\n  13 |     \\\"data\\\",\\n  14 |     (\\n  15 |         {\\\" t\\\": (1, 2, 3)},\\n  16 |         {\\\" t__\\\": b\\\"a\\\"},\\n  17 |         {\\\" di\\\": \\\" di\\\"},\\n  18 |         {\\\"x\\\": (1, 2, 3), \\\"y\\\": 4},\\n  19 |         (1, 2, 3),\\n  20 |         [(1, 2, 3)],\\n  21 |         b\\\"\\\\xff\\\",\\n  22 |         Markup(\\\"<html>\\\"),\\n  23 |         uuid4(),\\n  24 |         datetime.now(tz=timezone.utc).replace(microsecond=0),\\n  25 |     ),\\n  26 | )\\n  27 | def test_dump_load_unchanged(data):\\n  28 |     s = TaggedJSONSerializer()\\n  29 |     assert s.loads(s.dumps(data)) == data\\n  30 | \\n  31 | \\n  32 | def test_duplicate_tag():\\n  33 |     class TagDict(JSONTag):\\n  34 |         key = \\\" d\\\"\\n  35 | \\n  36 |     s = TaggedJSONSerializer()\\n...[TRUNCATED; use read_file('tests/test_json_tag.py', start, end) for another window]...\", \"path\": \"tests/test_json_tag.py\", \"test_names\": [\"test_dump_load_unchanged\", \"test_duplicate_tag\", \"test_custom_tag\", \"test_tag_interface\", \"test_tag_order\"]}], \"total_test_python_files\": 44}",
+        "role": "tool",
+        "tool_call_id": "call_f81804b85bdc4e9f8bdc3c45"
+      },
+      {
+        "content": "Let me look at the existing test_json.py file and the source code to understand the conventions.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 80, \"path\": \"tests/test_json.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_d1ca313b34b8455aa171e5f3",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"end\": 120, \"path\": \"src/flask/json/__init__.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_87511f0c911d4b63a014e118",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | import datetime\\n   2 | import decimal\\n   3 | import io\\n   4 | import uuid\\n   5 | \\n   6 | import pytest\\n   7 | from werkzeug.http import http_date\\n   8 | \\n   9 | import flask\\n  10 | from flask import json\\n  11 | \\n  12 | \\n  13 | @pytest.mark.parametrize(\\\"debug\\\", (True, False))\\n  14 | def test_bad_request_debug_message(app, client, debug):\\n  15 |     app.config[\\\"DEBUG\\\"] = debug\\n  16 |     app.config[\\\"TRAP_BAD_REQUEST_ERRORS\\\"] = False\\n  17 | \\n  18 |     @app.route(\\\"/json\\\", methods=[\\\"POST\\\"])\\n  19 |     def post_json():\\n  20 |         flask.request.get_json()\\n  21 |         return None\\n  22 | \\n  23 |     rv = client.post(\\\"/json\\\", data=None, content_type=\\\"application/json\\\")\\n  24 |     assert rv.status_code == 400\\n  25 |     contains = b\\\"Failed to decode JSON object\\\" in rv.data\\n  26 |     assert contains == debug\\n  27 | \\n  28 | \\n  29 | def test_json_bad_requests(app, client):\\n  30 |     @app.route(\\\"/json\\\", methods=[\\\"POST\\\"])\\n  31 |     def return_json():\\n  32 |         return flask.jsonify(foo=str(flask.request.get_json()))\\n  33 | \\n  34 |     rv = client.post(\\\"/json\\\", data=\\\"malformed\\\", content_type=\\\"application/json\\\")\\n  35 |     assert rv.status_code == 400\\n  36 | \\n  37 | \\n  38 | def test_json_custom_mimetypes(app, client):\\n  39 |     @app.route(\\\"/json\\\", methods=[\\\"POST\\\"])\\n  40 |     def return_json():\\n  41 |         return flask.request.get_json()\\n  42 | \\n  43 |     rv = client.post(\\\"/json\\\", data='\\\"foo\\\"', content_type=\\\"application/x+json\\\")\\n  44 |     assert rv.data == b\\\"foo\\\"\\n  45 | \\n  46 | \\n  47 | @pytest.mark.parametrize(\\n  48 |     \\\"test_value,expected\\\", [(True, '\\\"\\\\\\\\u2603\\\"'), (False, '\\\"\\\\u2603\\\"')]\\n  49 | )\\n  50 | def test_json_as_unicode(test_value, expected, app, app_ctx):\\n  51 | \\n  52 |     app.config[\\\"JSON_AS_ASCII\\\"] = test_value\\n  53 |     rv = flask.json.dumps(\\\"\\\\N{SNOWMAN}\\\")\\n  54 |     assert rv == expected\\n  55 | \\n  56 | \\n  57 | def test_json_dump_to_file(app, app_ctx):\\n  58 |     test_data = {\\\"name\\\": \\\"Flask\\\"}\\n  59 |     out = io.StringIO()\\n  60 | \\n  61 |     flask.json.dump(test_data, out)\\n  62 |     out.seek(0)\\n  63 |     rv = flask.json.load(out)\\n  64 |     assert rv == test_data\\n  65 | \\n  66 | \\n  67 | @pytest.mark.parametrize(\\n  68 |     \\\"test_value\\\", [0, -1, 1, 23, 3.14, \\\"s\\\", \\\"longer string\\\", True, False, None]\\n  69 | )\\n  70 | def test_jsonify_basic_types(test_value, app, client):\\n  71 |     url = \\\"/jsonify_basic_types\\\"\\n  72 |     app.add_url_rule(url, url, lambda x=test_value: flask.jsonify(x))\\n  73 |     rv = client.get(url)\\n  74 |     assert rv.mimetype == \\\"application/json\\\"\\n  75 |     assert flask.json.loads(rv.data) == test_value\\n  76 | \\n  77 | \\n  78 | def test_jsonify_dicts(app, client):\\n  79 |     d = {\\n  80 |         \\\"a\\\": 0,\\n...[WINDOWED READ; 328 later lines omitted]...\", \"end\": 80, \"ok\": true, \"path\": \"tests/test_json.py\", \"start\": 1, \"total_lines\": 408}",
+        "role": "tool",
+        "tool_call_id": "call_d1ca313b34b8455aa171e5f3"
+      },
+      {
+        "content": "{\"content\": \"   1 | import decimal\\n   2 | import io\\n   3 | import json as _json\\n   4 | import typing as t\\n   5 | import uuid\\n   6 | import warnings\\n   7 | from datetime import date\\n   8 | \\n   9 | from jinja2.utils import htmlsafe_json_dumps as _jinja_htmlsafe_dumps\\n  10 | from werkzeug.http import http_date\\n  11 | \\n  12 | from ..globals import current_app\\n  13 | from ..globals import request\\n  14 | \\n  15 | if t.TYPE_CHECKING:\\n  16 |     from ..app import Flask\\n  17 |     from ..wrappers import Response\\n  18 | \\n  19 | try:\\n  20 |     import dataclasses\\n  21 | except ImportError:\\n  22 |     # Python < 3.7\\n  23 |     dataclasses = None  # type: ignore\\n  24 | \\n  25 | \\n  26 | class JSONEncoder(_json.JSONEncoder):\\n  27 |     \\\"\\\"\\\"The default JSON encoder. Handles extra types compared to the\\n  28 |     built-in :class:`json.JSONEncoder`.\\n  29 | \\n  30 |     -   :class:`datetime.datetime` and :class:`datetime.date` are\\n  31 |         serialized to :rfc:`822` strings. This is the same as the HTTP\\n  32 |         date format.\\n  33 |     -   :class:`uuid.UUID` is serialized to a string.\\n  34 |     -   :class:`dataclasses.dataclass` is passed to\\n  35 |         :func:`dataclasses.asdict`.\\n  36 |     -   :class:`~markupsafe.Markup` (or any object with a ``__html__``\\n  37 |         method) will call the ``__html__`` method to get a string.\\n  38 | \\n  39 |     Assign a subclass of this to :attr:`flask.Flask.json_encoder` or\\n  40 |     :attr:`flask.Blueprint.json_encoder` to override the default.\\n  41 |     \\\"\\\"\\\"\\n  42 | \\n  43 |     def default(self, o: t.Any) -> t.Any:\\n  44 |         \\\"\\\"\\\"Convert ``o`` to a JSON serializable type. See\\n  45 |         :meth:`json.JSONEncoder.default`. Python does not support\\n  46 |         overriding how basic types like ``str`` or ``list`` are\\n  47 |         serialized, they are handled before this method.\\n  48 |         \\\"\\\"\\\"\\n  49 |         if isinstance(o, date):\\n  50 |             return http_date(o)\\n  51 |         if isinstance(o, (decimal.Decimal, uuid.UUID)):\\n  52 |             return str(o)\\n  53 |         if dataclasses and dataclasses.is_dataclass(o):\\n  54 |             return dataclasses.asdict(o)\\n  55 |         if hasattr(o, \\\"__html__\\\"):\\n  56 |             return str(o.__html__())\\n  57 |         return super().default(o)\\n  58 | \\n  59 | \\n  60 | class JSONDecoder(_json.JSONDecoder):\\n  61 |     \\\"\\\"\\\"The default JSON decoder.\\n  62 | \\n  63 |     This does not change any behavior from the built-in\\n  64 |     :class:`json.JSONDecoder`.\\n  65 | \\n  66 |     Assign a subclass of this to :attr:`flask.Flask.json_decoder` or\\n  67 |     :attr:`flask.Blueprint.json_decoder` to override the default.\\n  68 |     \\\"\\\"\\\"\\n  69 | \\n  70 | \\n  71 | def _dump_arg_defaults(\\n  72 |     kwargs: t.Dict[str, t.Any], app: t.Optional[\\\"Flask\\\"] = None\\n  73 | ) -> None:\\n  74 |     \\\"\\\"\\\"Inject default arguments for dump functions.\\\"\\\"\\\"\\n  75 |     if app is None:\\n  76 |         app = current_app\\n  77 | \\n  78 |     if app:\\n  79 |         cls = app.json_encoder\\n  80 |         bp = app.blueprints.get(request.blueprint) if request else None  # type: ignore\\n  81 |         if bp is not None and bp.json_encoder is not None:\\n  82 |             cls = bp.json_encoder\\n  83 | \\n  84 |         kwargs.setdefault(\\\"cls\\\", cls)\\n  85 |         kwargs.setdefault(\\\"ensure_ascii\\\", app.config[\\\"JSON_AS_ASCII\\\"])\\n  86 |         kwargs.setdefault(\\\"sort_keys\\\", app.config[\\\"JSON_SORT_KEYS\\\"])\\n  87 |     else:\\n  88 |         kwargs.setdefault(\\\"sort_keys\\\", True)\\n  89 |         kwargs.setdefault(\\\"cls\\\", JSONEncoder)\\n  90 | \\n  91 | \\n  92 | def _load_arg_defaults(\\n  93 |     kwargs: t.Dict[str, t.Any], app: t.Optional[\\\"Flask\\\"] = None\\n  94 | ) -> None:\\n  95 |     \\\"\\\"\\\"Inject default arguments for load functions.\\\"\\\"\\\"\\n  96 |     if app is None:\\n  97 |         app = current_app\\n  98 | \\n  99 |     if app:\\n 100 |         cls = app.json_decoder\\n 101 |         bp = app.blueprints.get(request.blueprint) if request else None  # type: ignore\\n 102 |         if bp is not None and bp.json_decoder is not None:\\n 103 |             cls = bp.json_decoder\\n 104 | \\n 105 |         kwargs.setdefault(\\\"cls\\\", cls)\\n 106 |     else:\\n 107 |         kwargs.setdefault(\\\"cls\\\", JSONDecoder)\\n 108 | \\n 109 | \\n 110 | def dumps(obj: t.Any, app: t.Optional[\\\"Flask\\\"] = None, **kwargs: t.Any) -> str:\\n 111 |     \\\"\\\"\\\"Serialize an object to a string of JSON.\\n 112 | \\n 113 |     Takes the same arguments as the built-in :func:`json.dumps`, with\\n 114 |     some defaults from application configuration.\\n 115 | \\n 116 |     :param obj: Object to serialize to JSON.\\n 117 |     :param app: Use this app's config instead of the active app context\\n 118 |         or defaults.\\n 119 |     :param kwargs: Extra arguments passed to :func:`json.dumps`.\\n 120 | \\n...[WINDOWED READ; 237 later lines omitted]...\", \"end\": 120, \"ok\": true, \"path\": \"src/flask/json/__init__.py\", \"start\": 1, \"total_lines\": 357}",
+        "role": "tool",
+        "tool_call_id": "call_87511f0c911d4b63a014e118"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 484974104,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "4b573f2febe729ca78e2f0a36d2784bfc7fd382359761cacbdcbea0a4084ad2e",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Now let me see the fix side to understand what changed:\n\n",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"end\": 120, \"path\": \"tests/test_json.py\", \"start\": 80}",
+                "name": "read_file"
+              },
+              "id": "call_06cb9bd721e542faa60ef7c1",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788163054,
+    "id": "gen-1788163054-Hb2HXCUgPidZtcd6Hl9w",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 90,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000666405726,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.594908e-05,
+        "upstream_inference_cost": 0.000666405726,
+        "upstream_inference_prompt_cost": 0.000650456646
+      },
+      "is_byok": false,
+      "prompt_tokens": 7341,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 7431
+    }
+  },
+  "schema_version": 1
+}

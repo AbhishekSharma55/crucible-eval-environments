@@ -1,0 +1,69 @@
+{
+  "latency_s": 23.43,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #1902:\n```\r\nDeprecationWarning: The distutils package is deprecated and slated for removal in Python 3.12. \r\nUse setuptools or check PEP 632 for potential alternatives\r\n```\r\nhttps://github.com/marshmallow-code/marshmallow/blob/35225039900be03536cfde7abf121d11066e3183/src/marshmallow/__init__.py#L14\r\n\r\nEnvironment:\r\n- CPython 3.10.0\r\n- marshmallow 3.14.0\n\nPR title:\nfix: distutils deprecation warning in Python 3.10\n\nPR body:\nFixes: #1902\r\n\r\nThis fixes the distutils deprecation warning by using `packaging.version`\r\n\r\n```\r\nIn [4]: from packaging.version import Version\r\nIn [5]: Version(\"3.14.0\").release\r\nOut[5]: (3, 14, 0)\r\nIn [6]: from distutils.version import LooseVersion\r\nIn [7]: tuple(LooseVersion(\"3.14.0\").version)\r\nOut[7]: (3, 14, 0)\r\n````\n\nGold patch:\ndiff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 7161c0db..861a2324 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -166,3 +166,4 @@ Contributors (chronological)\n - `@yourun-proger <https://github.com/yourun-proger>`_\n - Ryan Morehart '@traherom <https://github.com/traherom>`_\n - Ben Windsor  '@bwindsor <https://github.com/bwindsor>`_\n+- Kevin Kirsche  '@kkirsche <https://github.com/kkirsche>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 3a5b1e24..99314ad4 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,12 @@\n Changelog\n ---------\n \n+3.15.0 (unreleased)\n+*******************\n+\n+* Address distutils deprecation warning in Python 3.10 (:pr:`1903`).\n+  Thanks :user:`kkirsche` for the PR.\n+\n 3.14.1 (2021-11-13)\n *******************\n \ndiff --git a/docs/install.rst b/docs/install.rst\nindex c4abce78..a7123c18 100644\n--- a/docs/install.rst\n+++ b/docs/install.rst\n@@ -3,7 +3,7 @@\n Installation\n ============\n \n-**marshmallow** requires Python >= 3.6. It has no external dependencies.\n+**marshmallow** requires Python >= 3.6. It has no external dependencies other than the `packaging` library.\n \n Installing/Upgrading from the PyPI\n ----------------------------------\ndiff --git a/setup.py b/setup.py\nindex 18e15032..4837cb9d 100644\n--- a/setup.py\n+++ b/setup.py\n@@ -58,6 +58,7 @@ setup(\n     package_dir={\"\": \"src\"},\n     package_data={\"marshmallow\": [\"py.typed\"]},\n     include_package_data=True,\n+    install_requires=[\"packaging\"],\n     extras_require=EXTRAS_REQUIRE,\n     license=\"MIT\",\n     zip_safe=False,\ndiff --git a/src/marshmallow/__init__.py b/src/marshmallow/__init__.py\nindex ad0bea65..d54102e7 100644\n--- a/src/marshmallow/__init__.py\n+++ b/src/marshmallow/__init__.py\n@@ -11,10 +11,13 @@ from marshmallow.decorators import (\n )\n from marshmallow.utils import EXCLUDE, INCLUDE, RAISE, pprint, missing\n from marshmallow.exceptions import ValidationError\n-from distutils.version import LooseVersion\n+from packaging.version import Version\n \n __version__ = \"3.14.1\"\n-__version_info__ = tuple(LooseVersion(__version__).version)\n+__parsed_version__ = Version(__version__)\n+__version_info__ = __parsed_version__.release\n+if __parsed_version__.pre:\n+    __version_info__ += __parsed_version__.pre\n __all__ = [\n     \"EXCLUDE\",\n     \"INCLUDE\",\n\n\nRelevant source files at the broken parent:\n\n--- setup.py ---\nimport re\nfrom setuptools import setup, find_packages\n\nEXTRAS_REQUIRE = {\n    \"tests\": [\"pytest\", \"pytz\", \"simplejson\"],\n    \"lint\": [\n        \"mypy==0.910\",\n        \"flake8==4.0.1\",\n        \"flake8-bugbear==21.9.2\",\n        \"pre-commit~=2.4\",\n    ],\n    \"docs\": [\n        \"sphinx==4.3.0\",\n        \"sphinx-issues==1.2.0\",\n        \"alabaster==0.7.12\",\n        \"sphinx-version-warning==1.1.2\",\n        \"autodocsumm==0.2.7\",\n    ],\n}\nEXTRAS_REQUIRE[\"dev\"] = EXTRAS_REQUIRE[\"tests\"] + EXTRAS_REQUIRE[\"lint\"] + [\"tox\"]\n\n\ndef find_version(fname):\n    \"\"\"Attempts to find the version number in the file names fname.\n    Raises RuntimeError if not found.\n    \"\"\"\n    version = \"\"\n    with open(fname) as fp:\n        reg = re.compile(r'__version__ = [\\'\"]([^\\'\"]*)[\\'\"]')\n        for line in fp:\n            m = reg.match(line)\n            if m:\n                version = m.group(1)\n                break\n    if not version:\n        raise RuntimeError(\"Cannot find version information\")\n    return version\n\n\ndef read(fname):\n    with open(fname) as fp:\n        content = fp.read()\n    return content\n\n\nsetup(\n    name=\"marshmallow\",\n    version=find_version(\"src/marshmallow/__init__.py\"),\n    description=(\n        \"A lightweight library for converting complex \"\n        \"datatypes to and from native Python datatypes.\"\n    ),\n    long_description=read(\"README.rst\"),\n    author=\"Steven Loria\",\n    author_email=\"sloria1@gmail.com\",\n    url=\"https://github.com/marshmallow-code/marshmallow\",\n    packages=find_packages(\"src\", exclude=(\"test*\", \"examples\")),\n    package_dir={\"\": \"src\"},\n    package_data={\"marshmallow\": [\"py.typed\"]},\n    include_package_data=True,\n    extras_require=EXTRAS_REQUIRE,\n    license=\"MIT\",\n    zip_safe=False,\n    keywords=[\n        \"serialization\",\n        \"rest\",\n        \"json\",\n        \"api\",\n        \"marshal\",\n        \"marshalling\",\n        \"deserialization\",\n        \"validation\",\n        \"schema\",\n    ],\n    python_requires=\">=3.6\",\n    classifiers=[\n        \"Development Status :: 5 - Production/Stable\",\n        \"Intended Audience :: Developers\",\n        \"License :: OSI Approved :: MIT License\",\n        \"Programming Language :: Python :: 3\",\n        \"Programming Language :: Python :: 3.6\",\n        \"Programming Language :: Python :: 3.7\",\n        \"Programming Language :: Python :: 3.8\",\n        \"Programming Language :: Python :: 3.9\",\n        \"Programming Language :: Python :: 3.10\",\n    ],\n    test_suite=\"tests\",\n    project_urls={\n        \"Changelog\": \"https://marshmallow.readthedocs.io/en/latest/changelog.html\",\n        \"Issues\": \"https://github.com/marshmallow-code/marshmallow/issues\",\n        \"Funding\": \"https://opencollective.com/marshmallow\",\n        \"Tidelift\": \"https://tidelift.com/subscription/pkg/pypi-marshmallow?utm_source=pypi-marshmallow&utm_medium=pypi\",  # noqa\n    },\n)\n\n--- src/marshmallow/__init__.py ---\nfrom marshmallow.schema import Schema, SchemaOpts\n\nfrom . import fields\nfrom marshmallow.decorators import (\n    pre_dump,\n    post_dump,\n    pre_load,\n    post_load,\n    validates,\n    validates_schema,\n)\nfrom marshmallow.utils import EXCLUDE, INCLUDE, RAISE, pprint, missing\nfrom marshmallow.exceptions import ValidationError\nfrom distutils.version import LooseVersion\n\n__version__ = \"3.14.1\"\n__version_info__ = tuple(LooseVersion(__version__).version)\n__all__ = [\n    \"EXCLUDE\",\n    \"INCLUDE\",\n    \"RAISE\",\n    \"Schema\",\n    \"SchemaOpts\",\n    \"fields\",\n    \"validates\",\n    \"validates_schema\",\n    \"pre_dump\",\n    \"post_dump\",\n    \"pre_load\",\n    \"post_load\",\n    \"pprint\",\n    \"ValidationError\",\n    \"missing\",\n]\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.5
+  },
+  "request_hash": "fb6650b5374ed4d0ec66262627701239f00134f88abdcc1dc80c0e5f0a98b29d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_version_info.py\",\n  \"content\": \"import sys\\nfrom marshmallow import __version__, __version_info__\\n\\n\\ndef test_version_info_type():\\n    assert isinstance(__version_info__, tuple)\\n    assert all(isinstance(part, int) for part in __version_info__)\\n\\n\\ndef test_version_info_matches_version():\\n    major, minor, patch = __version_info__[:3]\\n    assert f\\\"{major}.{minor}.{patch}\\\" == __version__\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788098681,
+    "id": "gen-1788098681-Tbu21HY3EJJ4wkNkXBNk",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 123,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001710625,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.0664e-05,
+        "upstream_inference_cost": 0.0001710625,
+        "upstream_inference_prompt_cost": 0.0001503985
+      },
+      "is_byok": false,
+      "prompt_tokens": 2215,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2338
+    }
+  },
+  "schema_version": 1
+}

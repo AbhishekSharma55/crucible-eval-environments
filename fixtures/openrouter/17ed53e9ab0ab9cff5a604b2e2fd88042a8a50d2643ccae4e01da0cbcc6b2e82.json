@@ -1,0 +1,69 @@
+{
+  "latency_s": 66.023,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #228:\nGiven the level of flexibility of this library, and a slightly elaborate context which I am using it in, it is desirable to be able to write an integration test where the concepts of 'time' (i.e. `time.monotonic`) and 'sleep' (i.e. `tenacity.nap.sleep`) are mocked out so that we can simulate in full fidelity how a retry scenario plays out, without having to actually sleep.\r\n\r\nUsing the [testfixtures](https://github.com/Simplistix/testfixtures) library and `mock.patch` I'm mocking out 'time' with an object that always returns the same 'virtual' time, and 'sleep' with a function that advances this 'virtual' time.\r\n\r\nThis approach works pretty well, save for one complication...\r\n\r\nSince the signature of `BaseRetrying.__init__()` defaults the `sleep` argument to `tenacity.nap.sleep` this default is bound at import time, making it hard to mock out the sleep function after the fact.\r\n\r\nOptions I can think of:\r\n1. Reach in to the method signature and mock out the default value - seems a bit messy.\r\n2. Pass in a sleep function in the code under test, then mock this out in the test - I don't like this because it involves modifying production code simply for the sake of the test, and also makes this mocking strategy less portable if I want to use it in other tests (because now I need to mock out sleep at my callsite, rather than inside tenacity).\r\n3. Make a change to the signature of `BaseRetrying.__init__()` to default `sleep` to `None`, and then default this to `nap.sleep` inside the method: `self.sleep = sleep or nap.sleep`.\r\n\r\nOption 3 seems the neatest, because now I can just mock out `tenacity.nap.sleep` which is the most intuitive approach, but it does involve a change to the library which is why I wanted to solicit input first before preparing a PR.\r\n\r\nThoughts?\r\n\r\n\r\n\r\n\n\nPR title:\nReplace nap.sleep with a method to allow mocking after import\n\nPR body:\nFixes #228\n\nGold patch:\ndiff --git a/releasenotes/notes/allow-mocking-of-nap-sleep-6679c50e702446f1.yaml b/releasenotes/notes/allow-mocking-of-nap-sleep-6679c50e702446f1.yaml\nnew file mode 100644\nindex 0000000..0a996e4\n--- /dev/null\n+++ b/releasenotes/notes/allow-mocking-of-nap-sleep-6679c50e702446f1.yaml\n@@ -0,0 +1,3 @@\n+---\n+other:\n+  - Unit tests can now mock ``nap.sleep()`` for testing in all tenacity usage styles\n\\ No newline at end of file\ndiff --git a/tenacity/nap.py b/tenacity/nap.py\nindex e5bd8dc..83ff839 100644\n--- a/tenacity/nap.py\n+++ b/tenacity/nap.py\n@@ -18,8 +18,14 @@\n \n import time\n \n-#: Default sleep strategy.\n-sleep = time.sleep\n+\n+def sleep(seconds):\n+    \"\"\"\n+    Sleep strategy that delays execution for a given number of seconds.\n+\n+    This is the default strategy, and may be mocked out for unit testing.\n+    \"\"\"\n+    time.sleep(seconds)\n \n \n class sleep_using_event(object):\ndiff --git a/tenacity/tests/test_tenacity.py b/tenacity/tests/test_tenacity.py\nindex 673541c..223b19a 100644\n--- a/tenacity/tests/test_tenacity.py\n+++ b/tenacity/tests/test_tenacity.py\n@@ -1565,5 +1565,50 @@ def reports_deprecation_warning():\n         warnings.filters = oldfilters\n \n \n+class TestMockingSleep():\n+    RETRY_ARGS = dict(\n+        wait=tenacity.wait_fixed(0.1),\n+        stop=tenacity.stop_after_attempt(5),\n+    )\n+\n+    def _fail(self):\n+        raise NotImplementedError()\n+\n+    @retry(**RETRY_ARGS)\n+    def _decorated_fail(self):\n+        self._fail()\n+\n+    @pytest.fixture()\n+    def mock_sleep(self, monkeypatch):\n+        class MockSleep(object):\n+            call_count = 0\n+\n+            def __call__(self, seconds):\n+                self.call_count += 1\n+\n+        sleep = MockSleep()\n+        monkeypatch.setattr(tenacity.nap.time, \"sleep\", sleep)\n+        yield sleep\n+\n+    def test_call(self, mock_sleep):\n+        retrying = Retrying(**self.RETRY_ARGS)\n+        with pytest.raises(RetryError):\n+            retrying.call(self._fail)\n+        assert mock_sleep.call_count == 4\n+\n+    def test_decorated(self, mock_sleep):\n+        with pytest.raises(RetryError):\n+            self._decorated_fail()\n+        assert mock_sleep.call_count == 4\n+\n+    def test_decorated_retry_with(self, mock_sleep):\n+        fail_faster = self._decorated_fail.retry_with(\n+            stop=tenacity.stop_after_attempt(2),\n+        )\n+        with pytest.raises(RetryError):\n+            fail_faster()\n+        assert mock_sleep.call_count == 1\n+\n+\n if __name__ == '__main__':\n     unittest.main()\n\n\nRelevant source files at the broken parent:\n\n--- tenacity/nap.py ---\n# -*- coding: utf-8 -*-\n# Copyright 2016 \u00c9tienne Bersac\n# Copyright 2016 Julien Danjou\n# Copyright 2016 Joshua Harlow\n# Copyright 2013-2014 Ray Holder\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n# http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n\nimport time\n\n#: Default sleep strategy.\nsleep = time.sleep\n\n\nclass sleep_using_event(object):\n    \"\"\"Sleep strategy that waits on an event to be set.\"\"\"\n\n    def __init__(self, event):\n        self.event = event\n\n    def __call__(self, timeout):\n        # NOTE(harlowja): this may *not* actually wait for timeout\n        # seconds if the event is set (ie this may eject out early).\n        self.event.wait(timeout=timeout)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "17ed53e9ab0ab9cff5a604b2e2fd88042a8a50d2643ccae4e01da0cbcc6b2e82",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_mock_sleep.py\",\n  \"content\": \"import tenacity\\nimport pytest\\nfrom tenacity import Retrying, RetryError, retry\\n\\nclass TestMockSleep:\\n    RETRY_ARGS = dict(\\n        wait=tenacity.wait_fixed(0.1),\\n        stop=tenacity.stop_after_attempt(5),\\n    )\\n\\n    def _fail(self):\\n        raise NotImplementedError()\\n\\n    @retry(**RETRY_ARGS)\\n    def _decorated_fail(self):\\n        self._fail()\\n\\n    @pytest.fixture()\\n    def mock_sleep(self, monkeypatch):\\n        class MockSleep(object):\\n            call_count = 0\\n\\n            def __call__(self, seconds):\\n                self.call_count += 1\\n\\n        sleep = MockSleep()\\n        monkeypatch.setattr(tenacity.nap.time, \\\"sleep\\\", sleep)\\n        yield sleep\\n\\n    def test_call(self, mock_sleep):\\n        retrying = Retrying(**self.RETRY_ARGS)\\n        with pytest.raises(RetryError):\\n            retrying.call(self._fail)\\n        assert mock_sleep.call_count == 4\\n\\n    def test_decorated(self, mock_sleep):\\n        with pytest.raises(RetryError):\\n            self._decorated_fail()\\n        assert mock_sleep.call_count == 4\\n\\n    def test_decorated_retry_with(self, mock_sleep):\\n        fail_faster = self._decorated_fail.retry_with(\\n            stop=tenacity.stop_after_attempt(2),\\n        )\\n        with pytest.raises(RetryError):\\n            fail_faster()\\n        assert mock_sleep.call_count == 1\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788097536,
+    "id": "gen-1788097536-mKBZOkJKcUhYurLIqVtS",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 422,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001855791,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.0896e-05,
+        "upstream_inference_cost": 0.0001855791,
+        "upstream_inference_prompt_cost": 0.0001146831
+      },
+      "is_byok": false,
+      "prompt_tokens": 1689,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2111
+    }
+  },
+  "schema_version": 1
+}

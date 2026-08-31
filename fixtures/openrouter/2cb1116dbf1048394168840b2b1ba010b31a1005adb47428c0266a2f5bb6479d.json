@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.774,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nrefactor stream_with_context for async views\n\nPR body:\nStore the app context as well as the request context when creating the generator. This prevents the request context from automatically creating and pushing a different app context. Then push the app context first, and push them only when iteration starts, not during setup. This prevents the request context from automatically popping the app context, and avoids associating the internal ContextVar with the temporary event loop in async views.\r\n\r\nfixes #5774\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex a5761bc2..b8625dc1 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -3,6 +3,7 @@ Version 3.1.2\n \n Unreleased\n \n+-   ``stream_with_context`` does not fail inside async views. :issue:`5774`\n -   When using ``follow_redirects`` in the test client, the final state\n     of ``session`` is correct. :issue:`5786`\n -   Relax type hint for passing bytes IO to ``send_file``. :issue:`5776`\ndiff --git a/src/flask/helpers.py b/src/flask/helpers.py\nindex 081548a9..5d412c90 100644\n--- a/src/flask/helpers.py\n+++ b/src/flask/helpers.py\n@@ -13,6 +13,7 @@ from werkzeug.exceptions import abort as _wz_abort\n from werkzeug.utils import redirect as _wz_redirect\n from werkzeug.wrappers import Response as BaseResponse\n \n+from .globals import _cv_app\n from .globals import _cv_request\n from .globals import current_app\n from .globals import request\n@@ -62,35 +63,40 @@ def stream_with_context(\n def stream_with_context(\n     generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]],\n ) -> t.Iterator[t.AnyStr] | t.Callable[[t.Iterator[t.AnyStr]], t.Iterator[t.AnyStr]]:\n-    \"\"\"Request contexts disappear when the response is started on the server.\n-    This is done for efficiency reasons and to make it less likely to encounter\n-    memory leaks with badly written WSGI middlewares.  The downside is that if\n-    you are using streamed responses, the generator cannot access request bound\n-    information any more.\n+    \"\"\"Wrap a response generator function so that it runs inside the current\n+    request context. This keeps :data:`request`, :data:`session`, and :data:`g`\n+    available, even though at the point the generator runs the request context\n+    will typically have ended.\n \n-    This function however can help you keep the context around for longer::\n+    Use it as a decorator on a generator function:\n+\n+    .. code-block:: python\n \n         from flask import stream_with_context, request, Response\n \n-        @app.route('/stream')\n+        @app.get(\"/stream\")\n         def streamed_response():\n             @stream_with_context\n             def generate():\n-                yield 'Hello '\n-                yield request.args['name']\n-                yield '!'\n+                yield \"Hello \"\n+                yield request.args[\"name\"]\n+                yield \"!\"\n+\n             return Response(generate())\n \n-    Alternatively it can also be used around a specific generator::\n+    Or use it as a wrapper around a created generator:\n+\n+    .. code-block:: python\n \n         from flask import stream_with_context, request, Response\n \n-        @app.route('/stream')\n+        @app.get(\"/stream\")\n         def streamed_response():\n             def generate():\n-                yield 'Hello '\n-                yield request.args['name']\n-                yield '!'\n+                yield \"Hello \"\n+                yield request.args[\"name\"]\n+                yield \"!\"\n+\n             return Response(stream_with_context(generate()))\n \n     .. versionadded:: 0.9\n@@ -105,35 +111,36 @@ def stream_with_context(\n \n         return update_wrapper(decorator, generator_or_function)  # type: ignore[arg-type]\n \n-    def generator() -> t.Iterator[t.AnyStr | None]:\n-        ctx = _cv_request.get(None)\n-        if ctx is None:\n+    def generator() -> t.Iterator[t.AnyStr]:\n+        if (req_ctx := _cv_request.get(None)) is None:\n             raise RuntimeError(\n                 \"'stream_with_context' can only be used when a request\"\n                 \" context is active, such as in a view function.\"\n             )\n-        with ctx:\n-            # Dummy sentinel.  Has to be inside the context block or we're\n-            # not actually keeping the context around.\n-            yield None\n-\n-            # The try/finally is here so that if someone passes a WSGI level\n-            # iterator in we're still running the cleanup logic.  Generators\n-            # don't need that because they are closed on their destruction\n-            # automatically.\n+\n+        app_ctx = _cv_app.get()\n+        # Setup code below will run the generator to this point, so that the\n+        # current contexts are recorded. The contexts must be pushed after,\n+        # otherwise their ContextVar will record the wrong event loop during\n+        # async view functions.\n+        yield None  # type: ignore[misc]\n+\n+        # Push the app context first, so that the request context does not\n+        # automatically create and push a different app context.\n+        with app_ctx, req_ctx:\n             try:\n                 yield from gen\n             finally:\n+                # Clean up in case the user wrapped a WSGI iterator.\n                 if hasattr(gen, \"close\"):\n                     gen.close()\n \n-    # The trick is to start the generator.  Then the code execution runs until\n-    # the first dummy None is yielded at which point the context was already\n-    # pushed.  This item is discarded.  Then when the iteration continues the\n-    # real generator is executed.\n+    # Execute the generator to the sentinel value. This ensures the context is\n+    # preserved in the generator's state. Further iteration will push the\n+    # context and yield from the original iterator.\n     wrapped_g = generator()\n     next(wrapped_g)\n-    return wrapped_g  # type: ignore[return-value]\n+    return wrapped_g\n \n \n def make_response(*args: t.Any) -> Response:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "2cb1116dbf1048394168840b2b1ba010b31a1005adb47428c0266a2f5bb6479d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "`stream_with_context` raises an error when used inside an async view function.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078549,
+    "id": "gen-1788078549-vlTl2OOLTae5d5RQCPUF",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "GMICloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 16,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00017248,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.584e-06,
+        "upstream_inference_cost": 0.00017248,
+        "upstream_inference_prompt_cost": 0.000168896
+      },
+      "is_byok": false,
+      "prompt_tokens": 1508,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1524
+    }
+  },
+  "schema_version": 1
+}

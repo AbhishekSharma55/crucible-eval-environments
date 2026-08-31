@@ -1,0 +1,542 @@
+{
+  "latency_s": 2.457,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: jd/tenacity#555\nRepository: jd/tenacity\nBroken parent: 24415ebbca6ecafdf870af06441656dd96149d1d\nFixed commit: d4e868d6b8368c00b5a1fad54de36c2c8c3a0fb3\n\nLinked issues:\nIssue #553:\nSince tenacity 9.1.3, the following program (reduced from real code) fails to type-check:\n\n```python\nimport asyncio\n\nimport tenacity\n\n\nasync def _tenacity_sleep(delay: float) -> None:\n    await asyncio.sleep(delay)\n\n\n@tenacity.retry(sleep=_tenacity_sleep)\nasync def do_wait_for_messages() -> None:\n    pass\n```\n\n```console\n$ mypy --strict t.py\nt.py:10: error: Argument 1 has incompatible type \"Callable[[], Coroutine[Any, Any, None]]\"; expected \"Callable[[], Awaitable[Never]]\"  [arg-type]\nFound 1 error in 1 file (checked 1 source file)\n```\n\nThe corresponding sync variant still type-checks fine.\n\nI assume this has something to do with the new return type annotation in the async overload variant introduced by #551, but I haven't quite been able to puzzle it out.  Maybe @Zac-HD can help, since this was their change?\n\nPull request title:\nFix `retry()` annotations with async `sleep=` function\n\nPull request body:\nCloses https://github.com/jd/tenacity/issues/553.\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/releasenotes/notes/fix-async-retry-type-overloads-27f3e0c239ed6b.yaml b/releasenotes/notes/fix-async-retry-type-overloads-27f3e0c239ed6b.yaml\nnew file mode 100644\nindex 0000000..c512766\n--- /dev/null\n+++ b/releasenotes/notes/fix-async-retry-type-overloads-27f3e0c239ed6b.yaml\n@@ -0,0 +1,9 @@\n+---\n+fixes:\n+  - |\n+    The ``@retry`` decorator's type overloads for the ``sleep=`` parameter\n+    (e.g. ``sleep=trio.sleep``) have been improved. Previously, the\n+    async-sleep overload used ``R | Awaitable[R]`` as the return type\n+    bound, which was ambiguous: for ``async def f() -> T``, pyright could\n+    infer ``R = Coroutine[Any, Any, T]`` instead of ``R = T``, producing\n+    false-positive type errors in downstream code.\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex e734d6f..0410031 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -20,6 +20,7 @@ import functools\n import sys\n import threading\n import time\n+import types\n import typing as t\n import warnings\n from abc import ABC, abstractmethod\n@@ -87,8 +88,6 @@ except ImportError:\n     tornado = None\n \n if t.TYPE_CHECKING:\n-    import types\n-\n     from typing_extensions import Self\n \n     from . import asyncio as tasyncio\n@@ -585,6 +584,23 @@ class RetryCallState:\n         return f\"<{clsname} {id(self)}: attempt #{self.attempt_number}; slept for {slept}; last result: {result}>\"\n \n \n+class _AsyncRetryDecorator(t.Protocol):\n+    @t.overload\n+    def __call__(\n+        self, fn: \"t.Callable[P, types.CoroutineType[t.Any, t.Any, R]]\"\n+    ) -> \"t.Callable[P, types.CoroutineType[t.Any, t.Any, R]]\": ...\n+    @t.overload\n+    def __call__(\n+        self, fn: t.Callable[P, t.Coroutine[t.Any, t.Any, R]]\n+    ) -> t.Callable[P, t.Coroutine[t.Any, t.Any, R]]: ...\n+    @t.overload\n+    def __call__(\n+        self, fn: t.Callable[P, t.Awaitable[R]]\n+    ) -> t.Callable[P, t.Awaitable[R]]: ...\n+    @t.overload\n+    def __call__(self, fn: t.Callable[P, R]) -> t.Callable[P, t.Awaitable[R]]: ...\n+\n+\n @t.overload\n def retry(func: WrappedFn) -> WrappedFn: ...\n \n@@ -606,7 +622,7 @@ def retry(\n     retry_error_callback: t.Optional[\n         t.Callable[[\"RetryCallState\"], t.Union[t.Any, t.Awaitable[t.Any]]]\n     ] = ...,\n-) -> t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]: ...\n+) -> _AsyncRetryDecorator: ...\n \n \n @t.overload\n\n\nChanged source paths:\n- tenacity/__init__.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by exploring the repository structure and existing tests.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"tenacity/__init__.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_b255c65aad9f433182c9b08c",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"tenacity/__init__.py\", \"ranked_test_files\": [{\"fixtures\": [\"mock_sleep\"], \"opening_excerpt\": \"   1 | # mypy: disable_error_code=\\\"no-untyped-def,no-untyped-call,attr-defined,arg-type,no-any-return,list-item,var-annotated,import,call-overload\\\"\\n   2 | # Copyright 2016\\u20132021 Julien Danjou\\n   3 | # Copyright 2016 Joshua Harlow\\n   4 | # Copyright 2013 Ray Holder\\n   5 | #\\n   6 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   7 | # you may not use this file except in compliance with the License.\\n   8 | # You may obtain a copy of the License at\\n   9 | #\\n  10 | # http://www.apache.org/licenses/LICENSE-2.0\\n  11 | #\\n  12 | # Unless required by applicable law or agreed to in writing, software\\n  13 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  14 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  15 | # See the License for the specific language governing permissions and\\n  16 | # limitations under the License.\\n  17 | import datetime\\n  18 | import logging\\n  19 | import re\\n  20 | import time\\n  21 | import typing\\n  22 | import unittest\\n  23 | import warnings\\n  24 | from contextlib import contextmanager\\n  25 | from copy import copy\\n  26 | from fractions import Fraction\\n  27 | from unittest import mock\\n  28 | \\n  29 | import pytest\\n  30 | from typeguard import check_type\\n  31 | \\n  32 | import tenacity\\n  33 | from tenacity import RetryCallState, RetryError, Retrying, retry\\n  34 | \\n  35 | _unset = object()\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_tenacity.py', start, end) for another window]...\", \"path\": \"tests/test_tenacity.py\", \"test_names\": [\"test_retrying_repr\", \"test_callstate_repr\", \"test_never_stop\", \"test_stop_any\", \"test_stop_all\", \"test_stop_or\", \"test_stop_and\", \"test_stop_after_attempt\", \"test_stop_after_delay\", \"test_stop_before_delay\", \"test_legacy_explicit_stop_type\", \"test_stop_func_with_retry_state\"]}, {\"fixtures\": [], \"opening_excerpt\": \"\", \"path\": \"tests/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\\n   2 | import logging\\n   3 | import random\\n   4 | import unittest.mock\\n   5 | \\n   6 | from tenacity import _utils  # noqa\\n   7 | from tenacity import after_log\\n   8 | \\n   9 | from . import test_tenacity\\n  10 | \\n  11 | \\n  12 | class TestAfterLogFormat(unittest.TestCase):\\n  13 |     def setUp(self) -> None:\\n  14 |         self.log_level = random.choice(\\n  15 |             (\\n  16 |                 logging.DEBUG,\\n  17 |                 logging.INFO,\\n  18 |                 logging.WARNING,\\n  19 |                 logging.ERROR,\\n  20 |                 logging.CRITICAL,\\n  21 |             )\\n  22 |         )\\n  23 |         self.previous_attempt_number = random.randint(1, 512)\\n  24 | \\n  25 |     def test_01_default(self):\\n  26 |         \\\"\\\"\\\"Test log formatting.\\\"\\\"\\\"\\n  27 |         log = unittest.mock.MagicMock(spec=\\\"logging.Logger.log\\\")\\n  28 |         logger = unittest.mock.MagicMock(spec=\\\"logging.Logger\\\", log=log)\\n  29 | \\n  30 |         sec_format = \\\"%.3g\\\"\\n  31 |         delay_since_first_attempt = 0.1\\n  32 | \\n  33 |         retry_state = test_tenacity.make_retry_state(\\n  34 |             self.previous_attempt_number, delay_since_first_attempt\\n  35 |         )\\n  36 |         fun = after_log(\\n...[TRUNCATED; use read_file('tests/test_after.py', start, end) for another window]...\", \"path\": \"tests/test_after.py\", \"test_names\": [\"test_01_default\", \"test_02_custom_sec_format\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\\n   2 | # Copyright 2016 \\u00c9tienne Bersac\\n   3 | #\\n   4 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   5 | # you may not use this file except in compliance with the License.\\n   6 | # You may obtain a copy of the License at\\n   7 | #\\n   8 | # http://www.apache.org/licenses/LICENSE-2.0\\n   9 | #\\n  10 | # Unless required by applicable law or agreed to in writing, software\\n  11 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  12 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  13 | # See the License for the specific language governing permissions and\\n  14 | # limitations under the License.\\n  15 | \\n  16 | import asyncio\\n  17 | import inspect\\n  18 | import unittest\\n  19 | from functools import wraps\\n  20 | from unittest import mock\\n  21 | \\n  22 | try:\\n  23 |     import trio\\n  24 | except ImportError:\\n  25 |     have_trio = False\\n  26 | else:\\n  27 |     have_trio = True\\n  28 | \\n  29 | import pytest\\n  30 | \\n  31 | import tenacity\\n  32 | from tenacity import AsyncRetrying, RetryError\\n  33 | from tenacity import asyncio as tasyncio\\n  34 | from tenacity import retry, retry_if_exception, retry_if_result, stop_after_attempt\\n  35 | from tenacity.wait import wait_fixed\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_asyncio.py', start, end) for another window]...\", \"path\": \"tests/test_asyncio.py\", \"test_names\": [\"test_retry\", \"test_iscoroutinefunction\", \"test_retry_using_async_retying\", \"test_stop_after_attempt\", \"test_repr\", \"test_retry_attributes\", \"test_retry_preserves_argument_defaults\", \"test_attempt_number_is_correct_for_interleaved_coroutines\", \"test_trio_basic\", \"test_do_max_attempts\", \"test_reraise\", \"test_sleeps\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import asyncio\\n   2 | import typing\\n   3 | import unittest\\n   4 | \\n   5 | from functools import wraps\\n   6 | \\n   7 | from tenacity import RetryCallState, retry\\n   8 | \\n   9 | \\n  10 | def asynctest(\\n  11 |     callable_: typing.Callable[..., typing.Any],\\n  12 | ) -> typing.Callable[..., typing.Any]:\\n  13 |     @wraps(callable_)\\n  14 |     def wrapper(*a: typing.Any, **kw: typing.Any) -> typing.Any:\\n  15 |         return asyncio.run(callable_(*a, **kw))\\n  16 | \\n  17 |     return wrapper\\n  18 | \\n  19 | \\n  20 | MAX_RETRY_FIX_ATTEMPTS = 2\\n  21 | \\n  22 | \\n  23 | class TestIssue478(unittest.TestCase):\\n  24 |     def test_issue(self) -> None:\\n  25 |         results = []\\n  26 | \\n  27 |         def do_retry(retry_state: RetryCallState) -> bool:\\n  28 |             outcome = retry_state.outcome\\n  29 |             assert outcome\\n  30 |             ex = outcome.exception()\\n  31 |             _subject_: str = retry_state.args[0]\\n  32 | \\n  33 |             if _subject_ == \\\"Fix\\\":  # no retry on fix failure\\n  34 |                 return False\\n  35 | \\n  36 |             if retry_state.attempt_number >= MAX_RETRY_FIX_ATTEMPTS:\\n...[TRUNCATED; use read_file('tests/test_issue_478.py', start, end) for another window]...\", \"path\": \"tests/test_issue_478.py\", \"test_names\": [\"test_issue\", \"test_async\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\\n   2 | # Copyright 2017 Elisey Zanko\\n   3 | #\\n   4 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   5 | # you may not use this file except in compliance with the License.\\n   6 | # You may obtain a copy of the License at\\n   7 | #\\n   8 | # http://www.apache.org/licenses/LICENSE-2.0\\n   9 | #\\n  10 | # Unless required by applicable law or agreed to in writing, software\\n  11 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  12 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  13 | # See the License for the specific language governing permissions and\\n  14 | # limitations under the License.\\n  15 | \\n  16 | import unittest\\n  17 | \\n  18 | from tenacity import RetryError, retry, stop_after_attempt\\n  19 | from tenacity import tornadoweb\\n  20 | \\n  21 | from tornado import gen\\n  22 | from tornado import testing\\n  23 | \\n  24 | from .test_tenacity import NoIOErrorAfterCount\\n  25 | \\n  26 | \\n  27 | @retry\\n  28 | @gen.coroutine\\n  29 | def _retryable_coroutine(thing):\\n  30 |     yield gen.sleep(0.00001)\\n  31 |     thing.go()\\n  32 | \\n  33 | \\n  34 | @retry(stop=stop_after_attempt(2))\\n  35 | @gen.coroutine\\n  36 | def _retryable_coroutine_with_2_attempts(thing):\\n...[TRUNCATED; use read_file('tests/test_tornado.py', start, end) for another window]...\", \"path\": \"tests/test_tornado.py\", \"test_names\": [\"test_retry\", \"test_stop_after_attempt\", \"test_repr\", \"test_old_tornado\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import functools\\n   2 | \\n   3 | from tenacity import _utils\\n   4 | \\n   5 | \\n   6 | def test_is_coroutine_callable() -> None:\\n   7 |     async def async_func() -> None:\\n   8 |         pass\\n   9 | \\n  10 |     def sync_func() -> None:\\n  11 |         pass\\n  12 | \\n  13 |     class AsyncClass:\\n  14 |         async def __call__(self) -> None:\\n  15 |             pass\\n  16 | \\n  17 |     class SyncClass:\\n  18 |         def __call__(self) -> None:\\n  19 |             pass\\n  20 | \\n  21 |     lambda_fn = lambda: None  # noqa: E731\\n  22 | \\n  23 |     partial_async_func = functools.partial(async_func)\\n  24 |     partial_sync_func = functools.partial(sync_func)\\n  25 |     partial_async_class = functools.partial(AsyncClass().__call__)\\n  26 |     partial_sync_class = functools.partial(SyncClass().__call__)\\n  27 |     partial_lambda_fn = functools.partial(lambda_fn)\\n  28 | \\n  29 |     assert _utils.is_coroutine_callable(async_func) is True\\n  30 |     assert _utils.is_coroutine_callable(sync_func) is False\\n  31 |     assert _utils.is_coroutine_callable(AsyncClass) is False\\n  32 |     assert _utils.is_coroutine_callable(AsyncClass()) is True\\n  33 |     assert _utils.is_coroutine_callable(SyncClass) is False\\n  34 |     assert _utils.is_coroutine_callable(SyncClass()) is False\\n  35 |     assert _utils.is_coroutine_callable(lambda_fn) is False\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_utils.py', start, end) for another window]...\", \"path\": \"tests/test_utils.py\", \"test_names\": [\"test_is_coroutine_callable\"]}], \"total_test_python_files\": 7}",
+        "role": "tool",
+        "tool_call_id": "call_b255c65aad9f433182c9b08c"
+      },
+      {
+        "content": "Let me look at the existing test files for type-checking tests and the relevant source code.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"mypy\"}",
+              "name": "search"
+            },
+            "id": "call_a236c898ae244421a8cdc7b6",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"type_check\"}",
+              "name": "search"
+            },
+            "id": "call_66a373164d064ab3b1045ce7",
+            "index": 1,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"reveal_type\"}",
+              "name": "search"
+            },
+            "id": "call_0472fea9837f4b35a201684b",
+            "index": 2,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 20, \"matches\": [\".github/workflows/ci.yaml:34:            tox: mypy\", \"pyproject.toml:16:[tool.mypy]\", \"pyproject.toml:21:[[tool.mypy.overrides]]\", \"releasenotes/notes/fix-wait-typing-b26eecdb6cc0a1de.yaml:4:    Argument `wait` was improperly annotated, making mypy checks fail.\", \"tenacity/after.py:38:            # NOTE(sileht): can't really happen, but we must please mypy\", \"tenacity/before.py:36:            # NOTE(sileht): can't really happen, but we must please mypy\", \"tenacity/before_sleep.py:59:            # NOTE(sileht): can't really happen, but we must please mypy\", \"tests/test_after.py:1:# mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\", \"tests/test_asyncio.py:1:# mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\", \"tests/test_asyncio.py:217:            # mypy doesn't have great lambda support\", \"tests/test_asyncio.py:245:                assert attempt.retry_state.outcome  # help mypy\", \"tests/test_asyncio.py:274:                assert attempt.retry_state.outcome  # help mypy\", \"tests/test_asyncio.py:305:                assert attempt.retry_state.outcome  # help mypy\", \"tests/test_asyncio.py:336:                assert attempt.retry_state.outcome  # help mypy\", \"tests/test_asyncio.py:459:# make sure mypy accepts passing an async sleep function\", \"tests/test_tenacity.py:1:# mypy: disable_error_code=\\\"no-untyped-def,no-untyped-call,attr-defined,arg-type,no-any-return,list-item,var-annotated,import,call-overload\\\"\", \"tests/test_tornado.py:1:# mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\", \"tox.ini:25:[testenv:mypy]\", \"tox.ini:27:    mypy>=1.0.0\", \"tox.ini:31:    mypy {posargs}\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"mypy\"}",
+        "role": "tool",
+        "tool_call_id": "call_a236c898ae244421a8cdc7b6"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"type_check\"}",
+        "role": "tool",
+        "tool_call_id": "call_66a373164d064ab3b1045ce7"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"reveal_type\"}",
+        "role": "tool",
+        "tool_call_id": "call_0472fea9837f4b35a201684b"
+      },
+      {
+        "content": "Interesting! There's a comment at line 459 in `test_asyncio.py` that says \"make sure mypy accepts passing an async sleep function\". Let me look at that test and the surrounding context",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"path\": \"tests/test_asyncio.py\", \"start\": 440, \"end\": 500}",
+              "name": "read_file"
+            },
+            "id": "call_ddfddf77b9184b869ba565b7",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"path\": \"tenacity/__init__.py\", \"start\": 580, \"end\": 650}",
+              "name": "read_file"
+            },
+            "id": "call_e890d4ea705e483da2130e0b",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 440 |                 expected_stats = {\\n 441 |                     \\\"attempt_number\\\": 1,\\n 442 |                     \\\"delay_since_first_attempt\\\": mock.ANY,\\n 443 |                     \\\"idle_for\\\": mock.ANY,\\n 444 |                     \\\"start_time\\\": mock.ANY,\\n 445 |                 }\\n 446 |                 self.assertEqual(\\n 447 |                     _retryable_coroutine_with_2_attempts.statistics,  # type: ignore[attr-defined]\\n 448 |                     expected_stats,\\n 449 |                 )\\n 450 |                 self.assertEqual(exc.last_attempt.attempt_number, 1)\\n 451 |                 self.assertEqual(\\n 452 |                     _retryable_coroutine_with_2_attempts.retry.statistics,  # type: ignore[attr-defined]\\n 453 |                     {},\\n 454 |                 )\\n 455 |             else:\\n 456 |                 self.fail(\\\"RetryError should have been raised after 1 attempt\\\")\\n 457 | \\n 458 | \\n 459 | # make sure mypy accepts passing an async sleep function\\n 460 | # https://github.com/jd/tenacity/issues/399\\n 461 | async def my_async_sleep(x: float) -> None:\\n 462 |     await asyncio.sleep(x)\\n 463 | \\n 464 | \\n 465 | @retry(sleep=my_async_sleep)\\n 466 | async def foo():\\n 467 |     pass\\n 468 | \\n 469 | \\n 470 | class TestSyncFunctionWithAsyncSleep(unittest.TestCase):\\n 471 |     @asynctest\\n 472 |     async def test_sync_function_with_async_sleep(self):\\n 473 |         \\\"\\\"\\\"A sync function with an async sleep callable uses AsyncRetrying.\\\"\\\"\\\"\\n 474 |         mock_sleep = mock.AsyncMock()\\n 475 | \\n 476 |         thing = NoneReturnUntilAfterCount(2)\\n 477 | \\n 478 |         @retry(\\n 479 |             sleep=mock_sleep,\\n 480 |             wait=wait_fixed(1),\\n 481 |             retry=retry_if_result(lambda x: x is None),\\n 482 |         )\\n 483 |         def sync_function():\\n 484 |             return thing.go()\\n 485 | \\n 486 |         result = await sync_function()\\n 487 |         assert result is True\\n 488 |         assert mock_sleep.await_count == 2\\n 489 | \\n 490 | \\n 491 | if __name__ == \\\"__main__\\\":\\n 492 |     unittest.main()\\n...[WINDOWED READ; 439 earlier lines omitted]...\", \"end\": 492, \"ok\": true, \"path\": \"tests/test_asyncio.py\", \"start\": 440, \"total_lines\": 492}",
+        "role": "tool",
+        "tool_call_id": "call_ddfddf77b9184b869ba565b7"
+      },
+      {
+        "content": "{\"content\": \" 580 |         else:\\n 581 |             result = f\\\"returned {self.outcome.result()}\\\"\\n 582 | \\n 583 |         slept = float(round(self.idle_for, 2))\\n 584 |         clsname = self.__class__.__name__\\n 585 |         return f\\\"<{clsname} {id(self)}: attempt #{self.attempt_number}; slept for {slept}; last result: {result}>\\\"\\n 586 | \\n 587 | \\n 588 | @t.overload\\n 589 | def retry(func: WrappedFn) -> WrappedFn: ...\\n 590 | \\n 591 | \\n 592 | @t.overload\\n 593 | def retry(\\n 594 |     *,\\n 595 |     sleep: t.Callable[[t.Union[int, float]], t.Awaitable[None]],\\n 596 |     stop: \\\"StopBaseT\\\" = ...,\\n 597 |     wait: \\\"WaitBaseT\\\" = ...,\\n 598 |     retry: \\\"t.Union[RetryBaseT, tasyncio.retry.RetryBaseT]\\\" = ...,\\n 599 |     before: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 600 |     after: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 601 |     before_sleep: t.Optional[\\n 602 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]]\\n 603 |     ] = ...,\\n 604 |     reraise: bool = ...,\\n 605 |     retry_error_cls: t.Type[\\\"RetryError\\\"] = ...,\\n 606 |     retry_error_callback: t.Optional[\\n 607 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[t.Any, t.Awaitable[t.Any]]]\\n 608 |     ] = ...,\\n 609 | ) -> t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]: ...\\n 610 | \\n 611 | \\n 612 | @t.overload\\n 613 | def retry(\\n 614 |     sleep: t.Callable[[t.Union[int, float]], None] = sleep,\\n 615 |     stop: \\\"StopBaseT\\\" = stop_never,\\n 616 |     wait: \\\"WaitBaseT\\\" = wait_none(),\\n 617 |     retry: \\\"t.Union[RetryBaseT, tasyncio.retry.RetryBaseT]\\\" = retry_if_exception_type(),\\n 618 |     before: t.Callable[\\n 619 |         [\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]\\n 620 |     ] = before_nothing,\\n 621 |     after: t.Callable[\\n 622 |         [\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]\\n 623 |     ] = after_nothing,\\n 624 |     before_sleep: t.Optional[\\n 625 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]]\\n 626 |     ] = None,\\n 627 |     reraise: bool = False,\\n 628 |     retry_error_cls: t.Type[\\\"RetryError\\\"] = RetryError,\\n 629 |     retry_error_callback: t.Optional[\\n 630 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[t.Any, t.Awaitable[t.Any]]]\\n 631 |     ] = None,\\n 632 | ) -> t.Callable[[WrappedFn], WrappedFn]: ...\\n 633 | \\n 634 | \\n 635 | def retry(*dargs: t.Any, **dkw: t.Any) -> t.Any:\\n 636 |     \\\"\\\"\\\"Wrap a function with a new `Retrying` object.\\n 637 | \\n 638 |     :param dargs: positional arguments passed to Retrying object\\n 639 |     :param dkw: keyword arguments passed to the Retrying object\\n 640 |     \\\"\\\"\\\"\\n 641 |     # support both @retry and @retry() as valid syntax\\n 642 |     if len(dargs) == 1 and callable(dargs[0]):\\n 643 |         return retry()(dargs[0])\\n 644 |     else:\\n 645 | \\n 646 |         def wrap(f: WrappedFn) -> WrappedFn:\\n 647 |             if isinstance(f, retry_base):\\n 648 |                 warnings.warn(\\n 649 |                     f\\\"Got retry_base instance ({f.__class__.__name__}) as callable argument, \\\"\\n 650 |                     f\\\"this will probably hang indefinitely (did you mean retry={f.__class__.__name__}(...)?)\\\"\\n...[WINDOWED READ; 579 earlier lines omitted; 84 later lines omitted]...\", \"end\": 650, \"ok\": true, \"path\": \"tenacity/__init__.py\", \"start\": 580, \"total_lines\": 734}",
+        "role": "tool",
+        "tool_call_id": "call_e890d4ea705e483da2130e0b"
+      },
+      {
+        "content": "Now let me look at the parent-side version of the overload to understand the bug",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 610, \"path\": \"tenacity/__init__.py\", \"start\": 585}",
+              "name": "read_file"
+            },
+            "id": "call_7b83a405c13b454286532ec2",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 585 |         return f\\\"<{clsname} {id(self)}: attempt #{self.attempt_number}; slept for {slept}; last result: {result}>\\\"\\n 586 | \\n 587 | \\n 588 | @t.overload\\n 589 | def retry(func: WrappedFn) -> WrappedFn: ...\\n 590 | \\n 591 | \\n 592 | @t.overload\\n 593 | def retry(\\n 594 |     *,\\n 595 |     sleep: t.Callable[[t.Union[int, float]], t.Awaitable[None]],\\n 596 |     stop: \\\"StopBaseT\\\" = ...,\\n 597 |     wait: \\\"WaitBaseT\\\" = ...,\\n 598 |     retry: \\\"t.Union[RetryBaseT, tasyncio.retry.RetryBaseT]\\\" = ...,\\n 599 |     before: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 600 |     after: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 601 |     before_sleep: t.Optional[\\n 602 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]]\\n 603 |     ] = ...,\\n 604 |     reraise: bool = ...,\\n 605 |     retry_error_cls: t.Type[\\\"RetryError\\\"] = ...,\\n 606 |     retry_error_callback: t.Optional[\\n 607 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[t.Any, t.Awaitable[t.Any]]]\\n 608 |     ] = ...,\\n 609 | ) -> t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]: ...\\n 610 | \\n...[WINDOWED READ; 584 earlier lines omitted; 124 later lines omitted]...\", \"end\": 610, \"ok\": true, \"path\": \"tenacity/__init__.py\", \"start\": 585, \"total_lines\": 734}",
+        "role": "tool",
+        "tool_call_id": "call_7b83a405c13b454286532ec2"
+      },
+      {
+        "content": "Now let me look at the fix side to see the new `_AsyncRetryDecorator` class and the changed overload",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 650, \"path\": \"tenacity/__init__.py\", \"start\": 584}",
+              "name": "read_file"
+            },
+            "id": "call_bcd139aafc2045d1b1a318b7",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 584 |         clsname = self.__class__.__name__\\n 585 |         return f\\\"<{clsname} {id(self)}: attempt #{self.attempt_number}; slept for {slept}; last result: {result}>\\\"\\n 586 | \\n 587 | \\n 588 | @t.overload\\n 589 | def retry(func: WrappedFn) -> WrappedFn: ...\\n 590 | \\n 591 | \\n 592 | @t.overload\\n 593 | def retry(\\n 594 |     *,\\n 595 |     sleep: t.Callable[[t.Union[int, float]], t.Awaitable[None]],\\n 596 |     stop: \\\"StopBaseT\\\" = ...,\\n 597 |     wait: \\\"WaitBaseT\\\" = ...,\\n 598 |     retry: \\\"t.Union[RetryBaseT, tasyncio.retry.RetryBaseT]\\\" = ...,\\n 599 |     before: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 600 |     after: t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]] = ...,\\n 601 |     before_sleep: t.Optional[\\n 602 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]]\\n 603 |     ] = ...,\\n 604 |     reraise: bool = ...,\\n 605 |     retry_error_cls: t.Type[\\\"RetryError\\\"] = ...,\\n 606 |     retry_error_callback: t.Optional[\\n 607 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[t.Any, t.Awaitable[t.Any]]]\\n 608 |     ] = ...,\\n 609 | ) -> t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]: ...\\n 610 | \\n 611 | \\n 612 | @t.overload\\n 613 | def retry(\\n 614 |     sleep: t.Callable[[t.Union[int, float]], None] = sleep,\\n 615 |     stop: \\\"StopBaseT\\\" = stop_never,\\n 616 |     wait: \\\"WaitBaseT\\\" = wait_none(),\\n 617 |     retry: \\\"t.Union[RetryBaseT, tasyncio.retry.RetryBaseT]\\\" = retry_if_exception_type(),\\n 618 |     before: t.Callable[\\n 619 |         [\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]\\n 620 |     ] = before_nothing,\\n 621 |     after: t.Callable[\\n 622 |         [\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]\\n 623 |     ] = after_nothing,\\n 624 |     before_sleep: t.Optional[\\n 625 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[None, t.Awaitable[None]]]\\n 626 |     ] = None,\\n 627 |     reraise: bool = False,\\n 628 |     retry_error_cls: t.Type[\\\"RetryError\\\"] = RetryError,\\n 629 |     retry_error_callback: t.Optional[\\n 630 |         t.Callable[[\\\"RetryCallState\\\"], t.Union[t.Any, t.Awaitable[t.Any]]]\\n 631 |     ] = None,\\n 632 | ) -> t.Callable[[WrappedFn], WrappedFn]: ...\\n 633 | \\n 634 | \\n 635 | def retry(*dargs: t.Any, **dkw: t.Any) -> t.Any:\\n 636 |     \\\"\\\"\\\"Wrap a function with a new `Retrying` object.\\n 637 | \\n 638 |     :param dargs: positional arguments passed to Retrying object\\n 639 |     :param dkw: keyword arguments passed to the Retrying object\\n 640 |     \\\"\\\"\\\"\\n 641 |     # support both @retry and @retry() as valid syntax\\n 642 |     if len(dargs) == 1 and callable(dargs[0]):\\n 643 |         return retry()(dargs[0])\\n 644 |     else:\\n 645 | \\n 646 |         def wrap(f: WrappedFn) -> WrappedFn:\\n 647 |             if isinstance(f, retry_base):\\n 648 |                 warnings.warn(\\n 649 |                     f\\\"Got retry_base instance ({f.__class__.__name__}) as callable argument, \\\"\\n 650 |                     f\\\"this will probably hang indefinitely (did you mean retry={f.__class__.__name__}(...)?)\\\"\\n...[WINDOWED READ; 583 earlier lines omitted; 84 later lines omitted]...\", \"end\": 650, \"ok\": true, \"path\": \"tenacity/__init__.py\", \"start\": 584, \"total_lines\": 734}",
+        "role": "tool",
+        "tool_call_id": "call_bcd139aafc2045d1b1a318b7"
+      },
+      {
+        "content": "Wait, this is the parent side. Let me check the fix side by looking at the diff more carefully. The fix adds `_AsyncRetryDecorator` protocol class and changes the async-sleep overload return type from `t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]` to `_AsyncRetryDecorator`.\n\nThis is a type-checking only change. The test needs to use `mypy` or `pyright` to verify the type annotations work. Let me look at how the existing test at line 459 works - it's just a module-level type-checking assertion.\n\nLet me check the tox mypy configuration and see if there's a way to run mypy on specific files",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 40, \"path\": \"tox.ini\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_e70739f0193c48e894b155fb",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"end\": 30, \"path\": \"pyproject.toml\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_0cf3aeca3c834dc7963bb1e2",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | [tox]\\n   2 | # we only test trio on latest python version\\n   3 | envlist = py3{10,11,12,13,14,14-trio}, pep8, pypy3\\n   4 | skip_missing_interpreters = True\\n   5 | \\n   6 | [testenv]\\n   7 | usedevelop = True\\n   8 | sitepackages = False\\n   9 | deps =\\n  10 |     .[test]\\n  11 |     .[doc]\\n  12 |     trio: trio\\n  13 | commands =\\n  14 |     py3{10,11,12,13,14},pypy3: pytest {posargs}\\n  15 |     py3{10,11,12,13,14},pypy3: sphinx-build -a -E -W -b doctest doc/source doc/build\\n  16 |     py3{10,11,12,13,14},pypy3: sphinx-build -a -E -W -b html doc/source doc/build\\n  17 | \\n  18 | [testenv:pep8]\\n  19 | basepython = python3\\n  20 | deps = ruff\\n  21 | commands =\\n  22 |   ruff check . {posargs}\\n  23 |   ruff format --check . {posargs}\\n  24 | \\n  25 | [testenv:mypy]\\n  26 | deps =\\n  27 |     mypy>=1.0.0\\n  28 |     pytest # for stubs\\n  29 |     trio\\n  30 | commands =\\n  31 |     mypy {posargs}\\n  32 | \\n  33 | [testenv:reno]\\n  34 | basepython = python3\\n  35 | deps = reno\\n  36 | commands = reno {posargs}\", \"end\": 36, \"ok\": true, \"path\": \"tox.ini\", \"start\": 1, \"total_lines\": 36}",
+        "role": "tool",
+        "tool_call_id": "call_e70739f0193c48e894b155fb"
+      },
+      {
+        "content": "{\"content\": \"   1 | [build-system]\\n   2 | # Minimum requirements for the build system to execute.\\n   3 | # PEP 508 specifications for PEP 518.\\n   4 | # Banned setuptools versions have well-known issues\\n   5 | requires = [\\n   6 |   \\\"setuptools >= 21.0.0,!=24.0.0,!=34.0.0,!=34.0.1,!=34.0.2,!=34.0.3,!=34.1.0,!=34.1.1,!=34.2.0,!=34.3.0,!=34.3.1,!=34.3.2,!=36.2.0\\\",  # PSF/ZPL\\n   7 |   \\\"setuptools_scm[toml]>=3.4\\\",\\n   8 | ]\\n   9 | build-backend=\\\"setuptools.build_meta\\\"\\n  10 | \\n  11 | [tool.ruff]\\n  12 | line-length = 88\\n  13 | indent-width = 4\\n  14 | target-version = \\\"py310\\\"\\n  15 | \\n  16 | [tool.mypy]\\n  17 | strict = true\\n  18 | files = [\\\"tenacity\\\", \\\"tests\\\"]\\n  19 | show_error_codes = true\\n  20 | \\n  21 | [[tool.mypy.overrides]]\\n  22 | module = \\\"tornado.*\\\"\\n  23 | ignore_missing_imports = true\\n  24 | \\n  25 | [tool.setuptools_scm]\", \"end\": 25, \"ok\": true, \"path\": \"pyproject.toml\", \"start\": 1, \"total_lines\": 25}",
+        "role": "tool",
+        "tool_call_id": "call_0cf3aeca3c834dc7963bb1e2"
+      },
+      {
+        "content": "Now I understand the setup. The issue is about type-checking with mypy. The existing test at line 459 in `test_asyncio.py` is a module-level type-checking test that just uses `@retry(sleep=my_async_sleep)` on an async function. But the bug is that mypy rejects this pattern.\n\nThe fix changes the async-sleep overload's return type from `t.Callable[[t.Callable[P, R | t.Awaitable[R]]], t.Callable[P, t.Awaitable[R]]]` to `_AsyncRetryDecorator` (a protocol with multiple overloads).\n\nSince this is a type-checking issue, the test needs to use mypy. Let me look at how the existing test at line 459 works - it's just a module-level declaration that mypy checks when running `mypy tests/test_asyncio.py`. The test file already has `# mypy: disable-error-code=\"no-untyped-def,no-untyped-call\"` at the top.\n\nLet me look at the existing test more carefully to understand the pattern",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 468, \"path\": \"tests/test_asyncio.py\", \"start\": 459}",
+              "name": "read_file"
+            },
+            "id": "call_f9f1418d095b44278ac85554",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 459 | # make sure mypy accepts passing an async sleep function\\n 460 | # https://github.com/jd/tenacity/issues/399\\n 461 | async def my_async_sleep(x: float) -> None:\\n 462 |     await asyncio.sleep(x)\\n 463 | \\n 464 | \\n 465 | @retry(sleep=my_async_sleep)\\n 466 | async def foo():\\n 467 |     pass\\n 468 | \\n...[WINDOWED READ; 458 earlier lines omitted; 24 later lines omitted]...\", \"end\": 468, \"ok\": true, \"path\": \"tests/test_asyncio.py\", \"start\": 459, \"total_lines\": 492}",
+        "role": "tool",
+        "tool_call_id": "call_f9f1418d095b44278ac85554"
+      },
+      {
+        "content": "So the existing test at line 459 is exactly the pattern from the issue! The issue is that mypy rejects this pattern. Let me check if the test file already has this pattern and whether it passes at the fix but fails at the parent.\n\nLet me run mypy on the test file at the parent to see if it fails:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"endpoint\": \"parent\"}",
+              "name": "run_test"
+            },
+            "id": "call_73816c41c5db402e962c7442",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"error\": \"no test is staged; call write_test with one new test file first\", \"ok\": false}",
+        "role": "tool",
+        "tool_call_id": "call_73816c41c5db402e962c7442"
+      },
+      {
+        "content": "Let me first check if there's a way to run mypy directly. But actually, the test framework is pytest. Let me think about this differently.\n\nThe issue is a type-checking regression. The test needs to verify that mypy accepts the pattern. But the existing test at line 459 in `test_asyncio.py` already has this pattern! The problem is that the test file has `# mypy: disable-error-code=\"no-untyped-def,no-untyped-call\"` at the top, which disables some mypy checks, but the error in the issue is `arg-type` which might not be disabled.\n\nWait, let me re-read the test file header",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 5, \"path\": \"tests/test_asyncio.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_05fdac7ae51b4835a8992704",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | # mypy: disable-error-code=\\\"no-untyped-def,no-untyped-call\\\"\\n   2 | # Copyright 2016 \\u00c9tienne Bersac\\n   3 | #\\n   4 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   5 | # you may not use this file except in compliance with the License.\\n...[WINDOWED READ; 487 later lines omitted]...\", \"end\": 5, \"ok\": true, \"path\": \"tests/test_asyncio.py\", \"start\": 1, \"total_lines\": 492}",
+        "role": "tool",
+        "tool_call_id": "call_05fdac7ae51b4835a8992704"
+      },
+      {
+        "content": "The test file only disables `no-untyped-def` and `no-untyped-call`. The error from the issue is `arg-type`. So mypy should catch this error when run on the test file.\n\nBut the existing test at line 459 already has the pattern from the issue. The question is: does the existing test already fail at the parent? Let me check by running mypy on the test file.\n\nActually, I can't run mypy directly - I can only run pytest. Let me think about what kind of test I can write.\n\nThe issue is about type annotations. The fix changes the type overloads. A proper regression test would use mypy to verify the types. But since I can only run pytest, I need to think about what pytest test could verify this.\n\nActually, looking more carefully at the diff, the fix adds `_AsyncRetryDecorator` protocol class and changes the return type of the async-sleep overload. This is purely a type-level change - it doesn't affect runtime behavior at all.\n\nLet me check if there's a way to run mypy through pytest or if there's a pytest plugin for mypy",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"pytest-mypy\"}",
+              "name": "search"
+            },
+            "id": "call_bbf5b5384c044b41af34b741",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"mypy.*test\"}",
+              "name": "search"
+            },
+            "id": "call_798d74d5f9f74f7b97f97426",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"pytest-mypy\"}",
+        "role": "tool",
+        "tool_call_id": "call_bbf5b5384c044b41af34b741"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"mypy.*test\"}",
+        "role": "tool",
+        "tool_call_id": "call_798d74d5f9f74f7b97f97426"
+      },
+      {
+        "content": "Let me check the CI config to see how mypy is",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 50, \"path\": \".github/workflows/ci.yaml\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_791f45b957c4444f9670ff16",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | name: Continuous Integration\\n   2 | permissions: read-all\\n   3 | \\n   4 | on:\\n   5 |   pull_request:\\n   6 |     branches:\\n   7 |       - main\\n   8 | \\n   9 | concurrency:\\n  10 |   # yamllint disable-line rule:line-length\\n  11 |   group: \\\"${{ github.workflow }}-${{ github.head_ref || github.run_id }}\\\"\\n  12 |   cancel-in-progress: true\\n  13 | \\n  14 | jobs:\\n  15 |   test:\\n  16 |     timeout-minutes: 20\\n  17 |     runs-on: ubuntu-24.04\\n  18 |     strategy:\\n  19 |       matrix:\\n  20 |         include:\\n  21 |           - python: \\\"3.10\\\"\\n  22 |             tox: py310\\n  23 |           - python: \\\"3.11\\\"\\n  24 |             tox: py311\\n  25 |           - python: \\\"3.12\\\"\\n  26 |             tox: py312\\n  27 |           - python: \\\"3.13\\\"\\n  28 |             tox: py313\\n  29 |           - python: \\\"3.14\\\"\\n  30 |             tox: py314,py314-trio\\n  31 |           - python: \\\"3.14\\\"\\n  32 |             tox: pep8\\n  33 |           - python: \\\"3.14\\\"\\n  34 |             tox: mypy\\n  35 |     steps:\\n  36 |       - name: Checkout \\ud83d\\udece\\ufe0f\\n  37 |         uses: actions/checkout@v6.0.2\\n  38 |         with:\\n  39 |           fetch-depth: 0\\n  40 | \\n  41 |       - name: Setup Python \\ud83d\\udd27\\n  42 |         uses: actions/setup-python@v6.2.0\\n  43 |         with:\\n  44 |           python-version: ${{ matrix.python }}\\n  45 |           allow-prereleases: true\\n  46 | \\n  47 |       - name: Build \\ud83d\\udd27 & Test \\ud83d\\udd0d\\n  48 |         run: |\\n  49 |           pip install tox\\n  50 |           tox -e ${{ matrix.tox }}\", \"end\": 50, \"ok\": true, \"path\": \".github/workflows/ci.yaml\", \"start\": 1, \"total_lines\": 50}",
+        "role": "tool",
+        "tool_call_id": "call_791f45b957c4444f9670ff16"
+      },
+      {
+        "content": "So mypy is run as a separate tox environment. The existing test at line 459 in `test_asyncio.py` is the type-checking test - it's meant to be checked by mypy when `mypy tests/` is run.\n\nThe issue is that the existing test at line 459 already covers the pattern from the bug report, but it was passing before because... wait, the bug was introduced in 9.1.3. Let me check if the existing test was added before or after the regression.\n\nActually, looking at the comment: `# make sure mypy accepts passing an async sleep function` and `# https://github.com/jd/tenacity/issues/399` - this was added for issue #399, not #553. The regression in #553 was introduced by a change in #551.\n\nSo the existing test at line 459 is the exact pattern that regressed. The fix should make mypy accept it again. But the test is already there - it's just that mypy would have started rejecting it after the regression.\n\nLet me think about what a proper regression test would look like. The issue is that mypy rejects `@retry(sleep=my_async_sleep)` on an async function. The existing test at line 459 already has this pattern. But it's not a pytest test - it's a module-level declaration that mypy checks.\n\nThe problem is: how do I write a pytest test that verifies mypy accepts this pattern? I could write a test that runs mypy as a subprocess and checks the output. Let me look at how other projects do this.\n\nActually, let me check if there's a `pytest-mypy-plugins` or similar in the dependencies",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"pytest-mypy\"}",
+              "name": "search"
+            },
+            "id": "call_fcc646a03f4b4a1fa500cefb",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"pytest.*plugin\"}",
+              "name": "search"
+            },
+            "id": "call_5db7e649c7714c3196839fe7",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"pytest-mypy\"}",
+        "role": "tool",
+        "tool_call_id": "call_fcc646a03f4b4a1fa500cefb"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"pytest.*plugin\"}",
+        "role": "tool",
+        "tool_call_id": "call_5db7e649c7714c3196839fe7"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 1298916038,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "03cbbdd6c44bb18bc73f8f00c33807a44d50452e8ea5fdbd65902c023cca58f0",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Let me look at the test",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"test\\\\]\"}",
+                "name": "search"
+              },
+              "id": "call_2164491d5c624da3a38171f9",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788119728,
+    "id": "gen-1788119728-Li8UFXupzqWmqlQIkP75",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 51,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000289211944,
+      "cost_details": {
+        "upstream_inference_completions_cost": 8.02536e-06,
+        "upstream_inference_cost": 0.000289211944,
+        "upstream_inference_prompt_cost": 0.000281186584
+      },
+      "is_byok": false,
+      "prompt_tokens": 14633,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 13824,
+        "video_tokens": 0
+      },
+      "total_tokens": 14684
+    }
+  },
+  "schema_version": 1
+}

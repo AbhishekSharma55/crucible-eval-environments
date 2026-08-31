@@ -1,0 +1,502 @@
+{
+  "latency_s": 11.112,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: pallets/click#1987\nRepository: pallets/click\nBroken parent: c9c406bebdf2b027864216fb881278a8bfa14bb8\nFixed commit: 22d3886f47feab6c3bfa93810fbd2bfb13f513c3\n\nLinked issues:\nIssue #1985:\nhttps://github.com/pallets/click/blob/8b48450d5d63c747600e069d4c3e2274f41c8360/src/click/decorators.py#L244-L245\r\n\r\nThis code should be moved into `Option` or the docstring should be updated.\n\nPull request title:\nMove processing of `help` from `@option` into `Option`\n\nPull request body:\n- Fixes #1985.\r\n\r\nChecklist:\r\n\r\n- [ ] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [ ] Add or update relevant docs, in the docs folder and in code.\r\n- [ ] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [ ] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [ ] Run `pre-commit` hooks and fix any issues.\r\n- [ ] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex c11361c9..3b442e44 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -27,6 +27,10 @@ Version 8.1.0\n -   Parameter decorators and ``@group`` handles ``cls=None`` the same as\n     not passing ``cls``. ``@option`` handles ``help=None`` the same as\n     not passing ``help``. :issue:`#1959`\n+-   Indentation in help text passed to ``Option`` and ``Command`` is\n+    cleaned the same as using the ``@option`` and ``@command``\n+    decorators does. A command's ``epilog`` and ``short_help`` are also\n+    processed. :issue:`1985`\n \n \n Version 8.0.4\ndiff --git a/src/click/core.py b/src/click/core.py\nindex 604d8ba5..97d699e1 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -1133,13 +1133,6 @@ class Command(BaseCommand):\n     Click.  A basic command handles command line parsing and might dispatch\n     more parsing to commands nested below it.\n \n-    .. versionchanged:: 2.0\n-       Added the `context_settings` parameter.\n-    .. versionchanged:: 8.0\n-       Added repr showing the command name\n-    .. versionchanged:: 7.1\n-       Added the `no_args_is_help` parameter.\n-\n     :param name: the name of the command to use unless a group overrides it.\n     :param context_settings: an optional dictionary with defaults that are\n                              passed to the context object.\n@@ -1161,6 +1154,20 @@ class Command(BaseCommand):\n \n     :param deprecated: issues a message indicating that\n                              the command is deprecated.\n+\n+    .. versionchanged:: 8.1\n+        Indentation in ``help`` is cleaned here instead of only in the\n+        ``@command`` decorator. ``epilog`` and ``short_help`` are also\n+        cleaned.\n+\n+    .. versionchanged:: 8.0\n+        Added a ``repr`` showing the command name.\n+\n+    .. versionchanged:: 7.1\n+        Added the ``no_args_is_help`` parameter.\n+\n+    .. versionchanged:: 2.0\n+        Added the ``context_settings`` parameter.\n     \"\"\"\n \n     def __init__(\n@@ -1187,10 +1194,20 @@ class Command(BaseCommand):\n         #: will automatically be handled before non eager ones.\n         self.params: t.List[\"Parameter\"] = params or []\n \n-        # if a form feed (page break) is found in the help text, truncate help\n-        # text to the content preceding the first form feed\n-        if help and \"\\f\" in help:\n-            help = help.split(\"\\f\", 1)[0]\n+        if help:\n+            help = inspect.cleandoc(help)\n+\n+            # Discard help text after a first form feed (page break)\n+            # character, to allow writing longer documentation in\n+            # docstrings that does not show in help output.\n+            if \"\\f\" in help:\n+                help = help.partition(\"\\f\")[0]\n+\n+        if epilog:\n+            epilog = inspect.cleandoc(epilog)\n+\n+        if short_help:\n+            short_help = inspect.cleandoc(short_help)\n \n         self.help = help\n         self.epilog = epilog\n@@ -2415,6 +2432,10 @@ class Option(Parameter):\n     :param help: the help string.\n     :param hidden: hide this option from help outputs.\n \n+    .. versionchanged:: 8.1.0\n+        Help text indentation is cleaned here instead of only in the\n+        ``@option`` decorator.\n+\n     .. versionchanged:: 8.1.0\n         The ``show_default`` parameter overrides\n         ``Context.show_default``.\n@@ -2449,6 +2470,9 @@ class Option(Parameter):\n         show_envvar: bool = False,\n         **attrs: t.Any,\n     ) -> None:\n+        if help:\n+            help = inspect.cleandoc(help)\n+\n         default_is_missing = \"default\" not in attrs\n         super().__init__(param_decls, type=type, multiple=multiple, **attrs)\n \ndiff --git a/src/click/decorators.py b/src/click/decorators.py\nindex a2fbaddf..0a019251 100644\n--- a/src/click/decorators.py\n+++ b/src/click/decorators.py\n@@ -137,14 +137,9 @@ def _make_command(\n     except AttributeError:\n         params = []\n \n-    help = attrs.get(\"help\")\n+    if attrs.get(\"help\") is None:\n+        attrs[\"help\"] = inspect.getdoc(f)\n \n-    if help is None:\n-        help = inspect.getdoc(f)\n-    else:\n-        help = inspect.cleandoc(help)\n-\n-    attrs[\"help\"] = help\n     return cls(\n         name=name or f.__name__.lower().replace(\"_\", \"-\"),\n         callback=f,\n@@ -297,9 +292,6 @@ def option(*param_decls: str, **attrs: t.Any) -> t.Callable[[FC], FC]:\n     def decorator(f: FC) -> FC:\n         # Issue 926, copy attrs, so pre-defined options can re-use the same cls=\n         option_attrs = attrs.copy()\n-\n-        if option_attrs.get(\"help\"):\n-            option_attrs[\"help\"] = inspect.cleandoc(option_attrs[\"help\"])\n         OptionClass = option_attrs.pop(\"cls\", None) or Option\n         _param_memo(f, OptionClass(param_decls, **option_attrs))\n         return f\n\n\nChanged source paths:\n- src/click/core.py\n- src/click/decorators.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by understanding the test conventions and finding relevant existing",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/click/core.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_8ab3e0ed64c7430da813d613",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/click/decorators.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_b24f6e6b6c8744328469bea9",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/click/core.py\", \"ranked_test_files\": [{\"fixtures\": [\"runner\"], \"opening_excerpt\": \"   1 | import os\\n   2 | import tempfile\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | from click.testing import CliRunner\\n   7 | \\n   8 | \\n   9 | @pytest.fixture(scope=\\\"function\\\")\\n  10 | def runner(request):\\n  11 |     return CliRunner()\\n  12 | \\n  13 | \\n  14 | def _check_symlinks_supported():\\n  15 |     with tempfile.TemporaryDirectory(prefix=\\\"click-pytest-\\\") as tempdir:\\n  16 |         target = os.path.join(tempdir, \\\"target\\\")\\n  17 |         open(target, \\\"w\\\").close()\\n  18 |         link = os.path.join(tempdir, \\\"link\\\")\\n  19 | \\n  20 |         try:\\n  21 |             os.symlink(target, link)\\n  22 |             return True\\n  23 |         except OSError:\\n  24 |             return False\\n  25 | \\n  26 | \\n  27 | symlinks_supported = _check_symlinks_supported()\", \"path\": \"tests/conftest.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sys\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def test_nargs_star(runner):\\n   9 |     @click.command()\\n  10 |     @click.argument(\\\"src\\\", nargs=-1)\\n  11 |     @click.argument(\\\"dst\\\")\\n  12 |     def copy(src, dst):\\n  13 |         click.echo(f\\\"src={'|'.join(src)}\\\")\\n  14 |         click.echo(f\\\"dst={dst}\\\")\\n  15 | \\n  16 |     result = runner.invoke(copy, [\\\"foo.txt\\\", \\\"bar.txt\\\", \\\"dir\\\"])\\n  17 |     assert not result.exception\\n  18 |     assert result.output.splitlines() == [\\\"src=foo.txt|bar.txt\\\", \\\"dst=dir\\\"]\\n  19 | \\n  20 | \\n  21 | def test_argument_unbounded_nargs_cant_have_default(runner):\\n  22 |     with pytest.raises(TypeError, match=\\\"nargs=-1\\\"):\\n  23 | \\n  24 |         @click.command()\\n  25 |         @click.argument(\\\"src\\\", nargs=-1, default=[\\\"42\\\"])\\n  26 |         def copy(src):\\n  27 |             pass\\n  28 | \\n  29 | \\n  30 | def test_nargs_tup(runner):\\n  31 |     @click.command()\\n  32 |     @click.argument(\\\"name\\\", nargs=1)\\n  33 |     @click.argument(\\\"point\\\", nargs=2, type=click.INT)\\n  34 |     def copy(name, point):\\n  35 |         click.echo(f\\\"name={name}\\\")\\n  36 |         x, y = point\\n...[TRUNCATED; use read_file('tests/test_arguments.py', start, end) for another window]...\", \"path\": \"tests/test_arguments.py\", \"test_names\": [\"test_nargs_star\", \"test_argument_unbounded_nargs_cant_have_default\", \"test_nargs_tup\", \"test_nargs_tup_composite\", \"test_nargs_err\", \"test_bytes_args\", \"test_file_args\", \"test_path_allow_dash\", \"test_file_atomics\", \"test_stdout_default\", \"test_nargs_envvar\", \"test_nargs_envvar_only_if_values_empty\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import os\\n   2 | from itertools import chain\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | import click\\n   7 | \\n   8 | \\n   9 | def test_basic_functionality(runner):\\n  10 |     @click.command()\\n  11 |     def cli():\\n  12 |         \\\"\\\"\\\"Hello World!\\\"\\\"\\\"\\n  13 |         click.echo(\\\"I EXECUTED\\\")\\n  14 | \\n  15 |     result = runner.invoke(cli, [\\\"--help\\\"])\\n  16 |     assert not result.exception\\n  17 |     assert \\\"Hello World!\\\" in result.output\\n  18 |     assert \\\"Show this message and exit.\\\" in result.output\\n  19 |     assert result.exit_code == 0\\n  20 |     assert \\\"I EXECUTED\\\" not in result.output\\n  21 | \\n  22 |     result = runner.invoke(cli, [])\\n  23 |     assert not result.exception\\n  24 |     assert \\\"I EXECUTED\\\" in result.output\\n  25 |     assert result.exit_code == 0\\n  26 | \\n  27 | \\n  28 | def test_repr():\\n  29 |     @click.command()\\n  30 |     def command():\\n  31 |         pass\\n  32 | \\n  33 |     @click.group()\\n  34 |     def group():\\n  35 |         pass\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_basic.py', start, end) for another window]...\", \"path\": \"tests/test_basic.py\", \"test_names\": [\"test_basic_functionality\", \"test_repr\", \"test_return_values\", \"test_basic_group\", \"test_group_commands_dict\", \"test_group_from_list\", \"test_string_option\", \"test_int_option\", \"test_uuid_option\", \"test_float_option\", \"test_boolean_switch\", \"test_boolean_flag\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sys\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def debug():\\n   9 |     click.echo(\\n  10 |         f\\\"{sys._getframe(1).f_code.co_name}\\\"\\n  11 |         f\\\"={'|'.join(click.get_current_context().args)}\\\"\\n  12 |     )\\n  13 | \\n  14 | \\n  15 | def test_basic_chaining(runner):\\n  16 |     @click.group(chain=True)\\n  17 |     def cli():\\n  18 |         pass\\n  19 | \\n  20 |     @cli.command(\\\"sdist\\\")\\n  21 |     def sdist():\\n  22 |         click.echo(\\\"sdist called\\\")\\n  23 | \\n  24 |     @cli.command(\\\"bdist\\\")\\n  25 |     def bdist():\\n  26 |         click.echo(\\\"bdist called\\\")\\n  27 | \\n  28 |     result = runner.invoke(cli, [\\\"bdist\\\", \\\"sdist\\\", \\\"bdist\\\"])\\n  29 |     assert not result.exception\\n  30 |     assert result.output.splitlines() == [\\n  31 |         \\\"bdist called\\\",\\n  32 |         \\\"sdist called\\\",\\n  33 |         \\\"bdist called\\\",\\n  34 |     ]\\n  35 | \\n  36 | \\n...[TRUNCATED; use read_file('tests/test_chain.py', start, end) for another window]...\", \"path\": \"tests/test_chain.py\", \"test_names\": [\"test_basic_chaining\", \"test_chaining_help\", \"test_chaining_with_options\", \"test_no_command_result_callback\", \"test_chaining_with_arguments\", \"test_pipeline\", \"test_args_and_chain\", \"test_multicommand_arg_behavior\", \"test_multicommand_chaining\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import click\\n   2 | \\n   3 | \\n   4 | def test_command_no_parens(runner):\\n   5 |     @click.command\\n   6 |     def cli():\\n   7 |         click.echo(\\\"hello\\\")\\n   8 | \\n   9 |     result = runner.invoke(cli)\\n  10 |     assert result.exception is None\\n  11 |     assert result.output == \\\"hello\\\\n\\\"\\n  12 | \\n  13 | \\n  14 | def test_group_no_parens(runner):\\n  15 |     @click.group\\n  16 |     def grp():\\n  17 |         click.echo(\\\"grp1\\\")\\n  18 | \\n  19 |     @grp.command\\n  20 |     def cmd1():\\n  21 |         click.echo(\\\"cmd1\\\")\\n  22 | \\n  23 |     @grp.group\\n  24 |     def grp2():\\n  25 |         click.echo(\\\"grp2\\\")\\n  26 | \\n  27 |     @grp2.command\\n  28 |     def cmd2():\\n  29 |         click.echo(\\\"cmd2\\\")\\n  30 | \\n  31 |     result = runner.invoke(grp, [\\\"cmd1\\\"])\\n  32 |     assert result.exception is None\\n  33 |     assert result.output == \\\"grp1\\\\ncmd1\\\\n\\\"\\n  34 | \\n  35 |     result = runner.invoke(grp, [\\\"grp2\\\", \\\"cmd2\\\"])\\n  36 |     assert result.exception is None\\n...[TRUNCATED; use read_file('tests/test_command_decorators.py', start, end) for another window]...\", \"path\": \"tests/test_command_decorators.py\", \"test_names\": [\"test_command_no_parens\", \"test_group_no_parens\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import re\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def test_other_command_invoke(runner):\\n   9 |     @click.command()\\n  10 |     @click.pass_context\\n  11 |     def cli(ctx):\\n  12 |         return ctx.invoke(other_cmd, arg=42)\\n  13 | \\n  14 |     @click.command()\\n  15 |     @click.argument(\\\"arg\\\", type=click.INT)\\n  16 |     def other_cmd(arg):\\n  17 |         click.echo(arg)\\n  18 | \\n  19 |     result = runner.invoke(cli, [])\\n  20 |     assert not result.exception\\n  21 |     assert result.output == \\\"42\\\\n\\\"\\n  22 | \\n  23 | \\n  24 | def test_other_command_forward(runner):\\n  25 |     cli = click.Group()\\n  26 | \\n  27 |     @cli.command()\\n  28 |     @click.option(\\\"--count\\\", default=1)\\n  29 |     def test(count):\\n  30 |         click.echo(f\\\"Count: {count:d}\\\")\\n  31 | \\n  32 |     @cli.command()\\n  33 |     @click.option(\\\"--count\\\", default=1)\\n  34 |     @click.pass_context\\n  35 |     def dist(ctx, count):\\n  36 |         ctx.forward(test)\\n...[TRUNCATED; use read_file('tests/test_commands.py', start, end) for another window]...\", \"path\": \"tests/test_commands.py\", \"test_names\": [\"test_other_command_invoke\", \"test_other_command_forward\", \"test_forwarded_params_consistency\", \"test_auto_shorthelp\", \"test_no_args_is_help\", \"test_default_maps\", \"test_group_with_args\", \"test_base_command\", \"test_object_propagation\", \"test_other_command_invoke_with_defaults\", \"test_invoked_subcommand\", \"test_aliased_command_canonical_name\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from click._compat import should_strip_ansi\\n   2 | \\n   3 | \\n   4 | def test_is_jupyter_kernel_output():\\n   5 |     class JupyterKernelFakeStream:\\n   6 |         pass\\n   7 | \\n   8 |     # implementation detail, aka cheapskate test\\n   9 |     JupyterKernelFakeStream.__module__ = \\\"ipykernel.faked\\\"\\n  10 |     assert not should_strip_ansi(stream=JupyterKernelFakeStream())\", \"path\": \"tests/test_compat.py\", \"test_names\": [\"test_is_jupyter_kernel_output\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from contextlib import contextmanager\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | from click.core import ParameterSource\\n   7 | from click.decorators import pass_meta_key\\n   8 | \\n   9 | \\n  10 | def test_ensure_context_objects(runner):\\n  11 |     class Foo:\\n  12 |         def __init__(self):\\n  13 |             self.title = \\\"default\\\"\\n  14 | \\n  15 |     pass_foo = click.make_pass_decorator(Foo, ensure=True)\\n  16 | \\n  17 |     @click.group()\\n  18 |     @pass_foo\\n  19 |     def cli(foo):\\n  20 |         pass\\n  21 | \\n  22 |     @cli.command()\\n  23 |     @pass_foo\\n  24 |     def test(foo):\\n  25 |         click.echo(foo.title)\\n  26 | \\n  27 |     result = runner.invoke(cli, [\\\"test\\\"])\\n  28 |     assert not result.exception\\n  29 |     assert result.output == \\\"default\\\\n\\\"\\n  30 | \\n  31 | \\n  32 | def test_get_context_objects(runner):\\n  33 |     class Foo:\\n  34 |         def __init__(self):\\n  35 |             self.title = \\\"default\\\"\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_context.py', start, end) for another window]...\", \"path\": \"tests/test_context.py\", \"test_names\": [\"test_ensure_context_objects\", \"test_get_context_objects\", \"test_get_context_objects_no_ensuring\", \"test_get_context_objects_missing\", \"test_multi_enter\", \"test_global_context_object\", \"test_context_meta\", \"test_make_pass_meta_decorator\", \"test_make_pass_meta_decorator_doc\", \"test_context_pushing\", \"test_pass_obj\", \"test_close_before_pop\"]}], \"total_test_python_files\": 21}",
+        "role": "tool",
+        "tool_call_id": "call_8ab3e0ed64c7430da813d613"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/click/decorators.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | import click\\n   2 | \\n   3 | \\n   4 | def test_command_no_parens(runner):\\n   5 |     @click.command\\n   6 |     def cli():\\n   7 |         click.echo(\\\"hello\\\")\\n   8 | \\n   9 |     result = runner.invoke(cli)\\n  10 |     assert result.exception is None\\n  11 |     assert result.output == \\\"hello\\\\n\\\"\\n  12 | \\n  13 | \\n  14 | def test_group_no_parens(runner):\\n  15 |     @click.group\\n  16 |     def grp():\\n  17 |         click.echo(\\\"grp1\\\")\\n  18 | \\n  19 |     @grp.command\\n  20 |     def cmd1():\\n  21 |         click.echo(\\\"cmd1\\\")\\n  22 | \\n  23 |     @grp.group\\n  24 |     def grp2():\\n  25 |         click.echo(\\\"grp2\\\")\\n  26 | \\n  27 |     @grp2.command\\n  28 |     def cmd2():\\n  29 |         click.echo(\\\"cmd2\\\")\\n  30 | \\n  31 |     result = runner.invoke(grp, [\\\"cmd1\\\"])\\n  32 |     assert result.exception is None\\n  33 |     assert result.output == \\\"grp1\\\\ncmd1\\\\n\\\"\\n  34 | \\n  35 |     result = runner.invoke(grp, [\\\"grp2\\\", \\\"cmd2\\\"])\\n  36 |     assert result.exception is None\\n...[TRUNCATED; use read_file('tests/test_command_decorators.py', start, end) for another window]...\", \"path\": \"tests/test_command_decorators.py\", \"test_names\": [\"test_command_no_parens\", \"test_group_no_parens\"]}, {\"fixtures\": [\"runner\"], \"opening_excerpt\": \"   1 | import os\\n   2 | import tempfile\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | from click.testing import CliRunner\\n   7 | \\n   8 | \\n   9 | @pytest.fixture(scope=\\\"function\\\")\\n  10 | def runner(request):\\n  11 |     return CliRunner()\\n  12 | \\n  13 | \\n  14 | def _check_symlinks_supported():\\n  15 |     with tempfile.TemporaryDirectory(prefix=\\\"click-pytest-\\\") as tempdir:\\n  16 |         target = os.path.join(tempdir, \\\"target\\\")\\n  17 |         open(target, \\\"w\\\").close()\\n  18 |         link = os.path.join(tempdir, \\\"link\\\")\\n  19 | \\n  20 |         try:\\n  21 |             os.symlink(target, link)\\n  22 |             return True\\n  23 |         except OSError:\\n  24 |             return False\\n  25 | \\n  26 | \\n  27 | symlinks_supported = _check_symlinks_supported()\", \"path\": \"tests/conftest.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sys\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def test_nargs_star(runner):\\n   9 |     @click.command()\\n  10 |     @click.argument(\\\"src\\\", nargs=-1)\\n  11 |     @click.argument(\\\"dst\\\")\\n  12 |     def copy(src, dst):\\n  13 |         click.echo(f\\\"src={'|'.join(src)}\\\")\\n  14 |         click.echo(f\\\"dst={dst}\\\")\\n  15 | \\n  16 |     result = runner.invoke(copy, [\\\"foo.txt\\\", \\\"bar.txt\\\", \\\"dir\\\"])\\n  17 |     assert not result.exception\\n  18 |     assert result.output.splitlines() == [\\\"src=foo.txt|bar.txt\\\", \\\"dst=dir\\\"]\\n  19 | \\n  20 | \\n  21 | def test_argument_unbounded_nargs_cant_have_default(runner):\\n  22 |     with pytest.raises(TypeError, match=\\\"nargs=-1\\\"):\\n  23 | \\n  24 |         @click.command()\\n  25 |         @click.argument(\\\"src\\\", nargs=-1, default=[\\\"42\\\"])\\n  26 |         def copy(src):\\n  27 |             pass\\n  28 | \\n  29 | \\n  30 | def test_nargs_tup(runner):\\n  31 |     @click.command()\\n  32 |     @click.argument(\\\"name\\\", nargs=1)\\n  33 |     @click.argument(\\\"point\\\", nargs=2, type=click.INT)\\n  34 |     def copy(name, point):\\n  35 |         click.echo(f\\\"name={name}\\\")\\n  36 |         x, y = point\\n...[TRUNCATED; use read_file('tests/test_arguments.py', start, end) for another window]...\", \"path\": \"tests/test_arguments.py\", \"test_names\": [\"test_nargs_star\", \"test_argument_unbounded_nargs_cant_have_default\", \"test_nargs_tup\", \"test_nargs_tup_composite\", \"test_nargs_err\", \"test_bytes_args\", \"test_file_args\", \"test_path_allow_dash\", \"test_file_atomics\", \"test_stdout_default\", \"test_nargs_envvar\", \"test_nargs_envvar_only_if_values_empty\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import os\\n   2 | from itertools import chain\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | import click\\n   7 | \\n   8 | \\n   9 | def test_basic_functionality(runner):\\n  10 |     @click.command()\\n  11 |     def cli():\\n  12 |         \\\"\\\"\\\"Hello World!\\\"\\\"\\\"\\n  13 |         click.echo(\\\"I EXECUTED\\\")\\n  14 | \\n  15 |     result = runner.invoke(cli, [\\\"--help\\\"])\\n  16 |     assert not result.exception\\n  17 |     assert \\\"Hello World!\\\" in result.output\\n  18 |     assert \\\"Show this message and exit.\\\" in result.output\\n  19 |     assert result.exit_code == 0\\n  20 |     assert \\\"I EXECUTED\\\" not in result.output\\n  21 | \\n  22 |     result = runner.invoke(cli, [])\\n  23 |     assert not result.exception\\n  24 |     assert \\\"I EXECUTED\\\" in result.output\\n  25 |     assert result.exit_code == 0\\n  26 | \\n  27 | \\n  28 | def test_repr():\\n  29 |     @click.command()\\n  30 |     def command():\\n  31 |         pass\\n  32 | \\n  33 |     @click.group()\\n  34 |     def group():\\n  35 |         pass\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_basic.py', start, end) for another window]...\", \"path\": \"tests/test_basic.py\", \"test_names\": [\"test_basic_functionality\", \"test_repr\", \"test_return_values\", \"test_basic_group\", \"test_group_commands_dict\", \"test_group_from_list\", \"test_string_option\", \"test_int_option\", \"test_uuid_option\", \"test_float_option\", \"test_boolean_switch\", \"test_boolean_flag\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sys\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def debug():\\n   9 |     click.echo(\\n  10 |         f\\\"{sys._getframe(1).f_code.co_name}\\\"\\n  11 |         f\\\"={'|'.join(click.get_current_context().args)}\\\"\\n  12 |     )\\n  13 | \\n  14 | \\n  15 | def test_basic_chaining(runner):\\n  16 |     @click.group(chain=True)\\n  17 |     def cli():\\n  18 |         pass\\n  19 | \\n  20 |     @cli.command(\\\"sdist\\\")\\n  21 |     def sdist():\\n  22 |         click.echo(\\\"sdist called\\\")\\n  23 | \\n  24 |     @cli.command(\\\"bdist\\\")\\n  25 |     def bdist():\\n  26 |         click.echo(\\\"bdist called\\\")\\n  27 | \\n  28 |     result = runner.invoke(cli, [\\\"bdist\\\", \\\"sdist\\\", \\\"bdist\\\"])\\n  29 |     assert not result.exception\\n  30 |     assert result.output.splitlines() == [\\n  31 |         \\\"bdist called\\\",\\n  32 |         \\\"sdist called\\\",\\n  33 |         \\\"bdist called\\\",\\n  34 |     ]\\n  35 | \\n  36 | \\n...[TRUNCATED; use read_file('tests/test_chain.py', start, end) for another window]...\", \"path\": \"tests/test_chain.py\", \"test_names\": [\"test_basic_chaining\", \"test_chaining_help\", \"test_chaining_with_options\", \"test_no_command_result_callback\", \"test_chaining_with_arguments\", \"test_pipeline\", \"test_args_and_chain\", \"test_multicommand_arg_behavior\", \"test_multicommand_chaining\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import re\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def test_other_command_invoke(runner):\\n   9 |     @click.command()\\n  10 |     @click.pass_context\\n  11 |     def cli(ctx):\\n  12 |         return ctx.invoke(other_cmd, arg=42)\\n  13 | \\n  14 |     @click.command()\\n  15 |     @click.argument(\\\"arg\\\", type=click.INT)\\n  16 |     def other_cmd(arg):\\n  17 |         click.echo(arg)\\n  18 | \\n  19 |     result = runner.invoke(cli, [])\\n  20 |     assert not result.exception\\n  21 |     assert result.output == \\\"42\\\\n\\\"\\n  22 | \\n  23 | \\n  24 | def test_other_command_forward(runner):\\n  25 |     cli = click.Group()\\n  26 | \\n  27 |     @cli.command()\\n  28 |     @click.option(\\\"--count\\\", default=1)\\n  29 |     def test(count):\\n  30 |         click.echo(f\\\"Count: {count:d}\\\")\\n  31 | \\n  32 |     @cli.command()\\n  33 |     @click.option(\\\"--count\\\", default=1)\\n  34 |     @click.pass_context\\n  35 |     def dist(ctx, count):\\n  36 |         ctx.forward(test)\\n...[TRUNCATED; use read_file('tests/test_commands.py', start, end) for another window]...\", \"path\": \"tests/test_commands.py\", \"test_names\": [\"test_other_command_invoke\", \"test_other_command_forward\", \"test_forwarded_params_consistency\", \"test_auto_shorthelp\", \"test_no_args_is_help\", \"test_default_maps\", \"test_group_with_args\", \"test_base_command\", \"test_object_propagation\", \"test_other_command_invoke_with_defaults\", \"test_invoked_subcommand\", \"test_aliased_command_canonical_name\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from click._compat import should_strip_ansi\\n   2 | \\n   3 | \\n   4 | def test_is_jupyter_kernel_output():\\n   5 |     class JupyterKernelFakeStream:\\n   6 |         pass\\n   7 | \\n   8 |     # implementation detail, aka cheapskate test\\n   9 |     JupyterKernelFakeStream.__module__ = \\\"ipykernel.faked\\\"\\n  10 |     assert not should_strip_ansi(stream=JupyterKernelFakeStream())\", \"path\": \"tests/test_compat.py\", \"test_names\": [\"test_is_jupyter_kernel_output\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from contextlib import contextmanager\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | from click.core import ParameterSource\\n   7 | from click.decorators import pass_meta_key\\n   8 | \\n   9 | \\n  10 | def test_ensure_context_objects(runner):\\n  11 |     class Foo:\\n  12 |         def __init__(self):\\n  13 |             self.title = \\\"default\\\"\\n  14 | \\n  15 |     pass_foo = click.make_pass_decorator(Foo, ensure=True)\\n  16 | \\n  17 |     @click.group()\\n  18 |     @pass_foo\\n  19 |     def cli(foo):\\n  20 |         pass\\n  21 | \\n  22 |     @cli.command()\\n  23 |     @pass_foo\\n  24 |     def test(foo):\\n  25 |         click.echo(foo.title)\\n  26 | \\n  27 |     result = runner.invoke(cli, [\\\"test\\\"])\\n  28 |     assert not result.exception\\n  29 |     assert result.output == \\\"default\\\\n\\\"\\n  30 | \\n  31 | \\n  32 | def test_get_context_objects(runner):\\n  33 |     class Foo:\\n  34 |         def __init__(self):\\n  35 |             self.title = \\\"default\\\"\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_context.py', start, end) for another window]...\", \"path\": \"tests/test_context.py\", \"test_names\": [\"test_ensure_context_objects\", \"test_get_context_objects\", \"test_get_context_objects_no_ensuring\", \"test_get_context_objects_missing\", \"test_multi_enter\", \"test_global_context_object\", \"test_context_meta\", \"test_make_pass_meta_decorator\", \"test_make_pass_meta_decorator_doc\", \"test_context_pushing\", \"test_pass_obj\", \"test_close_before_pop\"]}], \"total_test_python_files\": 21}",
+        "role": "tool",
+        "tool_call_id": "call_b24f6e6b6c8744328469bea9"
+      },
+      {
+        "content": "Let me look at the existing tests for help text formatting and the relevant source code.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"inspect\\\\.cleandoc\"}",
+              "name": "search"
+            },
+            "id": "call_50642d48cfd54c82b3a16f78",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"help.*cleandoc\\\\|cleandoc.*help\"}",
+              "name": "search"
+            },
+            "id": "call_b9566b7752994ea5b8405b15",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 2, \"matches\": [\"src/click/decorators.py:145:        help = inspect.cleandoc(help)\", \"src/click/decorators.py:302:            option_attrs[\\\"help\\\"] = inspect.cleandoc(option_attrs[\\\"help\\\"])\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"inspect\\\\.cleandoc\"}",
+        "role": "tool",
+        "tool_call_id": "call_50642d48cfd54c82b3a16f78"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"help.*cleandoc\\\\|cleandoc.*help\"}",
+        "role": "tool",
+        "tool_call_id": "call_b9566b7752994ea5b8405b15"
+      },
+      {
+        "content": "Let me look at the parent-side source to understand the current state of the code before the fix.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 155, \"path\": \"src/click/decorators.py\", \"start\": 130}",
+              "name": "read_file"
+            },
+            "id": "call_a0de315b50ff41b08763d7a7",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"end\": 310, \"path\": \"src/click/decorators.py\", \"start\": 285}",
+              "name": "read_file"
+            },
+            "id": "call_cddd45a21b254cbd9ed6caab",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 130 |     if isinstance(f, Command):\\n 131 |         raise TypeError(\\\"Attempted to convert a callback into a command twice.\\\")\\n 132 | \\n 133 |     try:\\n 134 |         params = f.__click_params__  # type: ignore\\n 135 |         params.reverse()\\n 136 |         del f.__click_params__  # type: ignore\\n 137 |     except AttributeError:\\n 138 |         params = []\\n 139 | \\n 140 |     help = attrs.get(\\\"help\\\")\\n 141 | \\n 142 |     if help is None:\\n 143 |         help = inspect.getdoc(f)\\n 144 |     else:\\n 145 |         help = inspect.cleandoc(help)\\n 146 | \\n 147 |     attrs[\\\"help\\\"] = help\\n 148 |     return cls(\\n 149 |         name=name or f.__name__.lower().replace(\\\"_\\\", \\\"-\\\"),\\n 150 |         callback=f,\\n 151 |         params=params,\\n 152 |         **attrs,\\n 153 |     )\\n 154 | \\n 155 | \\n...[WINDOWED READ; 129 earlier lines omitted; 338 later lines omitted]...\", \"end\": 155, \"ok\": true, \"path\": \"src/click/decorators.py\", \"start\": 130, \"total_lines\": 493}",
+        "role": "tool",
+        "tool_call_id": "call_a0de315b50ff41b08763d7a7"
+      },
+      {
+        "content": "{\"content\": \" 285 | \\n 286 | def option(*param_decls: str, **attrs: t.Any) -> t.Callable[[FC], FC]:\\n 287 |     \\\"\\\"\\\"Attaches an option to the command.  All positional arguments are\\n 288 |     passed as parameter declarations to :class:`Option`; all keyword\\n 289 |     arguments are forwarded unchanged (except ``cls``).\\n 290 |     This is equivalent to creating an :class:`Option` instance manually\\n 291 |     and attaching it to the :attr:`Command.params` list.\\n 292 | \\n 293 |     :param cls: the option class to instantiate.  This defaults to\\n 294 |                 :class:`Option`.\\n 295 |     \\\"\\\"\\\"\\n 296 | \\n 297 |     def decorator(f: FC) -> FC:\\n 298 |         # Issue 926, copy attrs, so pre-defined options can re-use the same cls=\\n 299 |         option_attrs = attrs.copy()\\n 300 | \\n 301 |         if option_attrs.get(\\\"help\\\"):\\n 302 |             option_attrs[\\\"help\\\"] = inspect.cleandoc(option_attrs[\\\"help\\\"])\\n 303 |         OptionClass = option_attrs.pop(\\\"cls\\\", None) or Option\\n 304 |         _param_memo(f, OptionClass(param_decls, **option_attrs))\\n 305 |         return f\\n 306 | \\n 307 |     return decorator\\n 308 | \\n 309 | \\n 310 | def confirmation_option(*param_decls: str, **kwargs: t.Any) -> t.Callable[[FC], FC]:\\n...[WINDOWED READ; 284 earlier lines omitted; 183 later lines omitted]...\", \"end\": 310, \"ok\": true, \"path\": \"src/click/decorators.py\", \"start\": 285, \"total_lines\": 493}",
+        "role": "tool",
+        "tool_call_id": "call_cddd45a21b254cbd9ed6caab"
+      },
+      {
+        "content": "Now let me look at the parent-side `Command.__init__` and `Option.__init__` in `core",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 1210, \"path\": \"src/click/core.py\", \"start\": 1180}",
+              "name": "read_file"
+            },
+            "id": "call_c0a77a843d134174837d81e2",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"end\": 2480, \"path\": \"src/click/core.py\", \"start\": 2440}",
+              "name": "read_file"
+            },
+            "id": "call_697dae67818542cba6cb4c85",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"1180 |     ) -> None:\\n1181 |         super().__init__(name, context_settings)\\n1182 |         #: the callback to execute when the command fires.  This might be\\n1183 |         #: `None` in which case nothing happens.\\n1184 |         self.callback = callback\\n1185 |         #: the list of parameters for this command in the order they\\n1186 |         #: should show up in the help page and execute.  Eager parameters\\n1187 |         #: will automatically be handled before non eager ones.\\n1188 |         self.params: t.List[\\\"Parameter\\\"] = params or []\\n1189 | \\n1190 |         # if a form feed (page break) is found in the help text, truncate help\\n1191 |         # text to the content preceding the first form feed\\n1192 |         if help and \\\"\\\\f\\\" in help:\\n1193 |             help = help.split(\\\"\\\\f\\\", 1)[0]\\n1194 | \\n1195 |         self.help = help\\n1196 |         self.epilog = epilog\\n1197 |         self.options_metavar = options_metavar\\n1198 |         self.short_help = short_help\\n1199 |         self.add_help_option = add_help_option\\n1200 |         self.no_args_is_help = no_args_is_help\\n1201 |         self.hidden = hidden\\n1202 |         self.deprecated = deprecated\\n1203 | \\n1204 |     def to_info_dict(self, ctx: Context) -> t.Dict[str, t.Any]:\\n1205 |         info_dict = super().to_info_dict(ctx)\\n1206 |         info_dict.update(\\n1207 |             params=[param.to_info_dict() for param in self.get_params(ctx)],\\n1208 |             help=self.help,\\n1209 |             epilog=self.epilog,\\n1210 |             short_help=self.short_help,\\n...[WINDOWED READ; 1179 earlier lines omitted; 1740 later lines omitted]...\", \"end\": 1210, \"ok\": true, \"path\": \"src/click/core.py\", \"start\": 1180, \"total_lines\": 2950}",
+        "role": "tool",
+        "tool_call_id": "call_c0a77a843d134174837d81e2"
+      },
+      {
+        "content": "{\"content\": \"2440 |         is_flag: t.Optional[bool] = None,\\n2441 |         flag_value: t.Optional[t.Any] = None,\\n2442 |         multiple: bool = False,\\n2443 |         count: bool = False,\\n2444 |         allow_from_autoenv: bool = True,\\n2445 |         type: t.Optional[t.Union[types.ParamType, t.Any]] = None,\\n2446 |         help: t.Optional[str] = None,\\n2447 |         hidden: bool = False,\\n2448 |         show_choices: bool = True,\\n2449 |         show_envvar: bool = False,\\n2450 |         **attrs: t.Any,\\n2451 |     ) -> None:\\n2452 |         default_is_missing = \\\"default\\\" not in attrs\\n2453 |         super().__init__(param_decls, type=type, multiple=multiple, **attrs)\\n2454 | \\n2455 |         if prompt is True:\\n2456 |             if self.name is None:\\n2457 |                 raise TypeError(\\\"'name' is required with 'prompt=True'.\\\")\\n2458 | \\n2459 |             prompt_text: t.Optional[str] = self.name.replace(\\\"_\\\", \\\" \\\").capitalize()\\n2460 |         elif prompt is False:\\n2461 |             prompt_text = None\\n2462 |         else:\\n2463 |             prompt_text = prompt\\n2464 | \\n2465 |         self.prompt = prompt_text\\n2466 |         self.confirmation_prompt = confirmation_prompt\\n2467 |         self.prompt_required = prompt_required\\n2468 |         self.hide_input = hide_input\\n2469 |         self.hidden = hidden\\n2470 | \\n2471 |         # If prompt is enabled but not required, then the option can be\\n2472 |         # used as a flag to indicate using prompt or flag_value.\\n2473 |         self._flag_needs_value = self.prompt is not None and not self.prompt_required\\n2474 | \\n2475 |         if is_flag is None:\\n2476 |             if flag_value is not None:\\n2477 |                 # Implicitly a flag because flag_value was set.\\n2478 |                 is_flag = True\\n2479 |             elif self._flag_needs_value:\\n2480 |                 # Not a flag, but when used as a flag it shows a prompt.\\n...[WINDOWED READ; 2439 earlier lines omitted; 470 later lines omitted]...\", \"end\": 2480, \"ok\": true, \"path\": \"src/click/core.py\", \"start\": 2440, \"total_lines\": 2950}",
+        "role": "tool",
+        "tool_call_id": "call_697dae67818542cba6cb4c85"
+      },
+      {
+        "content": "Now I understand the issue. The fix moves `inspect.cleandoc` processing of `help` from the `@option` decorator into `Option.__init__`, and from `_make_command` into `Command.__init__`. It also adds `inspect.cleandoc` for `epilog` and `short_help` in `Command.__init__`.\n\nThe key behavior change: when someone creates an `Option` or `Command` directly (not via decorators), the help text indentation is now cleaned. Previously, only the decorators did the cleaning.\n\nLet me look at existing tests related to help formatting to understand the conventions:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"cleandoc\"}",
+              "name": "search"
+            },
+            "id": "call_509013f0cf144a9e8caeed70",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"help.*indent\\\\|indent.*help\\\\|short_help\\\\|epilog\"}",
+              "name": "search"
+            },
+            "id": "call_845021101db54133ab37ee52",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 2, \"matches\": [\"src/click/decorators.py:145:        help = inspect.cleandoc(help)\", \"src/click/decorators.py:302:            option_attrs[\\\"help\\\"] = inspect.cleandoc(option_attrs[\\\"help\\\"])\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"cleandoc\"}",
+        "role": "tool",
+        "tool_call_id": "call_509013f0cf144a9e8caeed70"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"help.*indent\\\\|indent.*help\\\\|short_help\\\\|epilog\"}",
+        "role": "tool",
+        "tool_call_id": "call_845021101db54133ab37ee52"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"short_help\"}",
+              "name": "search"
+            },
+            "id": "call_e2edf78eeaef434d816fd99e",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"epilog\"}",
+              "name": "search"
+            },
+            "id": "call_e0b26724148d4b6282b99361",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 24, \"matches\": [\"CHANGES.rst:336:-   Fix a bug of ``click.utils.make_default_short_help`` for which the\", \"docs/documentation.rst:198:    @cli.command('init', short_help='init the repo')\", \"docs/documentation.rst:202:    @cli.command('delete', short_help='delete the repo')\", \"examples/complex/complex/commands/cmd_init.py:6:@click.command(\\\"init\\\", short_help=\\\"Initializes a repo.\\\")\", \"examples/complex/complex/commands/cmd_status.py:6:@click.command(\\\"status\\\", short_help=\\\"Shows file changes.\\\")\", \"examples/repo/repo.py:154:@cli.command(short_help=\\\"Copies files.\\\")\", \"src/click/core.py:36:from .utils import make_default_short_help\", \"src/click/core.py:956:                    CompletionItem(name, help=command.get_short_help_str())\", \"src/click/core.py:1152:    :param short_help: the short help to use for this command.  This is\", \"src/click/core.py:1174:        short_help: t.Optional[str] = None,\", \"src/click/core.py:1198:        self.short_help = short_help\", \"src/click/core.py:1210:            short_help=self.short_help,\", \"src/click/core.py:1298:    def get_short_help_str(self, limit: int = 45) -> str:\", \"src/click/core.py:1302:        text = self.short_help or \\\"\\\"\", \"src/click/core.py:1305:            text = make_default_short_help(self.help, limit)\", \"src/click/core.py:1592:                help = cmd.get_short_help_str(limit)\", \"src/click/core.py:1734:            CompletionItem(name, help=command.get_short_help_str())\", \"src/click/utils.py:52:def make_default_short_help(help: str, max_length: int = 45) -> str:\", \"tests/test_info_dict.py:73:        \\\"short_help\\\": None,\", \"tests/test_info_dict.py:85:        \\\"short_help\\\": None,\", \"tests/test_info_dict.py:231:                \\\"short_help\\\": None,\", \"tests/test_info_dict.py:241:                        \\\"short_help\\\": None,\", \"tests/test_utils.py:499:def test_make_default_short_help(value, max_length, alter, expect):\", \"tests/test_utils.py:505:    out = click.utils.make_default_short_help(value, max_length)\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"short_help\"}",
+        "role": "tool",
+        "tool_call_id": "call_e2edf78eeaef434d816fd99e"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 14, \"matches\": [\"src/click/core.py:1150:    :param epilog: like the help string but it's printed at the end of the\", \"src/click/core.py:1173:        epilog: t.Optional[str] = None,\", \"src/click/core.py:1196:        self.epilog = epilog\", \"src/click/core.py:1209:            epilog=self.epilog,\", \"src/click/core.py:1322:        -   :meth:`format_epilog`\", \"src/click/core.py:1327:        self.format_epilog(ctx, formatter)\", \"src/click/core.py:1354:    def format_epilog(self, ctx: Context, formatter: HelpFormatter) -> None:\", \"src/click/core.py:1355:        \\\"\\\"\\\"Writes the epilog into the formatter if it exists.\\\"\\\"\\\"\", \"src/click/core.py:1356:        if self.epilog:\", \"src/click/core.py:1359:                formatter.write_text(self.epilog)\", \"tests/test_info_dict.py:72:        \\\"epilog\\\": None,\", \"tests/test_info_dict.py:84:        \\\"epilog\\\": None,\", \"tests/test_info_dict.py:230:                \\\"epilog\\\": None,\", \"tests/test_info_dict.py:240:                        \\\"epilog\\\": None,\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"epilog\"}",
+        "role": "tool",
+        "tool_call_id": "call_e0b26724148d4b6282b99361"
+      },
+      {
+        "content": "Now let me look at the test for help formatting to see if there are existing tests for `inspect.cleandoc` behavior:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"help.*form.*feed\\\\|form.*feed.*help\\\\|\\\\\\\\\\\\f\"}",
+              "name": "search"
+            },
+            "id": "call_210ec8d0665b4827a88e06df",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"help.*form.*feed\\\\|form.*feed.*help\\\\|\\\\\\\\\\\\f\"}",
+        "role": "tool",
+        "tool_call_id": "call_210ec8d0665b4827a88e06df"
+      },
+      {
+        "content": "Let me look at the test_basic.py file for existing help-related",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 100, \"path\": \"tests/test_basic.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_ee9f4b9a93104c899ca9a731",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | import os\\n   2 | from itertools import chain\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | import click\\n   7 | \\n   8 | \\n   9 | def test_basic_functionality(runner):\\n  10 |     @click.command()\\n  11 |     def cli():\\n  12 |         \\\"\\\"\\\"Hello World!\\\"\\\"\\\"\\n  13 |         click.echo(\\\"I EXECUTED\\\")\\n  14 | \\n  15 |     result = runner.invoke(cli, [\\\"--help\\\"])\\n  16 |     assert not result.exception\\n  17 |     assert \\\"Hello World!\\\" in result.output\\n  18 |     assert \\\"Show this message and exit.\\\" in result.output\\n  19 |     assert result.exit_code == 0\\n  20 |     assert \\\"I EXECUTED\\\" not in result.output\\n  21 | \\n  22 |     result = runner.invoke(cli, [])\\n  23 |     assert not result.exception\\n  24 |     assert \\\"I EXECUTED\\\" in result.output\\n  25 |     assert result.exit_code == 0\\n  26 | \\n  27 | \\n  28 | def test_repr():\\n  29 |     @click.command()\\n  30 |     def command():\\n  31 |         pass\\n  32 | \\n  33 |     @click.group()\\n  34 |     def group():\\n  35 |         pass\\n  36 | \\n  37 |     @group.command()\\n  38 |     def subcommand():\\n  39 |         pass\\n  40 | \\n  41 |     assert repr(command) == \\\"<Command command>\\\"\\n  42 |     assert repr(group) == \\\"<Group group>\\\"\\n  43 |     assert repr(subcommand) == \\\"<Command subcommand>\\\"\\n  44 | \\n  45 | \\n  46 | def test_return_values():\\n  47 |     @click.command()\\n  48 |     def cli():\\n  49 |         return 42\\n  50 | \\n  51 |     with cli.make_context(\\\"foo\\\", []) as ctx:\\n  52 |         rv = cli.invoke(ctx)\\n  53 |         assert rv == 42\\n  54 | \\n  55 | \\n  56 | def test_basic_group(runner):\\n  57 |     @click.group()\\n  58 |     def cli():\\n  59 |         \\\"\\\"\\\"This is the root.\\\"\\\"\\\"\\n  60 |         click.echo(\\\"ROOT EXECUTED\\\")\\n  61 | \\n  62 |     @cli.command()\\n  63 |     def subcommand():\\n  64 |         \\\"\\\"\\\"This is a subcommand.\\\"\\\"\\\"\\n  65 |         click.echo(\\\"SUBCOMMAND EXECUTED\\\")\\n  66 | \\n  67 |     result = runner.invoke(cli, [\\\"--help\\\"])\\n  68 |     assert not result.exception\\n  69 |     assert \\\"COMMAND [ARGS]...\\\" in result.output\\n  70 |     assert \\\"This is the root\\\" in result.output\\n  71 |     assert \\\"This is a subcommand.\\\" in result.output\\n  72 |     assert result.exit_code == 0\\n  73 |     assert \\\"ROOT EXECUTED\\\" not in result.output\\n  74 | \\n  75 |     result = runner.invoke(cli, [\\\"subcommand\\\"])\\n  76 |     assert not result.exception\\n  77 |     assert result.exit_code == 0\\n  78 |     assert \\\"ROOT EXECUTED\\\" in result.output\\n  79 |     assert \\\"SUBCOMMAND EXECUTED\\\" in result.output\\n  80 | \\n  81 | \\n  82 | def test_group_commands_dict(runner):\\n  83 |     \\\"\\\"\\\"A Group can be built with a dict of commands.\\\"\\\"\\\"\\n  84 | \\n  85 |     @click.command()\\n  86 |     def sub():\\n  87 |         click.echo(\\\"sub\\\", nl=False)\\n  88 | \\n  89 |     cli = click.Group(commands={\\\"other\\\": sub})\\n  90 |     result = runner.invoke(cli, [\\\"other\\\"])\\n  91 |     assert result.output == \\\"sub\\\"\\n  92 | \\n  93 | \\n  94 | def test_group_from_list(runner):\\n  95 |     \\\"\\\"\\\"A Group can be built with a list of commands.\\\"\\\"\\\"\\n  96 | \\n  97 |     @click.command()\\n  98 |     def sub():\\n  99 |         click.echo(\\\"sub\\\", nl=False)\\n 100 | \\n...[WINDOWED READ; 475 later lines omitted]...\", \"end\": 100, \"ok\": true, \"path\": \"tests/test_basic.py\", \"start\": 1, \"total_lines\": 575}",
+        "role": "tool",
+        "tool_call_id": "call_ee9f4b9a93104c899ca9a731"
+      },
+      {
+        "content": "Let me look at the test_commands.py for help-related tests:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 200, \"path\": \"tests/test_commands.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_f028672e34b14b61bd9d6338",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"error\": \"window is 200 lines; request at most 160 lines\", \"ok\": false}",
+        "role": "tool",
+        "tool_call_id": "call_f028672e34b14b61bd9d6338"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 160, \"path\": \"tests/test_commands.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_3ed74f1dd8ab46cca9ce2ea4",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | import re\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | import click\\n   6 | \\n   7 | \\n   8 | def test_other_command_invoke(runner):\\n   9 |     @click.command()\\n  10 |     @click.pass_context\\n  11 |     def cli(ctx):\\n  12 |         return ctx.invoke(other_cmd, arg=42)\\n  13 | \\n  14 |     @click.command()\\n  15 |     @click.argument(\\\"arg\\\", type=click.INT)\\n  16 |     def other_cmd(arg):\\n  17 |         click.echo(arg)\\n  18 | \\n  19 |     result = runner.invoke(cli, [])\\n  20 |     assert not result.exception\\n  21 |     assert result.output == \\\"42\\\\n\\\"\\n  22 | \\n  23 | \\n  24 | def test_other_command_forward(runner):\\n  25 |     cli = click.Group()\\n  26 | \\n  27 |     @cli.command()\\n  28 |     @click.option(\\\"--count\\\", default=1)\\n  29 |     def test(count):\\n  30 |         click.echo(f\\\"Count: {count:d}\\\")\\n  31 | \\n  32 |     @cli.command()\\n  33 |     @click.option(\\\"--count\\\", default=1)\\n  34 |     @click.pass_context\\n  35 |     def dist(ctx, count):\\n  36 |         ctx.forward(test)\\n  37 |         ctx.invoke(test, count=42)\\n  38 | \\n  39 |     result = runner.invoke(cli, [\\\"dist\\\"])\\n  40 |     assert not result.exception\\n  41 |     assert result.output == \\\"Count: 1\\\\nCount: 42\\\\n\\\"\\n  42 | \\n  43 | \\n  44 | def test_forwarded_params_consistency(runner):\\n  45 |     cli = click.Group()\\n  46 | \\n  47 |     @cli.command()\\n  48 |     @click.option(\\\"-a\\\")\\n  49 |     @click.pass_context\\n  50 |     def first(ctx, **kwargs):\\n  51 |         click.echo(f\\\"{ctx.params}\\\")\\n  52 | \\n  53 |     @cli.command()\\n  54 |     @click.option(\\\"-a\\\")\\n  55 |     @click.option(\\\"-b\\\")\\n  56 |     @click.pass_context\\n  57 |     def second(ctx, **kwargs):\\n  58 |         click.echo(f\\\"{ctx.params}\\\")\\n  59 |         ctx.forward(first)\\n  60 | \\n  61 |     result = runner.invoke(cli, [\\\"second\\\", \\\"-a\\\", \\\"foo\\\", \\\"-b\\\", \\\"bar\\\"])\\n  62 |     assert not result.exception\\n  63 |     assert result.output == \\\"{'a': 'foo', 'b': 'bar'}\\\\n{'a': 'foo', 'b': 'bar'}\\\\n\\\"\\n  64 | \\n  65 | \\n  66 | def test_auto_shorthelp(runner):\\n  67 |     @click.group()\\n  68 |     def cli():\\n  69 |         pass\\n  70 | \\n  71 |     @cli.command()\\n  72 |     def short():\\n  73 |         \\\"\\\"\\\"This is a short text.\\\"\\\"\\\"\\n  74 | \\n  75 |     @cli.command()\\n  76 |     def special_chars():\\n  77 |         \\\"\\\"\\\"Login and store the token in ~/.netrc.\\\"\\\"\\\"\\n  78 | \\n  79 |     @cli.command()\\n  80 |     def long():\\n  81 |         \\\"\\\"\\\"This is a long text that is too long to show as short help\\n  82 |         and will be truncated instead.\\\"\\\"\\\"\\n  83 | \\n  84 |     result = runner.invoke(cli, [\\\"--help\\\"])\\n  85 |     assert (\\n  86 |         re.search(\\n  87 |             r\\\"Commands:\\\\n\\\\s+\\\"\\n  88 |             r\\\"long\\\\s+This is a long text that is too long to show as short help\\\"\\n  89 |             r\\\"\\\\.\\\\.\\\\.\\\\n\\\\s+\\\"\\n  90 |             r\\\"short\\\\s+This is a short text\\\\.\\\\n\\\\s+\\\"\\n  91 |             r\\\"special-chars\\\\s+Login and store the token in ~/.netrc\\\\.\\\\s*\\\",\\n  92 |             result.output,\\n  93 |         )\\n  94 |         is not None\\n  95 |     )\\n  96 | \\n  97 | \\n  98 | def test_no_args_is_help(runner):\\n  99 |     @click.command(no_args_is_help=True)\\n 100 |     def cli():\\n 101 |         pass\\n 102 | \\n 103 |     result = runner.invoke(cli, [])\\n 104 |     assert result.exit_code == 0\\n 105 |     assert \\\"Show this message and exit.\\\" in result.output\\n 106 | \\n 107 | \\n 108 | def test_default_maps(runner):\\n 109 |     @click.group()\\n 110 |     def cli():\\n 111 |         pass\\n 112 | \\n 113 |     @cli.command()\\n 114 |     @click.option(\\\"--name\\\", default=\\\"normal\\\")\\n 115 |     def foo(name):\\n 116 |         click.echo(name)\\n 117 | \\n 118 |     result = runner.invoke(cli, [\\\"foo\\\"], default_map={\\\"foo\\\": {\\\"name\\\": \\\"changed\\\"}})\\n 119 | \\n 120 |     assert not result.exception\\n 121 |     assert result.output == \\\"changed\\\\n\\\"\\n 122 | \\n 123 | \\n 124 | @pytest.mark.parametrize(\\n 125 |     (\\\"args\\\", \\\"exit_code\\\", \\\"expect\\\"),\\n 126 |     [\\n 127 |         ([\\\"obj1\\\"], 2, \\\"Error: Missing command.\\\"),\\n 128 |         ([\\\"obj1\\\", \\\"--help\\\"], 0, \\\"Show this message and exit.\\\"),\\n 129 |         ([\\\"obj1\\\", \\\"move\\\"], 0, \\\"obj=obj1\\\\nmove\\\\n\\\"),\\n 130 |         ([], 0, \\\"Show this message and exit.\\\"),\\n 131 |     ],\\n 132 | )\\n 133 | def test_group_with_args(runner, args, exit_code, expect):\\n 134 |     @click.group()\\n 135 |     @click.argument(\\\"obj\\\")\\n 136 |     def cli(obj):\\n 137 |         click.echo(f\\\"obj={obj}\\\")\\n 138 | \\n 139 |     @cli.command()\\n 140 |     def move():\\n 141 |         click.echo(\\\"move\\\")\\n 142 | \\n 143 |     result = runner.invoke(cli, args)\\n 144 |     assert result.exit_code == exit_code\\n 145 |     assert expect in result.output\\n 146 | \\n 147 | \\n 148 | def test_base_command(runner):\\n 149 |     import optparse\\n 150 | \\n 151 |     @click.group()\\n 152 |     def cli():\\n 153 |         pass\\n 154 | \\n 155 |     class OptParseCommand(click.BaseCommand):\\n 156 |         def __init__(self, name, parser, callback):\\n 157 |             super().__init__(name)\\n 158 |             self.parser = parser\\n 159 |             self.callback = callback\\n 160 | \\n...[WINDOWED READ; 180 later lines omitted]...\", \"end\": 160, \"ok\": true, \"path\": \"tests/test_commands.py\", \"start\": 1, \"total_lines\": 340}",
+        "role": "tool",
+        "tool_call_id": "call_3ed74f1dd8ab46cca9ce2ea4"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 1897837648,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "58aa6329d181de05e5ff161a4d2e340d30c70db0051945faf13fc731100fba3d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Now I understand the issue well. The fix moves `inspect.cleandoc` processing of `help` from the `@option` decorator into `Option.__init__`, and from `_make_command` into `Command.__init__`. It also adds `inspect.cleandoc` for `epilog` and `short_help` in `Command.__init__`.\n\nThe key behavior change: when someone creates an `Option` or `Command` directly (not via decorators), the help text indentation is now cleaned. Previously, only the decorators did the cleaning.\n\nLet me write a test that demonstrates this. I'll create an `Option` directly with indented help text and verify the help output is",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"content\": \"import inspect\\n\\nimport click\\nfrom click.testing import CliRunner\\n\\n\\ndef test_option_help_cleandoc(runner):\\n    \\\"\\\"\\\"When an ``Option`` is created directly (not via the decorator),\\n    its help text should have indentation cleaned the same way as\\n    when using the ``@click.option`` decorator.\\n    \\\"\\\"\\\"\\n\\n    @click.command()\\n    @click.option(\\n        \\\"--name\\\",\\n        help=\\\"\\\"\\\"\\n        The name of the person to greet.\\n\\n        This can be a full name or just a first name.\\n        \\\"\\\"\\\",\\n    )\\n    def cli(name):\\n        click.echo(f\\\"Hello {name}!\\\")\\n\\n    result = runner.invoke(cli, [\\\"--help\\\"])\\n    assert not result.exception\\n    # The help text should not have leading whitespace from the\\n    # indented docstring.  ``inspect.cleandoc`` strips common leading\\n    # whitespace.\\n    assert \\\"The name of the person to greet.\\\" in result.output\\n    assert \\\"This can be a full name or just a first name.\\\" in result.output\", \"path\": \"tests/test_help_formatting.py\"}",
+                "name": "write_test"
+              },
+              "id": "call_e403e252745a4c3894c5aeea",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788121691,
+    "id": "gen-1788121691-kGiReZZfDz5hiUSuXIFE",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 446,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000483093072,
+      "cost_details": {
+        "upstream_inference_completions_cost": 7.043232e-05,
+        "upstream_inference_cost": 0.000483093072,
+        "upstream_inference_prompt_cost": 0.000412660752
+      },
+      "is_byok": false,
+      "prompt_tokens": 17719,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 15616,
+        "video_tokens": 0
+      },
+      "total_tokens": 18165
+    }
+  },
+  "schema_version": 1
+}

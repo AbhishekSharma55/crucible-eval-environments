@@ -1,0 +1,77 @@
+{
+  "latency_s": 3.963,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFormatting file option prompting to path only\n\nPR body:\nfixes #914 \n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 39cbd1d5..17fd5b3c 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -42,6 +42,8 @@ Unreleased\n     re-wrapping to avoid uneven line breaks. :issue:`834`\n -   ``MissingParameter`` exceptions are printable in the Python\n     interpreter. :issue:`1139`\n+-   Fix how default values for file-type options are shown during\n+    prompts. :issue:`914`\n \n \n Version 7.0\ndiff --git a/click/termui.py b/click/termui.py\nindex 0e8e84ca..fa2727a9 100644\n--- a/click/termui.py\n+++ b/click/termui.py\n@@ -1,3 +1,4 @@\n+import io\n import os\n import sys\n import struct\n@@ -5,11 +6,12 @@ import inspect\n import itertools\n \n from ._compat import raw_input, text_type, string_types, \\\n-     isatty, strip_ansi, get_winterm_size, DEFAULT_COLUMNS, WIN\n+    isatty, strip_ansi, get_winterm_size, DEFAULT_COLUMNS, WIN\n from .utils import echo\n from .exceptions import Abort, UsageError\n from .types import convert_type, Choice, Path\n from .globals import resolve_color_default\n+from .utils import LazyFile\n \n \n # The prompt functions to use.  The doc tools currently override these\n@@ -48,10 +50,17 @@ def _build_prompt(text, suffix, show_default=False, default=None, show_choices=T\n     if type is not None and show_choices and isinstance(type, Choice):\n         prompt += ' (' + \", \".join(map(str, type.choices)) + ')'\n     if default is not None and show_default:\n-        prompt = '%s [%s]' % (prompt, default)\n+        prompt = '%s [%s]' % (prompt, _format_default(default))\n     return prompt + suffix\n \n \n+def _format_default(default):\n+    if isinstance(default, (io.IOBase, LazyFile)) and hasattr(default, \"name\"):\n+        return default.name\n+\n+    return default\n+\n+\n def prompt(text, default=None, hide_input=False, confirmation_prompt=False,\n            type=None, value_proc=None, prompt_suffix=': ', show_default=True,\n            err=False, show_choices=True):\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "4ddf4b19866480b3c11bef363cb3d621ea3d27176928dcace88e11078e2a6444",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When prompting for a file-type option that has a default value, the prompt displays the default\u2019s full representation (e.g., the file object) instead of just the file path, making the prompt confusing.",
+          "reasoning": "We need to write a concise problem statement describing the externally observable bug. The PR title says \"Formatting file option prompting to path only\". PR body references issue #914. The patch shows changes in termui.py to format default values for prompts, specifically for file-type options. The bug seems to be that when prompting for a file option with a default value, the prompt shows the entire default object representation (like the file object itself) instead of just the file path. The fix adds a function _format_default that extracts the name attribute for IO objects and LazyFile, showing the path only. So the symptom: when a user has a command-line option that is a file type with a default value, the prompt message displays the default in an unhelpful way (like showing the file object representation) instead of the file path. The problem statement should focus on what the user sees incorrectly.",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing the externally observable bug. The PR title says \"Formatting file option prompting to path only\". PR body references issue #914. The patch shows changes in termui.py to format default values for prompts, specifically for file-type options. The bug seems to be that when prompting for a file option with a default value, the prompt shows the entire default object representation (like the file object itself) instead of just the file path. The fix adds a function _format_default that extracts the name attribute for IO objects and LazyFile, showing the path only. So the symptom: when a user has a command-line option that is a file type with a default value, the prompt message displays the default in an unhelpful way (like showing the file object representation) instead of the file path. The problem statement should focus on what the user sees incorrectly.",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078420,
+    "id": "gen-1788078420-RJcTMJPJ71GPDij8kbOo",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "AtlasCloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 225,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 181
+      },
+      "cost": 0.00015778,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.3e-05,
+        "upstream_inference_cost": 0.00015778,
+        "upstream_inference_prompt_cost": 9.478e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 677,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 902
+    }
+  },
+  "schema_version": 1
+}

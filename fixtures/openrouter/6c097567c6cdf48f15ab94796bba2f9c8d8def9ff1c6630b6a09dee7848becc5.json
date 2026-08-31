@@ -1,0 +1,69 @@
+{
+  "latency_s": 0.994,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nevolve: remove support for passing instances per kw\n\nPR body:\nAs per our deprecation policy.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1264.breaking.md b/changelog.d/1264.breaking.md\nnew file mode 100644\nindex 00000000..f268e2d0\n--- /dev/null\n+++ b/changelog.d/1264.breaking.md\n@@ -0,0 +1,2 @@\n+`attrs.evolve()` doesn't accept the *inst* argument as a keyword argument anymore.\n+Pass it as the first positional argument instead.\ndiff --git a/src/attr/_funcs.py b/src/attr/_funcs.py\nindex 5be1adb1..0912a456 100644\n--- a/src/attr/_funcs.py\n+++ b/src/attr/_funcs.py\n@@ -371,7 +371,8 @@ def evolve(*args, **changes):\n     Create a new instance, based on the first positional argument with\n     *changes* applied.\n \n-    :param inst: Instance of a class with *attrs* attributes.\n+    :param inst: Instance of a class with *attrs* attributes. *inst* must be\n+        passed as a positional argument.\n     :param changes: Keyword changes in the new copy.\n \n     :return: A copy of inst with *changes* incorporated.\n@@ -387,30 +388,16 @@ def evolve(*args, **changes):\n        *inst*. It will raise a warning until at least April 2024, after which\n        it will become an error. Always pass the instance as a positional\n        argument.\n+    .. versionchanged:: 24.1.0\n+       *inst* can't be passed as a keyword argument anymore.\n     \"\"\"\n-    # Try to get instance by positional argument first.\n-    # Use changes otherwise and warn it'll break.\n-    if args:\n-        try:\n-            (inst,) = args\n-        except ValueError:\n-            msg = f\"evolve() takes 1 positional argument, but {len(args)} were given\"\n-            raise TypeError(msg) from None\n-    else:\n-        try:\n-            inst = changes.pop(\"inst\")\n-        except KeyError:\n-            msg = \"evolve() missing 1 required positional argument: 'inst'\"\n-            raise TypeError(msg) from None\n-\n-        import warnings\n-\n-        warnings.warn(\n-            \"Passing the instance per keyword argument is deprecated and \"\n-            \"will stop working in, or after, April 2024.\",\n-            DeprecationWarning,\n-            stacklevel=2,\n+    try:\n+        (inst,) = args\n+    except ValueError:\n+        msg = (\n+            f\"evolve() takes 1 positional argument, but {len(args)} were given\"\n         )\n+        raise TypeError(msg) from None\n \n     cls = inst.__class__\n     attrs = fields(cls)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "6c097567c6cdf48f15ab94796bba2f9c8d8def9ff1c6630b6a09dee7848becc5",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `evolve()` function no longer accepts the instance as a keyword argument; it must be passed as the first positional argument.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078615,
+    "id": "gen-1788078615-O364GXnfLXaOBbm6gZOP",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 27,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 6.349308e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.36212e-06,
+        "upstream_inference_cost": 6.349308e-05,
+        "upstream_inference_prompt_cost": 5.913096e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 732,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 759
+    }
+  },
+  "schema_version": 1
+}

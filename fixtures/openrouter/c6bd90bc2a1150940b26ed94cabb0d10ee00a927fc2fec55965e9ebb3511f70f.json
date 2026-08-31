@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.007,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nDeprecate hash for unsafe_hash\n\nPR body:\nIt's the standard -- what are we gonna do.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/1323.deprecation.md b/changelog.d/1323.deprecation.md\nnew file mode 100644\nindex 00000000..b699885a\n--- /dev/null\n+++ b/changelog.d/1323.deprecation.md\n@@ -0,0 +1 @@\n+The *hash* argument to `@attr.s`, `@attrs.define`, and `make_class()` is now deprecated in favor of *unsafe_hash*, as defined by PEP 681.\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 53e6a94b..0e09281a 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -1270,20 +1270,30 @@ def attrs(\n     .. versionadded:: 24.1.0\n        If a class has an *inherited* classmethod called\n        ``__attrs_init_subclass__``, it is executed after the class is created.\n+    .. deprecated:: 24.1.0 *hash* is deprecated in favor of *unsafe_hash*.\n     \"\"\"\n     if repr_ns is not None:\n         import warnings\n \n         warnings.warn(\n             DeprecationWarning(\n-                \"The `repr_ns` argument is deprecated and will be removed in or after April 2025.\"\n+                \"The `repr_ns` argument is deprecated and will be removed in or after August 2025.\"\n             ),\n             stacklevel=2,\n         )\n \n     eq_, order_ = _determine_attrs_eq_order(cmp, eq, order, None)\n \n-    # unsafe_hash takes precedence due to PEP 681.\n+    # hash is deprecated & unsafe_hash takes precedence due to PEP 681.\n+    if hash is not None:\n+        import warnings\n+\n+        warnings.warn(\n+            DeprecationWarning(\n+                \"The `hash` argument is deprecated in favor of `unsafe_hash` and will be removed in or after August 2025.\"\n+            ),\n+            stacklevel=2,\n+        )\n     if unsafe_hash is not None:\n         hash = unsafe_hash\n \n@@ -2854,6 +2864,19 @@ def make_class(\n         True,\n     )\n \n+    hash = attributes_arguments.pop(\"hash\", _SENTINEL)\n+    if hash is not _SENTINEL:\n+        import warnings\n+\n+        warnings.warn(\n+            DeprecationWarning(\n+                \"The `hash` argument is deprecated in favor of `unsafe_hash` and will be removed in or after August 2025.\"\n+            ),\n+            stacklevel=2,\n+        )\n+\n+        attributes_arguments[\"unsafe_hash\"] = hash\n+\n     cls = _attrs(these=cls_dict, **attributes_arguments)(type_)\n     # Only add type annotations now or \"_attrs()\" will complain:\n     cls.__annotations__ = {\n@@ -2866,7 +2889,7 @@ def make_class(\n # import into .validators / .converters.\n \n \n-@attrs(slots=True, hash=True)\n+@attrs(slots=True, unsafe_hash=True)\n class _AndValidator:\n     \"\"\"\n     Compose many validators to a single one.\ndiff --git a/src/attr/_next_gen.py b/src/attr/_next_gen.py\nindex b4bcb290..dbb65cc9 100644\n--- a/src/attr/_next_gen.py\n+++ b/src/attr/_next_gen.py\n@@ -184,7 +184,7 @@ def define(\n                   details.\n \n         hash (bool | None):\n-            Alias for *unsafe_hash*. *unsafe_hash* takes precedence.\n+            Deprecated alias for *unsafe_hash*. *unsafe_hash* takes precedence.\n \n         cache_hash (bool):\n             Ensure that the object's hash code is computed only once and stored\n@@ -320,6 +320,7 @@ def define(\n     .. versionadded:: 24.1.0\n        If a class has an *inherited* classmethod called\n        ``__attrs_init_subclass__``, it is executed after the class is created.\n+    .. deprecated:: 24.1.0 *hash* is deprecated in favor of *unsafe_hash*.\n \n     .. note::\n \ndiff --git a/src/attr/validators.py b/src/attr/validators.py\nindex 17c216a4..8a56717d 100644\n--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -88,7 +88,7 @@ def disabled():\n         set_run_validators(True)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _InstanceOfValidator:\n     type = attrib()\n \n@@ -196,7 +196,7 @@ def matches_re(regex, flags=0, func=None):\n     return _MatchesReValidator(pattern, match_func)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _OptionalValidator:\n     validator = attrib()\n \n@@ -231,7 +231,7 @@ def optional(validator):\n     return _OptionalValidator(validator)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _InValidator:\n     options = attrib()\n     _original_options = attrib(hash=False)\n@@ -290,7 +290,7 @@ def in_(options):\n     return _InValidator(options, repr_options)\n \n \n-@attrs(repr=False, slots=False, hash=True)\n+@attrs(repr=False, slots=False, unsafe_hash=True)\n class _IsCallableValidator:\n     def __call__(self, inst, attr, value):\n         \"\"\"\n@@ -328,7 +328,7 @@ def is_callable():\n     return _IsCallableValidator()\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _DeepIterable:\n     member_validator = attrib(validator=is_callable())\n     iterable_validator = attrib(\n@@ -377,7 +377,7 @@ def deep_iterable(member_validator, iterable_validator=None):\n     return _DeepIterable(member_validator, iterable_validator)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _DeepMapping:\n     key_validator = attrib(validator=is_callable())\n     value_validator = attrib(validator=is_callable())\n@@ -554,7 +554,7 @@ def min_len(length):\n     return _MinLengthValidator(length)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _SubclassOfValidator:\n     type = attrib()\n \n@@ -592,7 +592,7 @@ def _subclass_of(type):\n     return _SubclassOfValidator(type)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _NotValidator:\n     validator = attrib()\n     msg = attrib(\n@@ -665,7 +665,7 @@ def not_(validator, *, msg=None, exc_types=(ValueError, TypeError)):\n     return _NotValidator(validator, msg, exc_types)\n \n \n-@attrs(repr=False, slots=True, hash=True)\n+@attrs(repr=False, slots=True, unsafe_hash=True)\n class _OrValidator:\n     validators = attrib()\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.375
+  },
+  "request_hash": "c6bd90bc2a1150940b26ed94cabb0d10ee00a927fc2fec55965e9ebb3511f70f",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `hash` argument in `@attr.s`, `@attrs.define`, and `make_class()` is deprecated and should be replaced with `unsafe_hash`.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078790,
+    "id": "gen-1788078790-JTClHbgLvmqP86LKEWry",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 35,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00015057392,
+      "cost_details": {
+        "upstream_inference_completions_cost": 5.6546e-06,
+        "upstream_inference_cost": 0.00015057392,
+        "upstream_inference_prompt_cost": 0.00014491932
+      },
+      "is_byok": false,
+      "prompt_tokens": 1794,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1829
+    }
+  },
+  "schema_version": 1
+}

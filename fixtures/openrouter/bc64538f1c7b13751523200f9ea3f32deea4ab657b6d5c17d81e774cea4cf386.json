@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.914,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nPass unknown parameter to pre_load, post_load, and validates_schema methods\n\nPR body:\nWhen extending a schema, the value of self.unknown is not necessarily correct in pre_load methods.\r\n\r\n```\r\nclass MySchema(Schema):\r\n\r\n    ...\r\n\r\n    @pre_load\r\n    def this_is_wrong(self, data, **kwargs):\r\n        print(self.unknown)\r\n        return data\r\n\r\n\r\n...\r\nMySchema().load(data, unknown=INCLUDE)\r\n```\r\n\r\nwill print 'raise' rather than 'include'.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 7f6fa7b9..4efa7473 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -92,6 +92,10 @@ Thanks :user:`ddelange` for the PR.\n         UserSchema().dump({\"name\": \"foo\"})\n         # {'name_suffixed': 'foobar'}\n \n+- Methods decorated with `marshmallow.pre_load`, `marshmallow.post_load`, `marshmallow.validates_schema`,\n+  receive ``unknown`` as a keyword argument (:pr:`1632`).\n+  Thanks :user:`jforand` for the PR.\n+\n Deprecations/Removals:\n \n - *Backwards-incompatible*: Remove implicit field creation, i.e. using the ``fields`` or ``additional`` class Meta options with undeclared fields (:issue:`1356`).\ndiff --git a/src/marshmallow/decorators.py b/src/marshmallow/decorators.py\nindex 8e91dfc4..d752dfa0 100644\n--- a/src/marshmallow/decorators.py\n+++ b/src/marshmallow/decorators.py\n@@ -111,10 +111,11 @@ def validates_schema(\n \n     .. versionchanged:: 3.0.0b1\n         ``skip_on_field_errors`` defaults to `True`.\n-\n     .. versionchanged:: 3.0.0\n         ``partial`` and ``many`` are always passed as keyword arguments to\n         the decorated method.\n+    .. versionchanged:: 4.0.0\n+        ``unknown`` is passed as a keyword argument to the decorated method.\n     \"\"\"\n     return set_hook(\n         fn,\n@@ -175,6 +176,8 @@ def pre_load(\n     .. versionchanged:: 3.0.0\n         ``partial`` and ``many`` are always passed as keyword arguments to\n         the decorated method.\n+    .. versionchanged:: 4.0.0\n+        ``unknown`` is passed as a keyword argument to the decorated method.\n     \"\"\"\n     return set_hook(fn, PRE_LOAD, many=pass_collection)\n \n@@ -197,6 +200,8 @@ def post_load(\n     .. versionchanged:: 3.0.0\n         ``partial`` and ``many`` are always passed as keyword arguments to\n         the decorated method.\n+    .. versionchanged:: 4.0.0\n+        ``unknown`` is passed as a keyword argument to the decorated method.\n     \"\"\"\n     return set_hook(fn, POST_LOAD, many=pass_collection, pass_original=pass_original)\n \ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex 0f64c59e..0298274e 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -768,14 +768,17 @@ class Schema(metaclass=SchemaMeta):\n         error_store,\n         many,\n         partial,\n+        unknown,\n         pass_original,\n         index=None,\n     ):\n         try:\n             if pass_original:  # Pass original, raw data (before unmarshalling)\n-                validator_func(output, original_data, partial=partial, many=many)\n+                validator_func(\n+                    output, original_data, partial=partial, many=many, unknown=unknown\n+                )\n             else:\n-                validator_func(output, partial=partial, many=many)\n+                validator_func(output, partial=partial, many=many, unknown=unknown)\n         except ValidationError as err:\n             error_store.store_error(err.messages, err.field_name, index=index)\n \n@@ -851,7 +854,12 @@ class Schema(metaclass=SchemaMeta):\n         if self._hooks[PRE_LOAD]:\n             try:\n                 processed_data = self._invoke_load_processors(\n-                    PRE_LOAD, data, many=many, original_data=data, partial=partial\n+                    PRE_LOAD,\n+                    data,\n+                    many=many,\n+                    original_data=data,\n+                    partial=partial,\n+                    unknown=unknown,\n                 )\n             except ValidationError as err:\n                 errors = err.normalized_messages()\n@@ -881,6 +889,7 @@ class Schema(metaclass=SchemaMeta):\n                     original_data=data,\n                     many=many,\n                     partial=partial,\n+                    unknown=unknown,\n                     field_errors=field_errors,\n                 )\n                 self._invoke_schema_validators(\n@@ -890,6 +899,7 @@ class Schema(metaclass=SchemaMeta):\n                     original_data=data,\n                     many=many,\n                     partial=partial,\n+                    unknown=unknown,\n                     field_errors=field_errors,\n                 )\n             errors = error_store.errors\n@@ -902,6 +912,7 @@ class Schema(metaclass=SchemaMeta):\n                         many=many,\n                         original_data=data,\n                         partial=partial,\n+                        unknown=unknown,\n                     )\n                 except ValidationError as err:\n                     errors = err.normalized_messages()\n@@ -1081,6 +1092,7 @@ class Schema(metaclass=SchemaMeta):\n         many: bool,\n         original_data,\n         partial: bool | types.StrSequenceOrSet | None,\n+        unknown: str,\n     ):\n         # This has to invert the order of the dump processors, so run the pass_collection\n         # processors first.\n@@ -1091,6 +1103,7 @@ class Schema(metaclass=SchemaMeta):\n             many=many,\n             original_data=original_data,\n             partial=partial,\n+            unknown=unknown,\n         )\n         data = self._invoke_processors(\n             tag,\n@@ -1099,6 +1112,7 @@ class Schema(metaclass=SchemaMeta):\n             many=many,\n             original_data=original_data,\n             partial=partial,\n+            unknown=unknown,\n         )\n         return data\n \n@@ -1158,6 +1172,7 @@ class Schema(metaclass=SchemaMeta):\n         many: bool,\n         partial: bool | types.StrSequenceOrSet | None,\n         field_errors: bool = False,\n+        unknown: str,\n     ):\n         for attr_name, hook_many, validator_kwargs in self._hooks[VALIDATES_SCHEMA]:\n             if hook_many != pass_collection:\n@@ -1176,6 +1191,7 @@ class Schema(metaclass=SchemaMeta):\n                         error_store=error_store,\n                         many=many,\n                         partial=partial,\n+                        unknown=unknown,\n                         index=idx,\n                         pass_original=pass_original,\n                     )\n@@ -1188,6 +1204,7 @@ class Schema(metaclass=SchemaMeta):\n                     many=many,\n                     pass_original=pass_original,\n                     partial=partial,\n+                    unknown=unknown,\n                 )\n \n     def _invoke_processors(\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "bc64538f1c7b13751523200f9ea3f32deea4ab657b6d5c17d81e774cea4cf386",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using `pre_load`, `post_load`, or `validates_schema` decorators, the `unknown` parameter passed to the `load` method is not forwarded to the decorated function, causing the function to see the default `unknown` value instead of the one actually provided.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078363,
+    "id": "gen-1788078363-F36GkXIU79M3Yt2nHckj",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "CoreWeave",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 59,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00026292,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.652e-05,
+        "upstream_inference_cost": 0.00026292,
+        "upstream_inference_prompt_cost": 0.0002464
+      },
+      "is_byok": false,
+      "prompt_tokens": 1760,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1819
+    }
+  },
+  "schema_version": 1
+}

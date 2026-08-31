@@ -1,0 +1,227 @@
+{
+  "latency_s": 3.52,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: pallets/flask#4139\nRepository: pallets/flask\nBroken parent: 50b7dcbab343c93bb6738bbf116a177e72b1d9ec\nFixed commit: 187f6ce4096222119b8490d7e3c671e4e41f64b6\n\nLinked issues:\nIssue #4099:\nI was browsing the flaskr tutorial when I noticed an (admittedly quite unlikely) race condition in the `register` view, specifically:\r\n\r\n```py\r\nif not username:\r\n    error = 'Username is required.'\r\nelif not password:\r\n    error = 'Password is required.'\r\nelif db.execute(\r\n    'SELECT id FROM user WHERE username = ?', (username,)\r\n).fetchone() is not None:\r\n    error = f\"User {username} is already registered.\"\r\n\r\nif error is None:\r\n    db.execute(\r\n        'INSERT INTO user (username, password) VALUES (?, ?)',\r\n        (username, generate_password_hash(password))\r\n    )\r\n    db.commit()\r\n    return redirect(url_for('auth.login'))\r\n```\r\n\r\nIf two requests arrive with the right timing, the following can happen:\r\n\r\n```\r\n   Request 1:                                Request 2:\r\nSELECT id\r\n  FROM user\r\n WHERE username = abc\r\n     |\r\n     v\r\nempty, no such user\r\n\r\n                                          SELECT id\r\n                                            FROM user\r\n                                           WHERE username = abc\r\n                                               |\r\n                                               v\r\n                                          empty, no such user\r\n\r\nINSERT INTO user (username, password)\r\n     VALUES (abc, 123)\r\n     |\r\n     v\r\n    ok\r\n\r\n                                          INSERT INTO user (username, password)\r\n                                               VALUES (abc, 456)\r\n                                               |\r\n                                               v\r\n                                          failed UNIQUE constraint -> \r\n                                          -> sqlite3.IntegrityError ->\r\n                                          -> user gets HTTP 500\r\n```\r\n\r\nWhile the likelihood of this happening is pretty small and the harm practically zero (user gets HTTP 500 and has to manually login/choose a different username), I feel like this is not really the sort of good practice the tutorial should teach. I also believe it's important the developer understands that it's the UNIQUE constraint that ensures their app works correctly and not the if condition in the application code (the tutorial mentions SQL injection attacks and explains what protects the developer against them, so I don't really feel this is out of scope).\r\n\r\nIn my own app I've modified the code to the following:\r\n```py\r\nif not username:\r\n    error = 'Username is required.'\r\nelif not password:\r\n    error = 'Password is required.'\r\nelse:\r\n    try:\r\n        db.execute(\r\n            'INSERT INTO users (username, password) VALUES (?, ?)',\r\n            (username, generate_password_hash(password))\r\n        )\r\n        db.commit()\r\n    except IntegrityError:\r\n        error = f\"User {username} is already registered.\"\r\n    else:\r\n        return redirect(url_for('auth.login'))\r\n```\r\n\r\nI suggest something similar be incorporated into the tutorial, with a short explanation (maybe a comment) of how the UNIQUE constraint does the work for the developer and maybe a note about the principle that one should \"ask forgiveness, not permission.\" I'm not sure on how it's better worded, so I'm making this an issue instead of a pull request.\r\n\r\nCheers, and thank you for your great work!\n\nPull request title:\nAvoid race condition in example app\n\nPull request body:\nWhen the race condition happen, it will return the error message(explanation) instead of redirecting user to other page without explaining\r\n- fixes #4099\r\nChecklist:\r\n- [x] Add or update relevant docs, in the docs folder and in code.\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/docs/tutorial/views.rst b/docs/tutorial/views.rst\nindex 2d5a01d3..7092dbc2 100644\n--- a/docs/tutorial/views.rst\n+++ b/docs/tutorial/views.rst\n@@ -91,18 +91,18 @@ write templates to generate the HTML form.\n                 error = 'Username is required.'\n             elif not password:\n                 error = 'Password is required.'\n-            elif db.execute(\n-                'SELECT id FROM user WHERE username = ?', (username,)\n-            ).fetchone() is not None:\n-                error = f\"User {username} is already registered.\"\n \n             if error is None:\n-                db.execute(\n-                    'INSERT INTO user (username, password) VALUES (?, ?)',\n-                    (username, generate_password_hash(password))\n-                )\n-                db.commit()\n-                return redirect(url_for('auth.login'))\n+                try:\n+                    db.execute(\n+                        \"INSERT INTO user (username, password) VALUES (?, ?)\",\n+                        (username, generate_password_hash(password)),\n+                    )\n+                    db.commit()\n+                except db.IntegrityError:\n+                    error = f\"User {username} is already registered.\"\n+                else:\n+                    return redirect(url_for(\"auth.login\"))\n \n             flash(error)\n \n@@ -125,26 +125,25 @@ Here's what the ``register`` view function is doing:\n \n #.  Validate that ``username`` and ``password`` are not empty.\n \n-#.  Validate that ``username`` is not already registered by querying the\n-    database and checking if a result is returned.\n-    :meth:`db.execute <sqlite3.Connection.execute>` takes a SQL query\n-    with ``?`` placeholders for any user input, and a tuple of values\n-    to replace the placeholders with. The database library will take\n-    care of escaping the values so you are not vulnerable to a\n-    *SQL injection attack*.\n+#.  If validation succeeds, insert the new user data into the database.\n \n-    :meth:`~sqlite3.Cursor.fetchone` returns one row from the query.\n-    If the query returned no results, it returns ``None``. Later,\n-    :meth:`~sqlite3.Cursor.fetchall` is used, which returns a list of\n-    all results.\n+    -   :meth:`db.execute <sqlite3.Connection.execute>` takes a SQL\n+        query with ``?`` placeholders for any user input, and a tuple of\n+        values to replace the placeholders with. The database library\n+        will take care of escaping the values so you are not vulnerable\n+        to a *SQL injection attack*.\n \n-#.  If validation succeeds, insert the new user data into the database.\n-    For security, passwords should never be stored in the database\n-    directly. Instead,\n-    :func:`~werkzeug.security.generate_password_hash` is used to\n-    securely hash the password, and that hash is stored. Since this\n-    query modifies data, :meth:`db.commit() <sqlite3.Connection.commit>`\n-    needs to be called afterwards to save the changes.\n+    -   For security, passwords should never be stored in the database\n+        directly. Instead,\n+        :func:`~werkzeug.security.generate_password_hash` is used to\n+        securely hash the password, and that hash is stored. Since this\n+        query modifies data,\n+        :meth:`db.commit() <sqlite3.Connection.commit>` needs to be\n+        called afterwards to save the changes.\n+\n+    -   An :exc:`sqlite3.IntegrityError` will occur if the username\n+        already exists, which should be shown to the user as another\n+        validation error.\n \n #.  After storing the user, they are redirected to the login page.\n     :func:`url_for` generates the URL for the login view based on its\n@@ -200,6 +199,11 @@ There are a few differences from the ``register`` view:\n \n #.  The user is queried first and stored in a variable for later use.\n \n+    :meth:`~sqlite3.Cursor.fetchone` returns one row from the query.\n+    If the query returned no results, it returns ``None``. Later,\n+    :meth:`~sqlite3.Cursor.fetchall` will be used, which returns a list\n+    of all results.\n+\n #.  :func:`~werkzeug.security.check_password_hash` hashes the submitted\n     password in the same way as the stored hash and securely compares\n     them. If they match, the password is valid.\ndiff --git a/examples/tutorial/flaskr/auth.py b/examples/tutorial/flaskr/auth.py\nindex bcd3c672..b423e6ae 100644\n--- a/examples/tutorial/flaskr/auth.py\n+++ b/examples/tutorial/flaskr/auth.py\n@@ -60,21 +60,21 @@ def register():\n             error = \"Username is required.\"\n         elif not password:\n             error = \"Password is required.\"\n-        elif (\n-            db.execute(\"SELECT id FROM user WHERE username = ?\", (username,)).fetchone()\n-            is not None\n-        ):\n-            error = f\"User {username} is already registered.\"\n \n         if error is None:\n-            # the name is available, store it in the database and go to\n-            # the login page\n-            db.execute(\n-                \"INSERT INTO user (username, password) VALUES (?, ?)\",\n-                (username, generate_password_hash(password)),\n-            )\n-            db.commit()\n-            return redirect(url_for(\"auth.login\"))\n+            try:\n+                db.execute(\n+                    \"INSERT INTO user (username, password) VALUES (?, ?)\",\n+                    (username, generate_password_hash(password)),\n+                )\n+                db.commit()\n+            except db.IntegrityError:\n+                # The username was already taken, which caused the\n+                # commit to fail. Show a validation error.\n+                error = f\"User {username} is already registered.\"\n+            else:\n+                # Success, go to the login page.\n+                return redirect(url_for(\"auth.login\"))\n \n         flash(error)\n \n\n\nChanged source paths:\n- examples/tutorial/flaskr/auth.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 1458174189,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "900be40dc17c63a8374c56af4cec4506cb6e22aa91ca7f5683313f818d2d54ba",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "\n\nLet me start by examining the relevant test files and the source code.\n\n",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"module_or_path\": \"examples/tutorial/flaskr/auth\"}",
+                "name": "list_tests"
+              },
+              "id": "call_a5f1a58dbca54ea1b17fd444",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"module_or_path\": \"examples/tutorial\"}",
+                "name": "list_tests"
+              },
+              "id": "call_7aed40c575ed4cf0826d83c2",
+              "index": 1,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788154886,
+    "id": "gen-1788154886-yvM4eeenvRhp6imVaXPi",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 102,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0002801544508,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.8075624e-05,
+        "upstream_inference_cost": 0.0002801544508,
+        "upstream_inference_prompt_cost": 0.0002620788268
+      },
+      "is_byok": false,
+      "prompt_tokens": 3777,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 1024,
+        "video_tokens": 0
+      },
+      "total_tokens": 3879
+    }
+  },
+  "schema_version": 1
+}

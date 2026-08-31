@@ -1,0 +1,69 @@
+{
+  "latency_s": 7.451,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAvoid underflow in exponential wait threshold\n\nPR body:\n## Summary\n\n`wait_exponential` can raise `ValueError: math domain error` instead of returning a wait time when `multiplier`/`max` are finite and positive but their ratio underflows to `0.0`. It's a regression from the threshold optimization in #654. The fix computes the same threshold as a difference of logarithms so there's no underflowing division.\n\n## How narrow this is\n\nPretty narrow, and I want to be upfront about it. The crash needs `max / multiplier` to underflow a 64-bit float all the way to `0.0`, i.e. `multiplier` bigger than `max` by more than ~308 orders of magnitude (`wait_exponential(multiplier=1e300, max=1e-100)`), or a non-finite `multiplier`. Everyday configs \u2014 `max=0`, `multiplier=0`, any realistic seconds/milliseconds values \u2014 already go through the existing guards and are untouched.\n\nI ran into it while checking the #654 change for edge cases, not in production. Sending it because it's a genuine regression in a recently merged optimization and the fix is one line with no behavior change for valid input \u2014 not because I think it bites many people. Happy for you to close it if it's below the bar.\n\n## Root cause\n\nThe #654 optimization short-circuits to the cap when the exponent would exceed `log(max / multiplier)`. Forming `max / multiplier` first can underflow to `0.0` for extreme finite inputs, and `math.log(0.0)` raises. In that regime the uncapped wait is already past `max`, so the right answer is just `max`.\n\n`log(max) - log(multiplier)` is the same value (`log(a/b) = log(a) - log(b)`) without the underflowing intermediate, so the early-return optimization still holds for every valid input.\n\n## Testing\n\n- `uv run pytest -q` \u2192 172 passed, 12 subtests\n- `uv run poe lint`, `uv run poe mypy`, `uv run reno lint` \u2192 all pass\n- Added a regression test with finite positive values whose ratio underflows.\n- Checked 2,160 positive boundary combinations against the pre-optimization direct-power result \u2014 0 differences, so valid inputs are unchanged.\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/fix-exponential-multiplier-underflow-4fd1d6d6b9c8e2a1.yaml b/releasenotes/notes/fix-exponential-multiplier-underflow-4fd1d6d6b9c8e2a1.yaml\nnew file mode 100644\nindex 0000000..dc350cf\n--- /dev/null\n+++ b/releasenotes/notes/fix-exponential-multiplier-underflow-4fd1d6d6b9c8e2a1.yaml\n@@ -0,0 +1,5 @@\n+---\n+fixes:\n+  - |\n+    Prevent ``wait_exponential`` from raising ``ValueError`` when dividing the\n+    configured maximum wait by a large multiplier underflows to zero.\ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex a662eef..18fb6ea 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -208,7 +208,9 @@ class wait_exponential(wait_base):\n             and self.max > 0\n             and self.exp_base > 1\n             and math.isfinite(self.max)\n-            and exponent > math.log(self.max / self.multiplier, self.exp_base)\n+            and exponent\n+            > math.log(self.max, self.exp_base)\n+            - math.log(self.multiplier, self.exp_base)\n         ):\n             return max(max(0, self.min), self.max)\n         try:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "801bc651bec587f5a8548271ae5bea0671d6953ea66bd306d88d80827d6e0d84",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "`wait_exponential` can raise a `ValueError` instead of returning a wait time when configured with extreme values where the maximum wait divided by the multiplier underflows to zero.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078336,
+    "id": "gen-1788078336-jXFDT5LfU9anNILeaDH2",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 37,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 7.07889e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.216e-06,
+        "upstream_inference_cost": 7.07889e-05,
+        "upstream_inference_prompt_cost": 6.45729e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 951,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 988
+    }
+  },
+  "schema_version": 1
+}

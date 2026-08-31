@@ -1,0 +1,74 @@
+{
+  "latency_s": 5.468,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nSupport Trio out-of-the-box, take 2\n\nPR body:\nI didn't have push rights to #295, so opening a new PR from a new fork. This is just taking @njsmith's PR, merging main, fixing conflicts and making it work with the new code.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/.github/workflows/ci.yaml b/.github/workflows/ci.yaml\nindex d4648a4..b0e3c02 100644\n--- a/.github/workflows/ci.yaml\n+++ b/.github/workflows/ci.yaml\n@@ -27,7 +27,7 @@ jobs:\n           - python: \"3.11\"\n             tox: py311\n           - python: \"3.12\"\n-            tox: py312\n+            tox: py312,py312-trio\n           - python: \"3.12\"\n             tox: pep8\n           - python: \"3.11\"\ndiff --git a/doc/source/index.rst b/doc/source/index.rst\nindex 3f0764a..65dd208 100644\n--- a/doc/source/index.rst\n+++ b/doc/source/index.rst\n@@ -568,28 +568,34 @@ in retry strategies like ``retry_if_result``. This can be done accessing the\n Async and retry\n ~~~~~~~~~~~~~~~\n \n-Finally, ``retry`` works also on asyncio and Tornado (>= 4.5) coroutines.\n+Finally, ``retry`` works also on asyncio, Trio, and Tornado (>= 4.5) coroutines.\n Sleeps are done asynchronously too.\n \n .. code-block:: python\n \n     @retry\n-    async def my_async_function(loop):\n+    async def my_asyncio_function(loop):\n         await loop.getaddrinfo('8.8.8.8', 53)\n \n+.. code-block:: python\n+\n+    @retry\n+    async def my_async_trio_function():\n+        await trio.socket.getaddrinfo('8.8.8.8', 53)\n+\n .. code-block:: python\n \n     @retry\n     @tornado.gen.coroutine\n-    def my_async_function(http_client, url):\n+    def my_async_tornado_function(http_client, url):\n         yield http_client.fetch(url)\n \n-You can even use alternative event loops such as `curio` or `Trio` by passing the correct sleep function:\n+You can even use alternative event loops such as `curio` by passing the correct sleep function:\n \n .. code-block:: python\n \n-    @retry(sleep=trio.sleep)\n-    async def my_async_function(loop):\n+    @retry(sleep=curio.sleep)\n+    async def my_async_curio_function():\n         await asks.get('https://example.org')\n \n Contribute\ndiff --git a/releasenotes/notes/trio-support-retry-22bd544800cd1f36.yaml b/releasenotes/notes/trio-support-retry-22bd544800cd1f36.yaml\nnew file mode 100644\nindex 0000000..b8e0c14\n--- /dev/null\n+++ b/releasenotes/notes/trio-support-retry-22bd544800cd1f36.yaml\n@@ -0,0 +1,6 @@\n+---\n+features:\n+  - |\n+    If you're using `Trio <https://trio.readthedocs.io>`__, then\n+    ``@retry`` now works automatically. It's no longer necessary to\n+    pass ``sleep=trio.sleep``.\ndiff --git a/tenacity/asyncio/__init__.py b/tenacity/asyncio/__init__.py\nindex 3ec0088..6d63ebc 100644\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -46,11 +46,22 @@ WrappedFnReturnT = t.TypeVar(\"WrappedFnReturnT\")\n WrappedFn = t.TypeVar(\"WrappedFn\", bound=t.Callable[..., t.Awaitable[t.Any]])\n \n \n-def asyncio_sleep(duration: float) -> t.Awaitable[None]:\n+def _portable_async_sleep(seconds: float) -> t.Awaitable[None]:\n+    # If trio is already imported, then importing it is cheap.\n+    # If trio isn't already imported, then it's definitely not running, so we\n+    # can skip further checks.\n+    if \"trio\" in sys.modules:\n+        # If trio is available, then sniffio is too\n+        import trio\n+        import sniffio\n+\n+        if sniffio.current_async_library() == \"trio\":\n+            return trio.sleep(seconds)\n+    # Otherwise, assume asyncio\n     # Lazy import asyncio as it's expensive (responsible for 25-50% of total import overhead).\n     import asyncio\n \n-    return asyncio.sleep(duration)\n+    return asyncio.sleep(seconds)\n \n \n class AsyncRetrying(BaseRetrying):\n@@ -58,7 +69,7 @@ class AsyncRetrying(BaseRetrying):\n         self,\n         sleep: t.Callable[\n             [t.Union[int, float]], t.Union[None, t.Awaitable[None]]\n-        ] = asyncio_sleep,\n+        ] = _portable_async_sleep,\n         stop: \"StopBaseT\" = tenacity.stop.stop_never,\n         wait: \"WaitBaseT\" = tenacity.wait.wait_none(),\n         retry: \"t.Union[SyncRetryBaseT, RetryBaseT]\" = tenacity.retry_if_exception_type(),\ndiff --git a/tox.ini b/tox.ini\nindex 13e5a1d..14f8ae0 100644\n--- a/tox.ini\n+++ b/tox.ini\n@@ -1,5 +1,5 @@\n [tox]\n-envlist = py3{8,9,10,11,12}, pep8, pypy3\n+envlist = py3{8,9,10,11,12,12-trio}, pep8, pypy3\n skip_missing_interpreters = True\n \n [testenv]\n@@ -8,6 +8,7 @@ sitepackages = False\n deps =\n     .[test]\n     .[doc]\n+    trio: trio\n commands =\n     py3{8,9,10,11,12},pypy3: pytest {posargs}\n     py3{8,9,10,11,12},pypy3: sphinx-build -a -E -W -b doctest doc/source doc/build\n@@ -24,10 +25,11 @@ commands =\n deps =\n     mypy>=1.0.0\n     pytest # for stubs\n+    trio\n commands =\n     mypy {posargs}\n \n [testenv:reno]\n basepython = python3\n deps = reno\n-commands = reno {posargs}\n\\ No newline at end of file\n+commands = reno {posargs}\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "990612eb46bb12528ff283d17be1147929cc6fedd2a87b5b44e2c8d3919541ca",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "length",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The retry decorator did not automatically support Trio coroutines;",
+          "reasoning": "We need to write a concise problem statement describing the externally observable bug or missing behavior. The PR title says \"Support Trio out-of-the-box, take 2\". The PR body mentions merging a previous PR and fixing conflicts. The patch shows changes to CI, documentation, source code, and tox.ini. The key change is in tenacity/asyncio/__init__.py: they replace the asyncio_sleep function with a new _portable_async_sleep that detects if trio is available and uses trio.sleep instead of asyncio.sleep. The documentation also changes: previously it said you could use Trio by passing sleep=trio.sleep, now it says @retry works automatically with Trio, and the workaround example is removed. The release notes add a feature that @retry now works automatically with Trio.\n\nSo the missing behavior: before this patch, the @retry decorator did not work with Trio coroutines out-of-the-box. Users had to explicitly pass sleep=trio.sleep. After the patch, it works automatically. The problem statement should describe only the externally observable bug: that the retry mechanism was not compatible with Trio asyncio-style coroutines without manual configuration.\n\nThus: \"The retry decorator did not automatically support Trio coroutines; users had to manually pass `sleep=trio.sleep` to use it with Trio.\"",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing the externally observable bug or missing behavior. The PR title says \"Support Trio out-of-the-box, take 2\". The PR body mentions merging a previous PR and fixing conflicts. The patch shows changes to CI, documentation, source code, and tox.ini. The key change is in tenacity/asyncio/__init__.py: they replace the asyncio_sleep function with a new _portable_async_sleep that detects if trio is available and uses trio.sleep instead of asyncio.sleep. The documentation also changes: previously it said you could use Trio by passing sleep=trio.sleep, now it says @retry works automatically with Trio, and the workaround example is removed. The release notes add a feature that @retry now works automatically with Trio.\n\nSo the missing behavior: before this patch, the @retry decorator did not work with Trio coroutines out-of-the-box. Users had to explicitly pass sleep=trio.sleep. After the patch, it works automatically. The problem statement should describe only the externally observable bug: that the retry mechanism was not compatible with Trio asyncio-style coroutines without manual configuration.\n\nThus: \"The retry decorator did not automatically support Trio coroutines; users had to manually pass `sleep=trio.sleep` to use it with Trio.\"",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "length"
+      }
+    ],
+    "created": 1788078177,
+    "id": "gen-1788078177-Kj51q41FhxRWH1mp0Kt2",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Venice",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 301,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 285
+      },
+      "cost": 0.000315167,
+      "cost_details": {
+        "upstream_inference_completions_cost": 8.2775e-05,
+        "upstream_inference_cost": 0.000315167,
+        "upstream_inference_prompt_cost": 0.000232392
+      },
+      "is_byok": false,
+      "prompt_tokens": 1684,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1985
+    }
+  },
+  "schema_version": 1
+}

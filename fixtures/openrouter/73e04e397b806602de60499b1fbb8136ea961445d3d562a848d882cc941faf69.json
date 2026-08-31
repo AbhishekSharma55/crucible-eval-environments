@@ -1,0 +1,247 @@
+{
+  "latency_s": 2.503,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: jd/tenacity#586\nRepository: jd/tenacity\nBroken parent: 89c5735a81d291eb2fc019e37f13a81dfe763bcf\nFixed commit: 773f4386e596f52d5c5ed39a8f511c7b56936986\n\nLinked issues:\nIssue #554:\nAfter upgrading Tenacity, mypy reports errors like:\n\n```\nerror: Argument 1 to \"before_sleep_log\" has incompatible type \"Logger\"; expected \"LoggerProtocol\"  [arg-type]\n```\n\nI'm using the normal Python logging logger. \nThis should already reproduce the error:\n```python\n  import logging\n  from tenacity.before_sleep import before_sleep_log\n\n  log = logging.getLogger(__name__)\n  before_sleep_log(log, logging.INFO)  # mypy arg-type error\n```\n\nPull request title:\nfix: make LoggerProtocol compatible with logging.Logger\n\nPull request body:\nRemove the positional-only marker (/) from LoggerProtocol.log().\nlogging.Logger.log() defines msg as a regular parameter, so the\npositional-only constraint caused mypy to reject logging.Logger\nas incompatible with the protocol.\n\nCloses #554\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/tenacity/_utils.py b/tenacity/_utils.py\nindex d828173..6a12678 100644\n--- a/tenacity/_utils.py\n+++ b/tenacity/_utils.py\n@@ -33,7 +33,7 @@ class LoggerProtocol(typing.Protocol):\n     \"\"\"\n \n     def log(\n-        self, level: int, msg: str, /, *args: typing.Any, **kwargs: typing.Any\n+        self, level: int, msg: str, *args: typing.Any, **kwargs: typing.Any\n     ) -> typing.Any: ...\n \n \n\n\nChanged source paths:\n- tenacity/_utils.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by understanding the repository structure and existing tests.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"tenacity\"}",
+              "name": "list_tests"
+            },
+            "id": "call_f8d1465e797b47a68d76dcef",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"tenacity\", \"ranked_test_files\": [{\"fixtures\": [\"mock_sleep\"], \"opening_excerpt\": \"   1 | # Copyright 2016\\u20132021 Julien Danjou\\n   2 | # Copyright 2016 Joshua Harlow\\n   3 | # Copyright 2013 Ray Holder\\n   4 | #\\n   5 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   6 | # you may not use this file except in compliance with the License.\\n   7 | # You may obtain a copy of the License at\\n   8 | #\\n   9 | # http://www.apache.org/licenses/LICENSE-2.0\\n  10 | #\\n  11 | # Unless required by applicable law or agreed to in writing, software\\n  12 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  13 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  14 | # See the License for the specific language governing permissions and\\n  15 | # limitations under the License.\\n  16 | import contextlib\\n  17 | import datetime\\n  18 | import logging\\n  19 | import re\\n  20 | import time\\n  21 | import typing\\n  22 | import unittest\\n  23 | import warnings\\n  24 | from contextlib import contextmanager\\n  25 | from copy import copy\\n  26 | from fractions import Fraction\\n  27 | from unittest import mock\\n  28 | \\n  29 | import pytest\\n  30 | from typeguard import check_type\\n  31 | \\n  32 | import tenacity\\n  33 | from tenacity import RetryCallState, RetryError, Retrying, retry\\n  34 | \\n  35 | _unset = object()\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_tenacity.py', start, end) for another window]...\", \"path\": \"tests/test_tenacity.py\", \"test_names\": [\"test_retrying_repr\", \"test_callstate_repr\", \"test_never_stop\", \"test_stop_any\", \"test_stop_all\", \"test_stop_or\", \"test_stop_and\", \"test_stop_after_attempt\", \"test_stop_after_delay\", \"test_stop_before_delay\", \"test_legacy_explicit_stop_type\", \"test_stop_func_with_retry_state\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import logging\\n   2 | import random\\n   3 | import unittest.mock\\n   4 | \\n   5 | from tenacity import (\\n   6 |     _utils,\\n   7 |     after_log,\\n   8 | )\\n   9 | \\n  10 | from . import test_tenacity\\n  11 | \\n  12 | \\n  13 | class TestAfterLogFormat(unittest.TestCase):\\n  14 |     def setUp(self) -> None:\\n  15 |         self.log_level = random.choice(\\n  16 |             (\\n  17 |                 logging.DEBUG,\\n  18 |                 logging.INFO,\\n  19 |                 logging.WARNING,\\n  20 |                 logging.ERROR,\\n  21 |                 logging.CRITICAL,\\n  22 |             )\\n  23 |         )\\n  24 |         self.previous_attempt_number = random.randint(1, 512)\\n  25 | \\n  26 |     def test_01_default(self) -> None:\\n  27 |         \\\"\\\"\\\"Test log formatting.\\\"\\\"\\\"\\n  28 |         log = unittest.mock.MagicMock(spec=\\\"logging.Logger.log\\\")\\n  29 |         logger = unittest.mock.MagicMock(spec=\\\"logging.Logger\\\", log=log)\\n  30 | \\n  31 |         sec_format = \\\"%.3g\\\"\\n  32 |         delay_since_first_attempt = 0.1\\n  33 | \\n  34 |         retry_state = test_tenacity.make_retry_state(\\n  35 |             self.previous_attempt_number, delay_since_first_attempt\\n  36 |         )\\n...[TRUNCATED; use read_file('tests/test_after.py', start, end) for another window]...\", \"path\": \"tests/test_after.py\", \"test_names\": [\"test_01_default\", \"test_02_custom_sec_format\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # Copyright 2016 \\u00c9tienne Bersac\\n   2 | #\\n   3 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   4 | # you may not use this file except in compliance with the License.\\n   5 | # You may obtain a copy of the License at\\n   6 | #\\n   7 | # http://www.apache.org/licenses/LICENSE-2.0\\n   8 | #\\n   9 | # Unless required by applicable law or agreed to in writing, software\\n  10 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  11 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  12 | # See the License for the specific language governing permissions and\\n  13 | # limitations under the License.\\n  14 | \\n  15 | import asyncio\\n  16 | import inspect\\n  17 | import unittest\\n  18 | from collections.abc import Callable, Coroutine\\n  19 | from functools import wraps\\n  20 | from typing import Any, TypeVar\\n  21 | from unittest import mock\\n  22 | \\n  23 | try:\\n  24 |     import trio\\n  25 | except ImportError:\\n  26 |     have_trio = False\\n  27 | else:\\n  28 |     have_trio = True\\n  29 | \\n  30 | import pytest\\n  31 | \\n  32 | import tenacity\\n  33 | from tenacity import (\\n  34 |     AsyncRetrying,\\n  35 |     RetryCallState,\\n  36 |     RetryError,\\n...[TRUNCATED; use read_file('tests/test_asyncio.py', start, end) for another window]...\", \"path\": \"tests/test_asyncio.py\", \"test_names\": [\"test_retry\", \"test_iscoroutinefunction\", \"test_retry_using_async_retying\", \"test_stop_after_attempt\", \"test_repr\", \"test_retry_attributes\", \"test_retry_preserves_argument_defaults\", \"test_attempt_number_is_correct_for_interleaved_coroutines\", \"test_trio_basic\", \"test_do_max_attempts\", \"test_reraise\", \"test_sleeps\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import asyncio\\n   2 | import typing\\n   3 | import unittest\\n   4 | from functools import wraps\\n   5 | \\n   6 | from tenacity import RetryCallState, retry\\n   7 | \\n   8 | \\n   9 | def asynctest(\\n  10 |     callable_: typing.Callable[..., typing.Any],\\n  11 | ) -> typing.Callable[..., typing.Any]:\\n  12 |     @wraps(callable_)\\n  13 |     def wrapper(*a: typing.Any, **kw: typing.Any) -> typing.Any:\\n  14 |         return asyncio.run(callable_(*a, **kw))\\n  15 | \\n  16 |     return wrapper\\n  17 | \\n  18 | \\n  19 | MAX_RETRY_FIX_ATTEMPTS = 2\\n  20 | \\n  21 | \\n  22 | class TestIssue478(unittest.TestCase):\\n  23 |     def test_issue(self) -> None:\\n  24 |         results = []\\n  25 | \\n  26 |         def do_retry(retry_state: RetryCallState) -> bool:\\n  27 |             outcome = retry_state.outcome\\n  28 |             assert outcome\\n  29 |             ex = outcome.exception()\\n  30 |             _subject_: str = retry_state.args[0]\\n  31 | \\n  32 |             if _subject_ == \\\"Fix\\\":  # no retry on fix failure\\n  33 |                 return False\\n  34 | \\n  35 |             if retry_state.attempt_number >= MAX_RETRY_FIX_ATTEMPTS:\\n  36 |                 return False\\n...[TRUNCATED; use read_file('tests/test_issue_478.py', start, end) for another window]...\", \"path\": \"tests/test_issue_478.py\", \"test_names\": [\"test_issue\", \"test_async\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # Copyright 2017 Elisey Zanko\\n   2 | #\\n   3 | # Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   4 | # you may not use this file except in compliance with the License.\\n   5 | # You may obtain a copy of the License at\\n   6 | #\\n   7 | # http://www.apache.org/licenses/LICENSE-2.0\\n   8 | #\\n   9 | # Unless required by applicable law or agreed to in writing, software\\n  10 | # distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n  11 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n  12 | # See the License for the specific language governing permissions and\\n  13 | # limitations under the License.\\n  14 | \\n  15 | import unittest\\n  16 | from collections.abc import Generator\\n  17 | from typing import Any\\n  18 | \\n  19 | from tornado import gen, testing\\n  20 | \\n  21 | from tenacity import RetryError, retry, stop_after_attempt, tornadoweb\\n  22 | \\n  23 | from .test_tenacity import NoIOErrorAfterCount\\n  24 | \\n  25 | \\n  26 | @retry\\n  27 | @gen.coroutine\\n  28 | def _retryable_coroutine(thing: NoIOErrorAfterCount) -> Generator[Any, Any, None]:\\n  29 |     yield gen.sleep(0.00001)\\n  30 |     thing.go()\\n  31 | \\n  32 | \\n  33 | @retry(stop=stop_after_attempt(2))\\n  34 | @gen.coroutine\\n  35 | def _retryable_coroutine_with_2_attempts(\\n  36 |     thing: NoIOErrorAfterCount,\\n...[TRUNCATED; use read_file('tests/test_tornado.py', start, end) for another window]...\", \"path\": \"tests/test_tornado.py\", \"test_names\": [\"test_retry\", \"test_stop_after_attempt\", \"test_repr\", \"test_old_tornado\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import functools\\n   2 | \\n   3 | from tenacity import _utils\\n   4 | \\n   5 | \\n   6 | def test_is_coroutine_callable() -> None:\\n   7 |     async def async_func() -> None:\\n   8 |         pass\\n   9 | \\n  10 |     def sync_func() -> None:\\n  11 |         pass\\n  12 | \\n  13 |     class AsyncClass:\\n  14 |         async def __call__(self) -> None:\\n  15 |             pass\\n  16 | \\n  17 |     class SyncClass:\\n  18 |         def __call__(self) -> None:\\n  19 |             pass\\n  20 | \\n  21 |     lambda_fn = lambda: None  # noqa: E731\\n  22 | \\n  23 |     partial_async_func = functools.partial(async_func)\\n  24 |     partial_sync_func = functools.partial(sync_func)\\n  25 |     partial_async_class = functools.partial(AsyncClass().__call__)\\n  26 |     partial_sync_class = functools.partial(SyncClass().__call__)\\n  27 |     partial_lambda_fn = functools.partial(lambda_fn)\\n  28 | \\n  29 |     assert _utils.is_coroutine_callable(async_func) is True\\n  30 |     assert _utils.is_coroutine_callable(sync_func) is False\\n  31 |     assert _utils.is_coroutine_callable(AsyncClass) is False\\n  32 |     assert _utils.is_coroutine_callable(AsyncClass()) is True\\n  33 |     assert _utils.is_coroutine_callable(SyncClass) is False\\n  34 |     assert _utils.is_coroutine_callable(SyncClass()) is False\\n  35 |     assert _utils.is_coroutine_callable(lambda_fn) is False\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_utils.py', start, end) for another window]...\", \"path\": \"tests/test_utils.py\", \"test_names\": [\"test_is_coroutine_callable\", \"test_find_ordinal\"]}, {\"fixtures\": [], \"opening_excerpt\": \"\", \"path\": \"tests/__init__.py\", \"test_names\": []}], \"total_test_python_files\": 7}",
+        "role": "tool",
+        "tool_call_id": "call_f8d1465e797b47a68d76dcef"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 380008250,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "73e04e397b806602de60499b1fbb8136ea961445d3d562a848d882cc941faf69",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Let me look at the relevant source files to understand the `LoggerProtocol` and `before_sleep_log",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\": \"tenacity/_utils.py\", \"start\": 1, \"end\": 60}",
+                "name": "read_file"
+              },
+              "id": "call_66cdefc693824abab341a654",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"path\": \"tenacity/before_sleep.py\", \"start\": 1, \"end\": 80}",
+                "name": "read_file"
+              },
+              "id": "call_81bb96f2edc64e06afe27042",
+              "index": 1,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788160810,
+    "id": "gen-1788160810-RBZATzIpcDhvnpW467LE",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Alibaba",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 168,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000570036,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.5024e-05,
+        "upstream_inference_cost": 0.000570036,
+        "upstream_inference_prompt_cost": 0.000525012
+      },
+      "is_byok": false,
+      "prompt_tokens": 4942,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 1280,
+        "video_tokens": 0
+      },
+      "total_tokens": 5110
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.91,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nDon't claim empty stderrs weren't separately captured.\n\nPR body:\nCloses: #1193\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex eb9d991b..138747df 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -31,6 +31,9 @@ Unreleased\n     progress bar instance. :issue:`1125`\n -   ``open_file`` with ``atomic=True`` retains permissions of existing\n     files and respects the current umask for new files. :issue:`1376`\n+-   When using the test ``CliRunner`` with ``mix_stderr=False``, if\n+    ``result.stderr`` is empty it will not raise a ``ValueError``.\n+    :issue:`1193`\n \n \n Version 7.0\ndiff --git a/click/testing.py b/click/testing.py\nindex 1b2924e0..ac6b88ca 100644\n--- a/click/testing.py\n+++ b/click/testing.py\n@@ -79,7 +79,7 @@ class Result(object):\n         self.runner = runner\n         #: The standard output as bytes.\n         self.stdout_bytes = stdout_bytes\n-        #: The standard error as bytes, or False(y) if not available\n+        #: The standard error as bytes, or None if not available\n         self.stderr_bytes = stderr_bytes\n         #: The exit code as integer.\n         self.exit_code = exit_code\n@@ -102,7 +102,7 @@ class Result(object):\n     @property\n     def stderr(self):\n         \"\"\"The standard error as unicode string.\"\"\"\n-        if not self.stderr_bytes:\n+        if self.stderr_bytes is None:\n             raise ValueError(\"stderr not separately captured\")\n         return self.stderr_bytes.decode(self.runner.charset, 'replace') \\\n             .replace('\\r\\n', '\\n')\n@@ -347,7 +347,10 @@ class CliRunner(object):\n             finally:\n                 sys.stdout.flush()\n                 stdout = outstreams[0].getvalue()\n-                stderr = outstreams[1] and outstreams[1].getvalue()\n+                if self.mix_stderr:\n+                    stderr = None\n+                else:\n+                    stderr = outstreams[1].getvalue()\n \n         return Result(runner=self,\n                       stdout_bytes=stdout,\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "228c8c5be7bb31fbce96a6be19df15c68f86593e7f201b07fa8dffdf890fbde9",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using `CliRunner` with `mix_stderr=False`, accessing an empty `result.stderr` incorrectly raises a `ValueError` claiming stderr was not separately captured, even though it was.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078412,
+    "id": "gen-1788078412-JObPwp5Od9DDivh4hTh3",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 42,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 5.703068e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.78552e-06,
+        "upstream_inference_cost": 5.703068e-05,
+        "upstream_inference_prompt_cost": 5.024516e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 622,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 664
+    }
+  },
+  "schema_version": 1
+}

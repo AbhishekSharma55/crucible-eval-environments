@@ -1,0 +1,69 @@
+{
+  "latency_s": 5.918,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #1936:\n<!--\r\nThis issue tracker is a tool to address bugs in Click itself. Please use\r\nPallets Discord or Stack Overflow for questions about your own code.\r\n\r\nReplace this comment with a clear outline of what the bug is.\r\n-->\r\n\r\n<!--\r\nDescribe how to replicate the bug.\r\n\r\nInclude a minimal reproducible example that demonstrates the bug.\r\nInclude the full traceback if there was an exception.\r\n-->\r\n\r\nWhen running completion example, try to do completion with completion `group select-user` and it will produce the following error.\r\n\r\n```\r\ncompletion group select-user bTraceback (most recent call last):      \r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/bin/completion\", line 11, in <module>\r\n    load_entry_point('click-example-completion', 'console_scripts', 'completion')()\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/core.py\", line 1137, in __call__\r\n    return self.main(*args, **kwargs)\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/core.py\", line 1057, in main\r\n    self._main_shell_completion(extra, prog_name, complete_var)\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/core.py\", line 1132, in _main_shell_completion\r\n    rv = shell_complete(self, ctx_args, prog_name, complete_var, instruction)\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/shell_completion.py\", line 49, in shell_complete\r\n    echo(comp.complete())\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/shell_completion.py\", line 291, in complete\r\n    completions = self.get_completions(args, incomplete)\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/shell_completion.py\", line 273, in get_completions\r\n    return obj.shell_complete(ctx, incomplete)\r\n  File \"/Users/thomas/.pyenv/versions/3.8.5/lib/python3.8/site-packages/click/core.py\", line 2403, in shell_complete\r\n    if results and isinstance(results[0], str):\r\nTypeError: 'generator' object is not subscriptable\r\n```\r\n\r\n<!--\r\nDescribe the expected behavior that should have happened but didn't.\r\n-->\r\n\r\nEnvironment:\r\n\r\n- Python version:\r\n- Click version:\r\n\n\nPR title:\nfix completion example\n\nPR body:\nSource command in readme was using old style, custom completion function must return list.\r\n\r\n- closes #1936 \n\nGold patch:\ndiff --git a/examples/completion/README b/examples/completion/README\nindex f15654ed..372b1d4c 100644\n--- a/examples/completion/README\n+++ b/examples/completion/README\n@@ -11,18 +11,18 @@ For Bash:\n \n .. code-block:: bash\n \n-    eval \"$(_COMPLETION_COMPLETE=source_bash completion)\"\n+    eval \"$(_COMPLETION_COMPLETE=bash_source completion)\"\n \n For Zsh:\n \n .. code-block:: zsh\n \n-    eval \"$(_COMPLETION_COMPLETE=source_zsh completion)\"\n+    eval \"$(_COMPLETION_COMPLETE=zsh_source completion)\"\n \n For Fish:\n \n .. code-block:: fish\n \n-    eval (env _COMPLETION_COMPLETE=source_fish completion)\n+    eval (env _COMPLETION_COMPLETE=fish_source completion)\n \n Now press tab (maybe twice) after typing something to see completions.\ndiff --git a/examples/completion/completion.py b/examples/completion/completion.py\nindex abd09c00..6c45a1fc 100644\n--- a/examples/completion/completion.py\n+++ b/examples/completion/completion.py\n@@ -38,10 +38,13 @@ def list_users(ctx, param, incomplete):\n     # of CompletionItem. You can match on whatever you want, including\n     # the help.\n     items = [(\"bob\", \"butcher\"), (\"alice\", \"baker\"), (\"jerry\", \"candlestick maker\")]\n+    out = []\n \n     for value, help in items:\n         if incomplete in value or incomplete in help:\n-            yield CompletionItem(value, help=help)\n+            out.append(CompletionItem(value, help=help))\n+\n+    return out\n \n \n @group.command(help=\"Choose a user\")\n\n\nRelevant source files at the broken parent:\n\n--- examples/completion/completion.py ---\nimport os\n\nimport click\nfrom click.shell_completion import CompletionItem\n\n\n@click.group()\ndef cli():\n    pass\n\n\n@cli.command()\n@click.option(\"--dir\", type=click.Path(file_okay=False))\ndef ls(dir):\n    click.echo(\"\\n\".join(os.listdir(dir)))\n\n\ndef get_env_vars(ctx, param, incomplete):\n    # Returning a list of values is a shortcut to returning a list of\n    # CompletionItem(value).\n    return [k for k in os.environ if incomplete in k]\n\n\n@cli.command(help=\"A command to print environment variables\")\n@click.argument(\"envvar\", shell_complete=get_env_vars)\ndef show_env(envvar):\n    click.echo(f\"Environment variable: {envvar}\")\n    click.echo(f\"Value: {os.environ[envvar]}\")\n\n\n@cli.group(help=\"A group that holds a subcommand\")\ndef group():\n    pass\n\n\ndef list_users(ctx, param, incomplete):\n    # You can generate completions with help strings by returning a list\n    # of CompletionItem. You can match on whatever you want, including\n    # the help.\n    items = [(\"bob\", \"butcher\"), (\"alice\", \"baker\"), (\"jerry\", \"candlestick maker\")]\n\n    for value, help in items:\n        if incomplete in value or incomplete in help:\n            yield CompletionItem(value, help=help)\n\n\n@group.command(help=\"Choose a user\")\n@click.argument(\"user\", shell_complete=list_users)\ndef select_user(user):\n    click.echo(f\"Chosen user is {user}\")\n\n\ncli.add_command(group)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "d985dae996dfe995d7878b75b6dcca6222c96ed0eb175ee10a91a8c177dae91c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_completion_example.py\",\n  \"content\": \"import os\\nimport sys\\n\\nimport click\\nfrom click.testing import CliRunner\\n\\nfrom examples.completion.completion import cli\\n\\n\\ndef test_select_user_completion():\\n    runner = CliRunner()\\n    result = runner.invoke(cli, [\\\"group\\\", \\\"select-user\\\", \\\"b\\\"], standalone_mode=False)\\n    assert result.exit_code == 0\\n    assert \\\"bob\\\" in result.output\\n    assert \\\"alice\\\" not in result.output\\n    assert \\\"jerry\\\" not in result.output\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788097702,
+    "id": "gen-1788097702-2Z2mMpYBgEjGf0zJ10qN",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DeepInfra",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 139,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00017208,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.502e-05,
+        "upstream_inference_cost": 0.00017208,
+        "upstream_inference_prompt_cost": 0.00014706
+      },
+      "is_byok": false,
+      "prompt_tokens": 1634,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1773
+    }
+  },
+  "schema_version": 1
+}

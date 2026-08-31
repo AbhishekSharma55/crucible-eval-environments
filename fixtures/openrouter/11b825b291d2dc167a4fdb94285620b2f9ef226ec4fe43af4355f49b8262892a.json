@@ -1,0 +1,69 @@
+{
+  "latency_s": 3.665,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #5084:\n`from flask import Markup` and `flask.Markup` both don\u2019t work. This is merely supposed to be deprecated, not broken, in Flask 2.3.0.\r\n\r\nExample A:\r\n```python\r\nimport flask\r\n\r\nprint(flask.Markup('hi'))\r\n```\r\n```\r\nTraceback (most recent call last):\r\n  File \"/tmp/flask230/1.py\", line 3, in <module>\r\n    print(flask.Markup('hi'))\r\n  File \"/tmp/flask230/venv/lib/python3.10/site-packages/flask/__init__.py\", line 102, in __getattr__\r\n    raise AttributeError(name)\r\nAttributeError: Markup\r\n```\r\n\r\nExample B:\r\n```python\r\nfrom flask import Markup\r\n\r\nprint(Markup('hi'))\r\n```\r\n```\r\nTraceback (most recent call last):\r\n  File \"/tmp/flask230/2.py\", line 1, in <module>\r\n    from flask import Markup\r\nImportError: cannot import name 'Markup' from 'flask' (/tmp/flask230/venv/lib/python3.10/site-packages/flask/__init__.py)\r\n```\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.10.10\r\n- Flask version: 2.3.0\n\nPR title:\nFix importing Markup from flask\n\nPR body:\n- fixes #5084\r\n\r\n<!--\r\nEnsure each step in CONTRIBUTING.rst is complete by adding an \"x\" to\r\neach box below.\r\n\r\nIf only docs were changed, these aren't relevant and can be removed.\r\n-->\r\n\r\nI am not done with the checklist yet, will follow up immediately. But the fix is also very trivial, so I figured I\u2019d submit it first and let you take a look already?\r\n\r\nChecklist:\r\n\r\n- [ ] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [x] Add or update relevant docs, in the docs folder and in code. \u2013 N/A, imho\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Add `.. versionchanged::` entries in any relevant code docs. \u2013 N/A, imho\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold patch:\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 5e458e6f..7d9188be 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -3,6 +3,8 @@ Version 2.3.1\n \n Unreleased\n \n+-   Restore deprecated ``from flask import Markup``. :issue:`5084`\n+\n \n Version 2.3.0\n -------------\ndiff --git a/src/flask/__init__.py b/src/flask/__init__.py\nindex 77ac68fb..9973dd48 100644\n--- a/src/flask/__init__.py\n+++ b/src/flask/__init__.py\n@@ -76,7 +76,7 @@ def __getattr__(name):\n         )\n         return escape\n \n-    if name == \"escape\":\n+    if name == \"Markup\":\n         import warnings\n         from markupsafe import Markup\n \n\n\nRelevant source files at the broken parent:\n\n--- src/flask/__init__.py ---\nfrom . import json as json\nfrom .app import Flask as Flask\nfrom .app import Request as Request\nfrom .app import Response as Response\nfrom .blueprints import Blueprint as Blueprint\nfrom .config import Config as Config\nfrom .ctx import after_this_request as after_this_request\nfrom .ctx import copy_current_request_context as copy_current_request_context\nfrom .ctx import has_app_context as has_app_context\nfrom .ctx import has_request_context as has_request_context\nfrom .globals import current_app as current_app\nfrom .globals import g as g\nfrom .globals import request as request\nfrom .globals import session as session\nfrom .helpers import abort as abort\nfrom .helpers import flash as flash\nfrom .helpers import get_flashed_messages as get_flashed_messages\nfrom .helpers import get_template_attribute as get_template_attribute\nfrom .helpers import make_response as make_response\nfrom .helpers import redirect as redirect\nfrom .helpers import send_file as send_file\nfrom .helpers import send_from_directory as send_from_directory\nfrom .helpers import stream_with_context as stream_with_context\nfrom .helpers import url_for as url_for\nfrom .json import jsonify as jsonify\nfrom .signals import appcontext_popped as appcontext_popped\nfrom .signals import appcontext_pushed as appcontext_pushed\nfrom .signals import appcontext_tearing_down as appcontext_tearing_down\nfrom .signals import before_render_template as before_render_template\nfrom .signals import got_request_exception as got_request_exception\nfrom .signals import message_flashed as message_flashed\nfrom .signals import request_finished as request_finished\nfrom .signals import request_started as request_started\nfrom .signals import request_tearing_down as request_tearing_down\nfrom .signals import template_rendered as template_rendered\nfrom .templating import render_template as render_template\nfrom .templating import render_template_string as render_template_string\nfrom .templating import stream_template as stream_template\nfrom .templating import stream_template_string as stream_template_string\n\n__version__ = \"2.3.1.dev\"\n\n\ndef __getattr__(name):\n    if name == \"_app_ctx_stack\":\n        import warnings\n        from .globals import __app_ctx_stack\n\n        warnings.warn(\n            \"'_app_ctx_stack' is deprecated and will be removed in Flask 2.4.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n        return __app_ctx_stack\n\n    if name == \"_request_ctx_stack\":\n        import warnings\n        from .globals import __request_ctx_stack\n\n        warnings.warn(\n            \"'_request_ctx_stack' is deprecated and will be removed in Flask 2.4.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n        return __request_ctx_stack\n\n    if name == \"escape\":\n        import warnings\n        from markupsafe import escape\n\n        warnings.warn(\n            \"'flask.escape' is deprecated and will be removed in Flask 2.4. Import\"\n            \" 'markupsafe.escape' instead.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n        return escape\n\n    if name == \"escape\":\n        import warnings\n        from markupsafe import Markup\n\n        warnings.warn(\n            \"'flask.Markup' is deprecated and will be removed in Flask 2.4. Import\"\n            \" 'markupsafe.Markup' instead.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n        return Markup\n\n    if name == \"signals_available\":\n        import warnings\n\n        warnings.warn(\n            \"'signals_available' is deprecated and will be removed in Flask 2.4.\"\n            \" Signals are always available\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n        return True\n\n    raise AttributeError(name)\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.125
+  },
+  "request_hash": "11b825b291d2dc167a4fdb94285620b2f9ef226ec4fe43af4355f49b8262892a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_deprecations.py\",\n  \"content\": \"import pytest\\n\\n\\ndef test_flask_markup_import():\\n    from flask import Markup\\n    assert Markup(\\\"test\\\").__class__.__name__ == \\\"Markup\\\"\\n\\n\\ndef test_flask_markup_attribute():\\n    import flask\\n    assert flask.Markup(\\\"test\\\").__class__.__name__ == \\\"Markup\\\"\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788100080,
+    "id": "gen-1788100080-6NfWlKEgXK0M5ZV7C9i2",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "NextBit",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 108,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00028742,
+      "cost_details": {
+        "upstream_inference_completions_cost": 3.024e-05,
+        "upstream_inference_cost": 0.00028742,
+        "upstream_inference_prompt_cost": 0.00025718
+      },
+      "is_byok": false,
+      "prompt_tokens": 1837,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1945
+    }
+  },
+  "schema_version": 1
+}

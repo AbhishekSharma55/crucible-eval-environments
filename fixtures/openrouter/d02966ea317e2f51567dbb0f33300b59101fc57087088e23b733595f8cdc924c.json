@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.033,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nFix closing of callbacks on CLI exit\n\nPR body:\nThis PR forces the context to close itself on CLI exits.\r\n\r\nThis makes sure all callbacks registered by invoked options are properly called whenever a `ctx.exit()` action is triggered. Which has the effect of preventing state leaks.\r\n\r\nThese leaks cannot be witness in standard CLI operations, because on `ctx.exit()` call, the OS process that is running the Python CLI will be destroyed.\r\n\r\nStill, in unittests, these state leaks will leads to flaky and non-deterministic tests, as the `pytest`, `tox` or any other test framework will keep using the same Python interpreter. To demonstrate this, I implemented a unit test using loggers as a fixture, in addition to a generic unit test.\r\n\r\nChecklist:\r\n\r\n- [x] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\r\n- [x] Add or update relevant docs, in the docs folder and in code.\r\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\r\n- [x] Add `.. versionchanged::` entries in any relevant code docs.\r\n- [x] Run `pre-commit` hooks and fix any issues.\r\n- [x] Run `pytest` and `tox`, no tests failed.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex cb4136a0..59c5b58f 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -45,6 +45,9 @@ Unreleased\n     the ``mix_stderr`` parameter in ``CliRunner``. :issue:`2522` :pr:`2523`\n -   ``Option.show_envvar`` now also shows environment variable in error messages.\n     :issue:`2695` :pr:`2696`\n+-   ``Context.close`` will be called on exit. This results in all\n+    ``Context.call_on_close`` callbacks and context managers added via\n+    ``Context.with_resource`` to be closed on exit as well. :pr:`2680`\n \n \n Version 8.1.8\ndiff --git a/docs/advanced.rst b/docs/advanced.rst\nindex 54ced706..2911eac5 100644\n--- a/docs/advanced.rst\n+++ b/docs/advanced.rst\n@@ -494,3 +494,8 @@ cleanup function.\n             db.record_use()\n             db.save()\n             db.close()\n+\n+\n+.. versionchanged:: 8.2 ``Context.call_on_close`` and context managers registered\n+    via ``Context.with_resource`` will be closed when the CLI exits. These were\n+    previously not called on exit.\ndiff --git a/src/click/core.py b/src/click/core.py\nindex f17a8a81..968a10e7 100644\n--- a/src/click/core.py\n+++ b/src/click/core.py\n@@ -699,7 +699,13 @@ class Context:\n         raise Abort()\n \n     def exit(self, code: int = 0) -> t.NoReturn:\n-        \"\"\"Exits the application with a given exit code.\"\"\"\n+        \"\"\"Exits the application with a given exit code.\n+\n+        .. versionchanged:: 8.2\n+            Force closing of callbacks registered with\n+            :meth:`call_on_close` before exiting the CLI.\n+        \"\"\"\n+        self.close()\n         raise Exit(code)\n \n     def get_usage(self) -> str:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "d02966ea317e2f51567dbb0f33300b59101fc57087088e23b733595f8cdc924c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When a CLI command exits via `ctx.exit()`, any cleanup callbacks or context managers registered with the context are not invoked, causing resource leaks that can lead to flaky and non-deterministic test results when running multiple tests in the same Python interpreter.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078495,
+    "id": "gen-1788078495-Q2RkawdMQO09UG5ujyOp",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Novita",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 53,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00013818,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.484e-05,
+        "upstream_inference_cost": 0.00013818,
+        "upstream_inference_prompt_cost": 0.00012334
+      },
+      "is_byok": false,
+      "prompt_tokens": 881,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 934
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,69 @@
+{
+  "latency_s": 3.176,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd attr.__version_info__\n\nPR body:\nThis allows users to check for features and avoid deprecation warnings without\r\nbreaking backward compatibility.\r\n\r\nThis is especially important with the cmp \u2192 order/eq split.\r\n\r\n---\r\n\r\n@euresti do I need to add it to `__init__.pyi` if it's an attrs class? I tried to just import it into it, but that started throwing errors about stuff in `_make.py`\u2026\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/580.change.rst b/changelog.d/580.change.rst\nnew file mode 100644\nindex 00000000..74a99345\n--- /dev/null\n+++ b/changelog.d/580.change.rst\n@@ -0,0 +1,2 @@\n+Added ``attr.__version_info__`` that can be used to reliably check the version of ``attrs`` and write forward- and backward-compatible code.\n+Please check out the `section on deprecated APIs <http://www.attrs.org/en/stable/api.html#deprecated-apis>`_ on how to use it.\ndiff --git a/docs/api.rst b/docs/api.rst\nindex f68aaa07..7e965b9f 100644\n--- a/docs/api.rst\n+++ b/docs/api.rst\n@@ -506,7 +506,31 @@ Converters\n Deprecated APIs\n ---------------\n \n+.. _version-info:\n+\n+To help you write backward compatible code that doesn't throw warnings on modern releases, the ``attr`` module has an ``__version_info__`` attribute as of version 19.2.0.\n+It behaves similarly to `sys.version_info` and is an instance of `VersionInfo`:\n+\n+.. autoclass:: VersionInfo\n+\n+   With its help you can write code like this:\n+\n+   >>> if getattr(attr, \"__version_info__\", (0,)) >= (19, 2):\n+   ...     cmp_off = {\"eq\": False}\n+   ... else:\n+   ...     cmp_off = {\"cmp\": False}\n+   >>> cmp_off == {\"eq\":  False}\n+   True\n+   >>> @attr.s(**cmp_off)\n+   ... class C(object):\n+   ...     pass\n+\n+\n+----\n+\n The serious business aliases used to be called ``attr.attributes`` and ``attr.attr``.\n There are no plans to remove them but they shouldn't be used in new code.\n \n+The ``cmp`` argument to both `attr.s` and `attr.ib` has been deprecated in 19.2 and shouldn't be used.\n+\n .. autofunction:: assoc\ndiff --git a/src/attr/__init__.py b/src/attr/__init__.py\nindex cf322d04..c28f0568 100644\n--- a/src/attr/__init__.py\n+++ b/src/attr/__init__.py\n@@ -16,9 +16,11 @@ from ._make import (\n     make_class,\n     validate,\n )\n+from ._version import VersionInfo\n \n \n __version__ = \"19.2.0.dev0\"\n+__version_info__ = VersionInfo._from_version_string(__version__)\n \n __title__ = \"attrs\"\n __description__ = \"Classes Without Boilerplate\"\n@@ -37,6 +39,7 @@ s = attributes = attrs\n ib = attr = attrib\n dataclass = partial(attrs, auto_attribs=True)  # happy Easter ;)\n \n+\n __all__ = [\n     \"Attribute\",\n     \"Factory\",\ndiff --git a/src/attr/__init__.pyi b/src/attr/__init__.pyi\nindex 03bcf89f..d19a0554 100644\n--- a/src/attr/__init__.pyi\n+++ b/src/attr/__init__.pyi\n@@ -20,6 +20,19 @@ from . import filters as filters\n from . import converters as converters\n from . import validators as validators\n \n+from ._version import VersionInfo\n+\n+__version__: str\n+__version_info__: VersionInfo\n+__title__: str\n+__description__: str\n+__url__: str\n+__uri__: str\n+__author__: str\n+__email__: str\n+__license__: str\n+__copyright__: str\n+\n _T = TypeVar(\"_T\")\n _C = TypeVar(\"_C\", bound=type)\n \ndiff --git a/src/attr/_version.py b/src/attr/_version.py\nnew file mode 100644\nindex 00000000..014e78a1\n--- /dev/null\n+++ b/src/attr/_version.py\n@@ -0,0 +1,85 @@\n+from __future__ import absolute_import, division, print_function\n+\n+from functools import total_ordering\n+\n+from ._funcs import astuple\n+from ._make import attrib, attrs\n+\n+\n+@total_ordering\n+@attrs(eq=False, order=False, slots=True, frozen=True)\n+class VersionInfo(object):\n+    \"\"\"\n+    A version object that can be compared to tuple of length 1--4:\n+\n+    >>> attr.VersionInfo(19, 1, 0, \"final\")  <= (19, 2)\n+    True\n+    >>> attr.VersionInfo(19, 1, 0, \"final\") < (19, 1, 1)\n+    True\n+    >>> vi = attr.VersionInfo(19, 2, 0, \"final\")\n+    >>> vi < (19, 1, 1)\n+    False\n+    >>> vi < (19,)\n+    False\n+    >>> vi == (19, 2,)\n+    True\n+    >>> vi == (19, 2, 1)\n+    False\n+\n+    .. versionadded:: 19.2\n+    \"\"\"\n+\n+    year = attrib(type=int)\n+    minor = attrib(type=int)\n+    micro = attrib(type=int)\n+    releaselevel = attrib(type=str)\n+\n+    @classmethod\n+    def _from_version_string(cls, s):\n+        \"\"\"\n+        Parse *s* and return a _VersionInfo.\n+        \"\"\"\n+        v = s.split(\".\")\n+        if len(v) == 3:\n+            v.append(\"final\")\n+\n+        return cls(\n+            year=int(v[0]), minor=int(v[1]), micro=int(v[2]), releaselevel=v[3]\n+        )\n+\n+    def _ensure_tuple(self, other):\n+        \"\"\"\n+        Ensure *other* is a tuple of a valid length.\n+\n+        Returns a possibly transformed *other* and ourselves as a tuple of\n+        the same length as *other*.\n+        \"\"\"\n+\n+        if self.__class__ is other.__class__:\n+            other = astuple(other)\n+\n+        if not isinstance(other, tuple):\n+            raise NotImplementedError\n+\n+        if not (1 <= len(other) <= 4):\n+            raise NotImplementedError\n+\n+        return astuple(self)[: len(other)], other\n+\n+    def __eq__(self, other):\n+        try:\n+            us, them = self._ensure_tuple(other)\n+        except NotImplementedError:\n+            return NotImplemented\n+\n+        return us == them\n+\n+    def __lt__(self, other):\n+        try:\n+            us, them = self._ensure_tuple(other)\n+        except NotImplementedError:\n+            return NotImplemented\n+\n+        # Since alphabetically \"dev0\" < \"final\" < \"post1\" < \"post2\", we don't\n+        # have to do anything special with releaselevel for now.\n+        return us < them\ndiff --git a/src/attr/_version.pyi b/src/attr/_version.pyi\nnew file mode 100644\nindex 00000000..45ced086\n--- /dev/null\n+++ b/src/attr/_version.pyi\n@@ -0,0 +1,9 @@\n+class VersionInfo:\n+    @property\n+    def year(self) -> int: ...\n+    @property\n+    def minor(self) -> int: ...\n+    @property\n+    def micro(self) -> int: ...\n+    @property\n+    def releaselevel(self) -> str: ...\ndiff --git a/tox.ini b/tox.ini\nindex 77ebe245..96a47288 100644\n--- a/tox.ini\n+++ b/tox.ini\n@@ -93,5 +93,5 @@ commands = towncrier --draft\n basepython = python3.7\n deps = mypy\n commands =\n-    mypy src/attr/__init__.pyi src/attr/converters.pyi src/attr/exceptions.pyi src/attr/filters.pyi src/attr/validators.pyi\n+    mypy src/attr/__init__.pyi src/attr/_version.pyi src/attr/converters.pyi src/attr/exceptions.pyi src/attr/filters.pyi src/attr/validators.pyi\n     mypy tests/typing_example.py\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.375
+  },
+  "request_hash": "f33b443fbf6489f74d5fb9a62d3341b112f19b8831ebab3f841b8290f202c1ae",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attr` module does not expose a `__version_info__` attribute that users can use to programmatically check the version of the library for writing forward- and backward-compatible code.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078707,
+    "id": "gen-1788078707-pJGGRQP9b05jQ19JGMFb",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 40,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 4.5045504e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.4512e-06,
+        "upstream_inference_cost": 4.5045504e-05,
+        "upstream_inference_prompt_cost": 3.8594304e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 2117,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 2048,
+        "video_tokens": 0
+      },
+      "total_tokens": 2157
+    }
+  },
+  "schema_version": 1
+}

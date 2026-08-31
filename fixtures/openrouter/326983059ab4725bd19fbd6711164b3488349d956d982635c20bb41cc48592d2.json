@@ -1,0 +1,74 @@
+{
+  "latency_s": 3.969,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nfeat: deprecate `initial` in favor of `multiplier` in `wait_exponential_jitter`\n\nPR body:\nEvery other exponential wait class uses `multiplier`. Having `initial`\nonly on `wait_exponential_jitter` is confusing. Add `multiplier` param\nand deprecate `initial` as its alias.\n\n- Add `multiplier` parameter (default 1)\n- Emit `DeprecationWarning` when `initial` is used\n- Raise `ValueError` if both `initial` and `multiplier` are specified\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/deprecate-initial-for-multiplier-c7b4e2d9f1a83065.yaml b/releasenotes/notes/deprecate-initial-for-multiplier-c7b4e2d9f1a83065.yaml\nnew file mode 100644\nindex 0000000..e558854\n--- /dev/null\n+++ b/releasenotes/notes/deprecate-initial-for-multiplier-c7b4e2d9f1a83065.yaml\n@@ -0,0 +1,10 @@\n+---\n+deprecations:\n+  - |\n+    The ``initial`` parameter of ``wait_exponential_jitter`` is deprecated in\n+    favor of ``multiplier``, for consistency with ``wait_exponential``. Passing\n+    ``initial`` still works but emits a ``DeprecationWarning``.\n+features:\n+  - |\n+    Add ``multiplier`` parameter to ``wait_exponential_jitter``, consistent\n+    with ``wait_exponential``.\ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex 92fa1f4..c7a430e 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -17,6 +17,7 @@\n import abc\n import random\n import typing\n+import warnings\n \n from tenacity import _utils\n \n@@ -240,12 +241,12 @@ class wait_random_exponential(wait_exponential):\n class wait_exponential_jitter(wait_base):\n     \"\"\"Wait strategy that applies exponential backoff and jitter.\n \n-    It allows for a customized initial wait, maximum wait, jitter and minimum.\n+    It allows for a customized multiplier, maximum wait, jitter and minimum.\n \n     This implements the strategy described here:\n     https://cloud.google.com/storage/docs/retry-strategy\n \n-    The wait time is max(min, min(initial * 2**n + random.uniform(0, jitter), maximum))\n+    The wait time is max(min, min(multiplier * 2**n + random.uniform(0, jitter), maximum))\n     where n is the retry count.\n     \"\"\"\n \n@@ -256,8 +257,22 @@ class wait_exponential_jitter(wait_base):\n         exp_base: float = 2,\n         jitter: _utils.time_unit_type = 1,\n         min: _utils.time_unit_type = 0,\n+        multiplier: float = 1,\n     ) -> None:\n-        self.initial = initial\n+        if initial != 1 and multiplier != 1:\n+            raise ValueError(\n+                \"Cannot specify both 'initial' and 'multiplier' \u2014 use 'multiplier' only\"\n+            )\n+\n+        if initial != 1:\n+            warnings.warn(\n+                \"The 'initial' parameter is deprecated, use 'multiplier' instead\",\n+                DeprecationWarning,\n+                stacklevel=2,\n+            )\n+            multiplier = initial\n+\n+        self.multiplier = multiplier\n         self.max = _utils.to_seconds(max)\n         self.exp_base = exp_base\n         self.jitter = _utils.to_seconds(jitter)\n@@ -267,7 +282,7 @@ class wait_exponential_jitter(wait_base):\n         jitter = random.uniform(0, self.jitter)\n         try:\n             exp = self.exp_base ** (retry_state.attempt_number - 1)\n-            result = self.initial * exp + jitter\n+            result = self.multiplier * exp + jitter\n         except OverflowError:\n             result = self.max\n         return max(max(0, self.min), min(result, self.max))\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "326983059ab4725bd19fbd6711164b3488349d956d982635c20bb41cc48592d2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `wait_exponential_jitter` function uses a parameter named `initial` to control the base wait time, while all other exponential wait functions use `multiplier` for the same purpose. This inconsistency is confusing for users.",
+          "reasoning": "We need to write a concise problem statement describing only the externally observable bug or missing behavior. The PR is about deprecating `initial` in favor of `multiplier` in `wait_exponential_jitter`. The problem is that the parameter name `initial` is inconsistent with other exponential wait classes that use `multiplier`, causing confusion. The externally observable issue is that users have to use a different parameter name (`initial`) for `wait_exponential_jitter` compared to other similar functions, which is confusing and inconsistent. The fix adds a `multiplier` parameter and deprecates `initial`. So the problem statement should describe the inconsistency without revealing implementation details.",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing only the externally observable bug or missing behavior. The PR is about deprecating `initial` in favor of `multiplier` in `wait_exponential_jitter`. The problem is that the parameter name `initial` is inconsistent with other exponential wait classes that use `multiplier`, causing confusion. The externally observable issue is that users have to use a different parameter name (`initial`) for `wait_exponential_jitter` compared to other similar functions, which is confusing and inconsistent. The fix adds a `multiplier` parameter and deprecates `initial`. So the problem statement should describe the inconsistency without revealing implementation details.",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078209,
+    "id": "gen-1788078209-XdB58ZZlm8rHrQ7BidOR",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Mancer 2",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 187,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 179
+      },
+      "cost": 0.0002675,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.278718628851255e-05,
+        "upstream_inference_cost": 0.0002675,
+        "upstream_inference_prompt_cost": 0.00017471281371148745
+      },
+      "is_byok": false,
+      "prompt_tokens": 1067,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1254
+    }
+  },
+  "schema_version": 1
+}

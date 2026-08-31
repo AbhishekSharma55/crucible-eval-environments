@@ -1,0 +1,270 @@
+{
+  "latency_s": 4.028,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: pallets/flask#5161\nRepository: pallets/flask\nBroken parent: c8cf4694c60f0d81809468a1b45ec730496cc546\nFixed commit: 4be9f521425b7ad659b182c319dc3afb8fe64f53\n\nLinked issues:\nIssue #5160:\nWith a trivial script [using `app.run()`](https://flask.palletsprojects.com/en/2.3.x/server/#in-code) such as:\r\n\r\n```python3\r\nfrom flask import Flask\r\n\r\napp = Flask(__name__)\r\n\r\nif __name__ == \"__main__\":\r\n    app.run(debug=True)\r\n```\r\n\r\nThe current git `main` breaks with:\r\n\r\n```pytb\r\nTraceback (most recent call last):\r\n  File \"/home/florian/tmp/flask/app.py\", line 3, in <module>\r\n    app = Flask(__name__)\r\n          ^^^^^^^^^^^^^^^\r\n  File \"/home/florian/tmp/flask/src/flask/app.py\", line 376, in __init__\r\n    instance_path = self.auto_find_instance_path()\r\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"/home/florian/tmp/flask/src/flask/app.py\", line 630, in auto_find_instance_path\r\n    prefix, package_path = find_package(self.import_name)\r\n                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"/home/florian/tmp/flask/src/flask/scaffold.py\", line 898, in find_package\r\n    package_path = _find_package_path(import_name)\r\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"/home/florian/tmp/flask/src/flask/scaffold.py\", line 858, in _find_package_path\r\n    spec = importlib.util.find_spec(root_mod_name)\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"<frozen importlib.util>\", line 114, in find_spec\r\nValueError: __main__.__spec__ is None\r\n```\r\n\r\nThis seems to be a regression due to 84e11a1e827c0f55f9b9ee15952eddcf8a6492e0 from #5157.\r\n\r\nEnvironment:\r\n\r\n- Python version: 3.11.4\r\n- Flask version: git main\r\n\n\nPull request title:\nfix use of `importlib.util.find_spec`\n\nPull request body:\n`importlib.util.find_spec` raises a `ValueError` in some cases, which is different than how `pkgutil.get_loader` worked. fixes #5160 \r\n\r\nWhile fixing this, I noticed that the \"fallback\" part of the `_find_package_path` code is redundant, since `find_spec` is already handling all cases. `get_root_path` could probably also be cleaned up, but I'm leaving that for now.\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex b36e1b60..4535e8cc 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -5,6 +5,7 @@ Unreleased\n \n -   Python 3.12 compatibility.\n -   Update Werkzeug requirement to >=2.3.5.\n+-   Refactor how an app's root and instance paths are determined. :issue:`5160`\n \n \n Version 2.3.2\ndiff --git a/src/flask/helpers.py b/src/flask/helpers.py\nindex 4e8bc8b8..284c3696 100644\n--- a/src/flask/helpers.py\n+++ b/src/flask/helpers.py\n@@ -575,13 +575,20 @@ def get_root_path(import_name: str) -> str:\n         return os.path.dirname(os.path.abspath(mod.__file__))\n \n     # Next attempt: check the loader.\n-    spec = importlib.util.find_spec(import_name)\n-    loader = spec.loader if spec is not None else None\n+    try:\n+        spec = importlib.util.find_spec(import_name)\n+\n+        if spec is None:\n+            raise ValueError\n+    except (ImportError, ValueError):\n+        loader = None\n+    else:\n+        loader = spec.loader\n \n     # Loader does not exist or we're referring to an unloaded main\n     # module or a main module without path (interactive sessions), go\n     # with the current working directory.\n-    if loader is None or import_name == \"__main__\":\n+    if loader is None:\n         return os.getcwd()\n \n     if hasattr(loader, \"get_filename\"):\ndiff --git a/src/flask/scaffold.py b/src/flask/scaffold.py\nindex 3c23ef97..d15b8733 100644\n--- a/src/flask/scaffold.py\n+++ b/src/flask/scaffold.py\n@@ -779,31 +779,6 @@ def _endpoint_from_view_func(view_func: t.Callable) -> str:\n     return view_func.__name__\n \n \n-def _matching_loader_thinks_module_is_package(loader, mod_name):\n-    \"\"\"Attempt to figure out if the given name is a package or a module.\n-\n-    :param: loader: The loader that handled the name.\n-    :param mod_name: The name of the package or module.\n-    \"\"\"\n-    # Use loader.is_package if it's available.\n-    if hasattr(loader, \"is_package\"):\n-        return loader.is_package(mod_name)\n-\n-    cls = type(loader)\n-\n-    # NamespaceLoader doesn't implement is_package, but all names it\n-    # loads must be packages.\n-    if cls.__module__ == \"_frozen_importlib\" and cls.__name__ == \"NamespaceLoader\":\n-        return True\n-\n-    # Otherwise we need to fail with an error that explains what went\n-    # wrong.\n-    raise AttributeError(\n-        f\"'{cls.__name__}.is_package()' must be implemented for PEP 302\"\n-        f\" import hooks.\"\n-    )\n-\n-\n def _path_is_relative_to(path: pathlib.PurePath, base: str) -> bool:\n     # Path.is_relative_to doesn't exist until Python 3.9\n     try:\n@@ -822,64 +797,39 @@ def _find_package_path(import_name):\n \n         if root_spec is None:\n             raise ValueError(\"not found\")\n-    # ImportError: the machinery told us it does not exist\n-    # ValueError:\n-    #    - the module name was invalid\n-    #    - the module name is __main__\n-    #    - *we* raised `ValueError` due to `root_spec` being `None`\n     except (ImportError, ValueError):\n-        pass  # handled below\n-    else:\n-        # namespace package\n-        if root_spec.origin in {\"namespace\", None}:\n-            package_spec = importlib.util.find_spec(import_name)\n-            if package_spec is not None and package_spec.submodule_search_locations:\n-                # Pick the path in the namespace that contains the submodule.\n-                package_path = pathlib.Path(\n-                    os.path.commonpath(package_spec.submodule_search_locations)\n-                )\n-                search_locations = (\n-                    location\n-                    for location in root_spec.submodule_search_locations\n-                    if _path_is_relative_to(package_path, location)\n-                )\n-            else:\n-                # Pick the first path.\n-                search_locations = iter(root_spec.submodule_search_locations)\n-            return os.path.dirname(next(search_locations))\n-        # a package (with __init__.py)\n-        elif root_spec.submodule_search_locations:\n-            return os.path.dirname(os.path.dirname(root_spec.origin))\n-        # just a normal module\n-        else:\n-            return os.path.dirname(root_spec.origin)\n-\n-    # we were unable to find the `package_path` using PEP 451 loaders\n-    spec = importlib.util.find_spec(root_mod_name)\n-    loader = spec.loader if spec is not None else None\n-\n-    if loader is None or root_mod_name == \"__main__\":\n-        # import name is not found, or interactive/main module\n+        # ImportError: the machinery told us it does not exist\n+        # ValueError:\n+        #    - the module name was invalid\n+        #    - the module name is __main__\n+        #    - we raised `ValueError` due to `root_spec` being `None`\n         return os.getcwd()\n \n-    if hasattr(loader, \"get_filename\"):\n-        filename = loader.get_filename(root_mod_name)\n-    elif hasattr(loader, \"archive\"):\n-        # zipimporter's loader.archive points to the .zip file.\n-        filename = loader.archive\n-    else:\n-        # At least one loader is missing both get_filename and archive:\n-        # Google App Engine's HardenedModulesHook, use __file__.\n-        filename = importlib.import_module(root_mod_name).__file__\n-\n-    package_path = os.path.abspath(os.path.dirname(filename))\n+    if root_spec.origin in {\"namespace\", None}:\n+        # namespace package\n+        package_spec = importlib.util.find_spec(import_name)\n \n-    # If the imported name is a package, filename is currently pointing\n-    # to the root of the package, need to get the current directory.\n-    if _matching_loader_thinks_module_is_package(loader, root_mod_name):\n-        package_path = os.path.dirname(package_path)\n+        if package_spec is not None and package_spec.submodule_search_locations:\n+            # Pick the path in the namespace that contains the submodule.\n+            package_path = pathlib.Path(\n+                os.path.commonpath(package_spec.submodule_search_locations)\n+            )\n+            search_location = next(\n+                location\n+                for location in root_spec.submodule_search_locations\n+                if _path_is_relative_to(package_path, location)\n+            )\n+        else:\n+            # Pick the first path.\n+            search_location = root_spec.submodule_search_locations[0]\n \n-    return package_path\n+        return os.path.dirname(search_location)\n+    elif root_spec.submodule_search_locations:\n+        # package with __init__.py\n+        return os.path.dirname(os.path.dirname(root_spec.origin))\n+    else:\n+        # module\n+        return os.path.dirname(root_spec.origin)\n \n \n def find_package(import_name: str):\n\n\nChanged source paths:\n- src/flask/helpers.py\n- src/flask/scaffold.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by understanding the bug and the fix, then find relevant tests.\n\nThe bug is that `importlib.util.find_spec(\"__main__\")` raises `ValueError` when `__main__.__spec__` is `None`. The fix wraps the call in a try/except to catch `ValueError` (and `ImportError`).\n\nLet me start by exploring the test",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/flask/helpers.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_4518181599b84ea796484b6a",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/flask/scaffold.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_7ed7e3ce56bb4d8ebc5f526e",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/flask/helpers.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/inner2/flask.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import io\\n   2 | import os\\n   3 | \\n   4 | import pytest\\n   5 | import werkzeug.exceptions\\n   6 | \\n   7 | import flask\\n   8 | from flask.helpers import get_debug_flag\\n   9 | \\n  10 | \\n  11 | class FakePath:\\n  12 |     \\\"\\\"\\\"Fake object to represent a ``PathLike object``.\\n  13 | \\n  14 |     This represents a ``pathlib.Path`` object in python 3.\\n  15 |     See: https://www.python.org/dev/peps/pep-0519/\\n  16 |     \\\"\\\"\\\"\\n  17 | \\n  18 |     def __init__(self, path):\\n  19 |         self.path = path\\n  20 | \\n  21 |     def __fspath__(self):\\n  22 |         return self.path\\n  23 | \\n  24 | \\n  25 | class PyBytesIO:\\n  26 |     def __init__(self, *args, **kwargs):\\n  27 |         self._io = io.BytesIO(*args, **kwargs)\\n  28 | \\n  29 |     def __getattr__(self, name):\\n  30 |         return getattr(self._io, name)\\n  31 | \\n  32 | \\n  33 | class TestSendfile:\\n  34 |     def test_send_file(self, app, req_ctx):\\n  35 |         rv = flask.send_file(\\\"static/index.html\\\")\\n  36 |         assert rv.direct_passthrough\\n...[TRUNCATED; use read_file('tests/test_helpers.py', start, end) for another window]...\", \"path\": \"tests/test_helpers.py\", \"test_names\": [\"test_redirect_no_app\", \"test_redirect_with_app\", \"test_abort_no_app\", \"test_app_aborter_class\", \"test_abort_with_app\", \"test_send_file\", \"test_static_file\", \"test_send_from_directory\", \"test_url_for_with_anchor\", \"test_url_for_with_scheme\", \"test_url_for_with_scheme_not_external\", \"test_url_for_with_alternating_schemes\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | from flask import template_rendered\\n   3 | \\n   4 | \\n   5 | @pytest.mark.parametrize(\\n   6 |     (\\\"path\\\", \\\"template_name\\\"),\\n   7 |     (\\n   8 |         (\\\"/\\\", \\\"xhr.html\\\"),\\n   9 |         (\\\"/plain\\\", \\\"xhr.html\\\"),\\n  10 |         (\\\"/fetch\\\", \\\"fetch.html\\\"),\\n  11 |         (\\\"/jquery\\\", \\\"jquery.html\\\"),\\n  12 |     ),\\n  13 | )\\n  14 | def test_index(app, client, path, template_name):\\n  15 |     def check(sender, template, context):\\n  16 |         assert template.name == template_name\\n  17 | \\n  18 |     with template_rendered.connected_to(check, app):\\n  19 |         client.get(path)\\n  20 | \\n  21 | \\n  22 | @pytest.mark.parametrize(\\n  23 |     (\\\"a\\\", \\\"b\\\", \\\"result\\\"), ((2, 3, 5), (2.5, 3, 5.5), (2, None, 2), (2, \\\"b\\\", 2))\\n  24 | )\\n  25 | def test_add(client, a, b, result):\\n  26 |     response = client.post(\\\"/add\\\", data={\\\"a\\\": a, \\\"b\\\": b})\\n  27 |     assert response.get_json()[\\\"result\\\"] == result\", \"path\": \"examples/javascript/tests/test_js_example.py\", \"test_names\": [\"test_index\", \"test_add\"]}, {\"fixtures\": [\"app\", \"client\", \"runner\", \"auth\"], \"opening_excerpt\": \"   1 | import os\\n   2 | import tempfile\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | from flaskr import create_app\\n   7 | from flaskr.db import get_db\\n   8 | from flaskr.db import init_db\\n   9 | \\n  10 | # read in SQL for populating test data\\n  11 | with open(os.path.join(os.path.dirname(__file__), \\\"data.sql\\\"), \\\"rb\\\") as f:\\n  12 |     _data_sql = f.read().decode(\\\"utf8\\\")\\n  13 | \\n  14 | \\n  15 | @pytest.fixture\\n  16 | def app():\\n  17 |     \\\"\\\"\\\"Create and configure a new app instance for each test.\\\"\\\"\\\"\\n  18 |     # create a temporary file to isolate the database for each test\\n  19 |     db_fd, db_path = tempfile.mkstemp()\\n  20 |     # create the app with common test config\\n  21 |     app = create_app({\\\"TESTING\\\": True, \\\"DATABASE\\\": db_path})\\n  22 | \\n  23 |     # create the database and load test data\\n  24 |     with app.app_context():\\n  25 |         init_db()\\n  26 |         get_db().executescript(_data_sql)\\n  27 | \\n  28 |     yield app\\n  29 | \\n  30 |     # close and remove the temporary database\\n  31 |     os.close(db_fd)\\n  32 |     os.unlink(db_path)\\n  33 | \\n  34 | \\n  35 | @pytest.fixture\\n  36 | def client(app):\\n...[TRUNCATED; use read_file('examples/tutorial/tests/conftest.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/conftest.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | from flask import g\\n   3 | from flask import session\\n   4 | \\n   5 | from flaskr.db import get_db\\n   6 | \\n   7 | \\n   8 | def test_register(client, app):\\n   9 |     # test that viewing the page renders without template errors\\n  10 |     assert client.get(\\\"/auth/register\\\").status_code == 200\\n  11 | \\n  12 |     # test that successful registration redirects to the login page\\n  13 |     response = client.post(\\\"/auth/register\\\", data={\\\"username\\\": \\\"a\\\", \\\"password\\\": \\\"a\\\"})\\n  14 |     assert response.headers[\\\"Location\\\"] == \\\"/auth/login\\\"\\n  15 | \\n  16 |     # test that the user was inserted into the database\\n  17 |     with app.app_context():\\n  18 |         assert (\\n  19 |             get_db().execute(\\\"SELECT * FROM user WHERE username = 'a'\\\").fetchone()\\n  20 |             is not None\\n  21 |         )\\n  22 | \\n  23 | \\n  24 | @pytest.mark.parametrize(\\n  25 |     (\\\"username\\\", \\\"password\\\", \\\"message\\\"),\\n  26 |     (\\n  27 |         (\\\"\\\", \\\"\\\", b\\\"Username is required.\\\"),\\n  28 |         (\\\"a\\\", \\\"\\\", b\\\"Password is required.\\\"),\\n  29 |         (\\\"test\\\", \\\"test\\\", b\\\"already registered\\\"),\\n  30 |     ),\\n  31 | )\\n  32 | def test_register_validate_input(client, username, password, message):\\n  33 |     response = client.post(\\n  34 |         \\\"/auth/register\\\", data={\\\"username\\\": username, \\\"password\\\": password}\\n  35 |     )\\n  36 |     assert message in response.data\\n...[TRUNCATED; use read_file('examples/tutorial/tests/test_auth.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/test_auth.py\", \"test_names\": [\"test_register\", \"test_register_validate_input\", \"test_login\", \"test_login_validate_input\", \"test_logout\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | \\n   3 | from flaskr.db import get_db\\n   4 | \\n   5 | \\n   6 | def test_index(client, auth):\\n   7 |     response = client.get(\\\"/\\\")\\n   8 |     assert b\\\"Log In\\\" in response.data\\n   9 |     assert b\\\"Register\\\" in response.data\\n  10 | \\n  11 |     auth.login()\\n  12 |     response = client.get(\\\"/\\\")\\n  13 |     assert b\\\"test title\\\" in response.data\\n  14 |     assert b\\\"by test on 2018-01-01\\\" in response.data\\n  15 |     assert b\\\"test\\\\nbody\\\" in response.data\\n  16 |     assert b'href=\\\"/1/update\\\"' in response.data\\n  17 | \\n  18 | \\n  19 | @pytest.mark.parametrize(\\\"path\\\", (\\\"/create\\\", \\\"/1/update\\\", \\\"/1/delete\\\"))\\n  20 | def test_login_required(client, path):\\n  21 |     response = client.post(path)\\n  22 |     assert response.headers[\\\"Location\\\"] == \\\"/auth/login\\\"\\n  23 | \\n  24 | \\n  25 | def test_author_required(app, client, auth):\\n  26 |     # change the post author to another user\\n  27 |     with app.app_context():\\n  28 |         db = get_db()\\n  29 |         db.execute(\\\"UPDATE post SET author_id = 2 WHERE id = 1\\\")\\n  30 |         db.commit()\\n  31 | \\n  32 |     auth.login()\\n  33 |     # current user can't modify other user's post\\n  34 |     assert client.post(\\\"/1/update\\\").status_code == 403\\n  35 |     assert client.post(\\\"/1/delete\\\").status_code == 403\\n  36 |     # current user doesn't see edit link\\n...[TRUNCATED; use read_file('examples/tutorial/tests/test_blog.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/test_blog.py\", \"test_names\": [\"test_index\", \"test_login_required\", \"test_author_required\", \"test_exists_required\", \"test_create\", \"test_update\", \"test_create_update_validate\", \"test_delete\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sqlite3\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | from flaskr.db import get_db\\n   6 | \\n   7 | \\n   8 | def test_get_close_db(app):\\n   9 |     with app.app_context():\\n  10 |         db = get_db()\\n  11 |         assert db is get_db()\\n  12 | \\n  13 |     with pytest.raises(sqlite3.ProgrammingError) as e:\\n  14 |         db.execute(\\\"SELECT 1\\\")\\n  15 | \\n  16 |     assert \\\"closed\\\" in str(e.value)\\n  17 | \\n  18 | \\n  19 | def test_init_db_command(runner, monkeypatch):\\n  20 |     class Recorder:\\n  21 |         called = False\\n  22 | \\n  23 |     def fake_init_db():\\n  24 |         Recorder.called = True\\n  25 | \\n  26 |     monkeypatch.setattr(\\\"flaskr.db.init_db\\\", fake_init_db)\\n  27 |     result = runner.invoke(args=[\\\"init-db\\\"])\\n  28 |     assert \\\"Initialized\\\" in result.output\\n  29 |     assert Recorder.called\", \"path\": \"examples/tutorial/tests/test_db.py\", \"test_names\": [\"test_get_close_db\", \"test_init_db_command\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flaskr import create_app\\n   2 | \\n   3 | \\n   4 | def test_config():\\n   5 |     \\\"\\\"\\\"Test create_app without passing test config.\\\"\\\"\\\"\\n   6 |     assert not create_app().testing\\n   7 |     assert create_app({\\\"TESTING\\\": True}).testing\\n   8 | \\n   9 | \\n  10 | def test_hello(client):\\n  11 |     response = client.get(\\\"/hello\\\")\\n  12 |     assert response.data == b\\\"Hello, World!\\\"\", \"path\": \"examples/tutorial/tests/test_factory.py\", \"test_names\": [\"test_config\", \"test_hello\"]}], \"total_test_python_files\": 47}",
+        "role": "tool",
+        "tool_call_id": "call_4518181599b84ea796484b6a"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/flask/scaffold.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/inner2/flask.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | from flask import template_rendered\\n   3 | \\n   4 | \\n   5 | @pytest.mark.parametrize(\\n   6 |     (\\\"path\\\", \\\"template_name\\\"),\\n   7 |     (\\n   8 |         (\\\"/\\\", \\\"xhr.html\\\"),\\n   9 |         (\\\"/plain\\\", \\\"xhr.html\\\"),\\n  10 |         (\\\"/fetch\\\", \\\"fetch.html\\\"),\\n  11 |         (\\\"/jquery\\\", \\\"jquery.html\\\"),\\n  12 |     ),\\n  13 | )\\n  14 | def test_index(app, client, path, template_name):\\n  15 |     def check(sender, template, context):\\n  16 |         assert template.name == template_name\\n  17 | \\n  18 |     with template_rendered.connected_to(check, app):\\n  19 |         client.get(path)\\n  20 | \\n  21 | \\n  22 | @pytest.mark.parametrize(\\n  23 |     (\\\"a\\\", \\\"b\\\", \\\"result\\\"), ((2, 3, 5), (2.5, 3, 5.5), (2, None, 2), (2, \\\"b\\\", 2))\\n  24 | )\\n  25 | def test_add(client, a, b, result):\\n  26 |     response = client.post(\\\"/add\\\", data={\\\"a\\\": a, \\\"b\\\": b})\\n  27 |     assert response.get_json()[\\\"result\\\"] == result\", \"path\": \"examples/javascript/tests/test_js_example.py\", \"test_names\": [\"test_index\", \"test_add\"]}, {\"fixtures\": [\"app\", \"client\", \"runner\", \"auth\"], \"opening_excerpt\": \"   1 | import os\\n   2 | import tempfile\\n   3 | \\n   4 | import pytest\\n   5 | \\n   6 | from flaskr import create_app\\n   7 | from flaskr.db import get_db\\n   8 | from flaskr.db import init_db\\n   9 | \\n  10 | # read in SQL for populating test data\\n  11 | with open(os.path.join(os.path.dirname(__file__), \\\"data.sql\\\"), \\\"rb\\\") as f:\\n  12 |     _data_sql = f.read().decode(\\\"utf8\\\")\\n  13 | \\n  14 | \\n  15 | @pytest.fixture\\n  16 | def app():\\n  17 |     \\\"\\\"\\\"Create and configure a new app instance for each test.\\\"\\\"\\\"\\n  18 |     # create a temporary file to isolate the database for each test\\n  19 |     db_fd, db_path = tempfile.mkstemp()\\n  20 |     # create the app with common test config\\n  21 |     app = create_app({\\\"TESTING\\\": True, \\\"DATABASE\\\": db_path})\\n  22 | \\n  23 |     # create the database and load test data\\n  24 |     with app.app_context():\\n  25 |         init_db()\\n  26 |         get_db().executescript(_data_sql)\\n  27 | \\n  28 |     yield app\\n  29 | \\n  30 |     # close and remove the temporary database\\n  31 |     os.close(db_fd)\\n  32 |     os.unlink(db_path)\\n  33 | \\n  34 | \\n  35 | @pytest.fixture\\n  36 | def client(app):\\n...[TRUNCATED; use read_file('examples/tutorial/tests/conftest.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/conftest.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | from flask import g\\n   3 | from flask import session\\n   4 | \\n   5 | from flaskr.db import get_db\\n   6 | \\n   7 | \\n   8 | def test_register(client, app):\\n   9 |     # test that viewing the page renders without template errors\\n  10 |     assert client.get(\\\"/auth/register\\\").status_code == 200\\n  11 | \\n  12 |     # test that successful registration redirects to the login page\\n  13 |     response = client.post(\\\"/auth/register\\\", data={\\\"username\\\": \\\"a\\\", \\\"password\\\": \\\"a\\\"})\\n  14 |     assert response.headers[\\\"Location\\\"] == \\\"/auth/login\\\"\\n  15 | \\n  16 |     # test that the user was inserted into the database\\n  17 |     with app.app_context():\\n  18 |         assert (\\n  19 |             get_db().execute(\\\"SELECT * FROM user WHERE username = 'a'\\\").fetchone()\\n  20 |             is not None\\n  21 |         )\\n  22 | \\n  23 | \\n  24 | @pytest.mark.parametrize(\\n  25 |     (\\\"username\\\", \\\"password\\\", \\\"message\\\"),\\n  26 |     (\\n  27 |         (\\\"\\\", \\\"\\\", b\\\"Username is required.\\\"),\\n  28 |         (\\\"a\\\", \\\"\\\", b\\\"Password is required.\\\"),\\n  29 |         (\\\"test\\\", \\\"test\\\", b\\\"already registered\\\"),\\n  30 |     ),\\n  31 | )\\n  32 | def test_register_validate_input(client, username, password, message):\\n  33 |     response = client.post(\\n  34 |         \\\"/auth/register\\\", data={\\\"username\\\": username, \\\"password\\\": password}\\n  35 |     )\\n  36 |     assert message in response.data\\n...[TRUNCATED; use read_file('examples/tutorial/tests/test_auth.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/test_auth.py\", \"test_names\": [\"test_register\", \"test_register_validate_input\", \"test_login\", \"test_login_validate_input\", \"test_logout\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | \\n   3 | from flaskr.db import get_db\\n   4 | \\n   5 | \\n   6 | def test_index(client, auth):\\n   7 |     response = client.get(\\\"/\\\")\\n   8 |     assert b\\\"Log In\\\" in response.data\\n   9 |     assert b\\\"Register\\\" in response.data\\n  10 | \\n  11 |     auth.login()\\n  12 |     response = client.get(\\\"/\\\")\\n  13 |     assert b\\\"test title\\\" in response.data\\n  14 |     assert b\\\"by test on 2018-01-01\\\" in response.data\\n  15 |     assert b\\\"test\\\\nbody\\\" in response.data\\n  16 |     assert b'href=\\\"/1/update\\\"' in response.data\\n  17 | \\n  18 | \\n  19 | @pytest.mark.parametrize(\\\"path\\\", (\\\"/create\\\", \\\"/1/update\\\", \\\"/1/delete\\\"))\\n  20 | def test_login_required(client, path):\\n  21 |     response = client.post(path)\\n  22 |     assert response.headers[\\\"Location\\\"] == \\\"/auth/login\\\"\\n  23 | \\n  24 | \\n  25 | def test_author_required(app, client, auth):\\n  26 |     # change the post author to another user\\n  27 |     with app.app_context():\\n  28 |         db = get_db()\\n  29 |         db.execute(\\\"UPDATE post SET author_id = 2 WHERE id = 1\\\")\\n  30 |         db.commit()\\n  31 | \\n  32 |     auth.login()\\n  33 |     # current user can't modify other user's post\\n  34 |     assert client.post(\\\"/1/update\\\").status_code == 403\\n  35 |     assert client.post(\\\"/1/delete\\\").status_code == 403\\n  36 |     # current user doesn't see edit link\\n...[TRUNCATED; use read_file('examples/tutorial/tests/test_blog.py', start, end) for another window]...\", \"path\": \"examples/tutorial/tests/test_blog.py\", \"test_names\": [\"test_index\", \"test_login_required\", \"test_author_required\", \"test_exists_required\", \"test_create\", \"test_update\", \"test_create_update_validate\", \"test_delete\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import sqlite3\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | from flaskr.db import get_db\\n   6 | \\n   7 | \\n   8 | def test_get_close_db(app):\\n   9 |     with app.app_context():\\n  10 |         db = get_db()\\n  11 |         assert db is get_db()\\n  12 | \\n  13 |     with pytest.raises(sqlite3.ProgrammingError) as e:\\n  14 |         db.execute(\\\"SELECT 1\\\")\\n  15 | \\n  16 |     assert \\\"closed\\\" in str(e.value)\\n  17 | \\n  18 | \\n  19 | def test_init_db_command(runner, monkeypatch):\\n  20 |     class Recorder:\\n  21 |         called = False\\n  22 | \\n  23 |     def fake_init_db():\\n  24 |         Recorder.called = True\\n  25 | \\n  26 |     monkeypatch.setattr(\\\"flaskr.db.init_db\\\", fake_init_db)\\n  27 |     result = runner.invoke(args=[\\\"init-db\\\"])\\n  28 |     assert \\\"Initialized\\\" in result.output\\n  29 |     assert Recorder.called\", \"path\": \"examples/tutorial/tests/test_db.py\", \"test_names\": [\"test_get_close_db\", \"test_init_db_command\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flaskr import create_app\\n   2 | \\n   3 | \\n   4 | def test_config():\\n   5 |     \\\"\\\"\\\"Test create_app without passing test config.\\\"\\\"\\\"\\n   6 |     assert not create_app().testing\\n   7 |     assert create_app({\\\"TESTING\\\": True}).testing\\n   8 | \\n   9 | \\n  10 | def test_hello(client):\\n  11 |     response = client.get(\\\"/hello\\\")\\n  12 |     assert response.data == b\\\"Hello, World!\\\"\", \"path\": \"examples/tutorial/tests/test_factory.py\", \"test_names\": [\"test_config\", \"test_hello\"]}, {\"fixtures\": [\"_standard_os_environ\", \"_reset_os_environ\", \"app\", \"app_ctx\", \"req_ctx\", \"client\", \"test_apps\", \"leak_detector\"], \"opening_excerpt\": \"   1 | import os\\n   2 | import pkgutil\\n   3 | import sys\\n   4 | \\n   5 | import pytest\\n   6 | from _pytest import monkeypatch\\n   7 | \\n   8 | from flask import Flask\\n   9 | from flask.globals import request_ctx\\n  10 | \\n  11 | \\n  12 | @pytest.fixture(scope=\\\"session\\\", autouse=True)\\n  13 | def _standard_os_environ():\\n  14 |     \\\"\\\"\\\"Set up ``os.environ`` at the start of the test session to have\\n  15 |     standard values. Returns a list of operations that is used by\\n  16 |     :func:`._reset_os_environ` after each test.\\n  17 |     \\\"\\\"\\\"\\n  18 |     mp = monkeypatch.MonkeyPatch()\\n  19 |     out = (\\n  20 |         (os.environ, \\\"FLASK_ENV_FILE\\\", monkeypatch.notset),\\n  21 |         (os.environ, \\\"FLASK_APP\\\", monkeypatch.notset),\\n  22 |         (os.environ, \\\"FLASK_DEBUG\\\", monkeypatch.notset),\\n  23 |         (os.environ, \\\"FLASK_RUN_FROM_CLI\\\", monkeypatch.notset),\\n  24 |         (os.environ, \\\"WERKZEUG_RUN_MAIN\\\", monkeypatch.notset),\\n  25 |     )\\n  26 | \\n  27 |     for _, key, value in out:\\n  28 |         if value is monkeypatch.notset:\\n  29 |             mp.delenv(key, False)\\n  30 |         else:\\n  31 |             mp.setenv(key, value)\\n  32 | \\n  33 |     yield out\\n  34 |     mp.undo()\\n  35 | \\n  36 | \\n...[TRUNCATED; use read_file('tests/conftest.py', start, end) for another window]...\", \"path\": \"tests/conftest.py\", \"test_names\": [\"test_apps\"]}], \"total_test_python_files\": 47}",
+        "role": "tool",
+        "tool_call_id": "call_7ed7e3ce56bb4d8ebc5f526e"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 2100817614,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "381bd6626cc2db07538aab99fb537f0d410dc09eb35b833ae637b9b41af330b0",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Let me look at the existing tests related to `find_package` and `get_root_path`, and also look at the scaffold tests",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"find_package\"}",
+                "name": "search"
+              },
+              "id": "call_578a8daaddee445c8d54c0b4",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"get_root_path\"}",
+                "name": "search"
+              },
+              "id": "call_114f0a40e73f4a4eb342e082",
+              "index": 1,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"auto_find_instance_path\"}",
+                "name": "search"
+              },
+              "id": "call_347c024c89cb4c0c91c8add8",
+              "index": 2,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788173819,
+    "id": "gen-1788173819-fl7Wn77HrsRrqXhgzQcm",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 136,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00065479834,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.4100832e-05,
+        "upstream_inference_cost": 0.00065479834,
+        "upstream_inference_prompt_cost": 0.000630697508
+      },
+      "is_byok": false,
+      "prompt_tokens": 10190,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 3840,
+        "video_tokens": 0
+      },
+      "total_tokens": 10326
+    }
+  },
+  "schema_version": 1
+}

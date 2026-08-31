@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.165,
+  "request": {
+    "max_tokens": 2000,
+    "messages": [
+      {
+        "content": "You are a software repair agent. Produce a minimal unified diff that fixes the reported behavior. Return only the diff. You have one step and cannot use the network.",
+        "role": "system"
+      },
+      {
+        "content": "Problem statement:\n`HelpFormatter.write_text()` uses the function `wrap_text(text, width, initial_indent, ...)` internally. This function expects `width` to be the line width **including** the eventual indentation. `HelpFormatter.write_text()` gets this wrong and passes `self.width - self.current_indent` instead of just `self.width`.\n\nParent source files:\n--- src/click/formatting.py ---\nimport typing as t\nfrom contextlib import contextmanager\nfrom gettext import gettext as _\n\nfrom ._compat import term_len\nfrom .parser import split_opt\n\n# Can force a width.  This is used by the test system\nFORCED_WIDTH: t.Optional[int] = None\n\n\ndef measure_table(rows: t.Iterable[t.Tuple[str, str]]) -> t.Tuple[int, ...]:\n    widths: t.Dict[int, int] = {}\n\n    for row in rows:\n        for idx, col in enumerate(row):\n            widths[idx] = max(widths.get(idx, 0), term_len(col))\n\n    return tuple(y for x, y in sorted(widths.items()))\n\n\ndef iter_rows(\n    rows: t.Iterable[t.Tuple[str, str]], col_count: int\n) -> t.Iterator[t.Tuple[str, ...]]:\n    for row in rows:\n        yield row + (\"\",) * (col_count - len(row))\n\n\ndef wrap_text(\n    text: str,\n    width: int = 78,\n    initial_indent: str = \"\",\n    subsequent_indent: str = \"\",\n    preserve_paragraphs: bool = False,\n) -> str:\n    \"\"\"A helper function that intelligently wraps text.  By default, it\n    assumes that it operates on a single paragraph of text but if the\n    `preserve_paragraphs` parameter is provided it will intelligently\n    handle paragraphs (defined by two empty lines).\n\n    If paragraphs are handled, a paragraph can be prefixed with an empty\n    line containing the ``\\\\b`` character (``\\\\x08``) to indicate that\n    no rewrapping should happen in that block.\n\n    :param text: the text that should be rewrapped.\n    :param width: the maximum width for the text.\n    :param initial_indent: the initial indent that should be placed on the\n                           first line as a string.\n    :param subsequent_indent: the indent string that should be placed on\n                              each consecutive line.\n    :param preserve_paragraphs: if this flag is set then the wrapping will\n                                intelligently handle paragraphs.\n    \"\"\"\n    from ._textwrap import TextWrapper\n\n    text = text.expandtabs()\n    wrapper = TextWrapper(\n        width,\n        initial_indent=initial_indent,\n        subsequent_indent=subsequent_indent,\n        replace_whitespace=False,\n    )\n    if not preserve_paragraphs:\n        return wrapper.fill(text)\n\n    p: t.List[t.Tuple[int, bool, str]] = []\n    buf: t.List[str] = []\n    indent = None\n\n    def _flush_par() -> None:\n        if not buf:\n            return\n        if buf[0].strip() == \"\\b\":\n            p.append((indent or 0, True, \"\\n\".join(buf[1:])))\n        else:\n            p.append((indent or 0, False, \" \".join(buf)))\n        del buf[:]\n\n    for line in text.splitlines():\n        if not line:\n            _flush_par()\n            indent = None\n        else:\n            if indent is None:\n                orig_len = term_len(line)\n                line = line.lstrip()\n                indent = orig_len - term_len(line)\n            buf.append(line)\n    _flush_par()\n\n    rv = []\n    for indent, raw, text in p:\n        with wrapper.extra_indent(\" \" * indent):\n            if raw:\n                rv.append(wrapper.indent_only(text))\n            else:\n                rv.append(wrapper.fill(text))\n\n    return \"\\n\\n\".join(rv)\n\n\nclass HelpFormatter:\n    \"\"\"This class helps with formatting text-based help pages.  It's\n    usually just needed for very special internal cases, but it's also\n    exposed so that developers can write their own fancy outputs.\n\n    At present, it always writes into memory.\n\n    :param indent_increment: the additional increment for each level.\n    :param width: the width for the text.  This defaults to the terminal\n                  width clamped to a maximum of 78.\n    \"\"\"\n\n    def __init__(\n        self,\n        indent_increment: int = 2,\n        width: t.Optional[int] = None,\n        max_width: t.Optional[int] = None,\n    ) -> None:\n        import shutil\n\n        self.indent_increment = indent_increment\n        if max_width is None:\n            max_width = 80\n        if width is None:\n            width = FORCED_WIDTH\n            if width is None:\n                width = max(min(shutil.get_terminal_size().columns, max_width) - 2, 50)\n        self.width = width\n        self.current_indent = 0\n        self.buffer: t.List[str] = []\n\n    def write(self, string: str) -> None:\n        \"\"\"Writes a unicode string into the internal buffer.\"\"\"\n        self.buffer.append(string)\n\n    def indent(self) -> None:\n        \"\"\"Increases the indentation.\"\"\"\n        self.current_indent += self.indent_increment\n\n    def dedent(self) -> None:\n        \"\"\"Decreases the indentation.\"\"\"\n        self.current_indent -= self.indent_increment\n\n    def write_usage(\n        self, prog: str, args: str = \"\", prefix: t.Optional[str] = None\n    ) -> None:\n        \"\"\"Writes a usage line into the buffer.\n\n        :param prog: the program name.\n        :param args: whitespace separated list of arguments.\n        :param prefix: The prefix for the first line. Defaults to\n            ``\"Usage: \"``.\n        \"\"\"\n        if prefix is None:\n            prefix = f\"{_('Usage:')} \"\n\n        usage_prefix = f\"{prefix:>{self.current_indent}}{prog} \"\n        text_width = self.width - self.current_indent\n\n        if text_width >= (term_len(usage_prefix) + 20):\n            # The arguments will fit to the right of the prefix.\n            indent = \" \" * term_len(usage_prefix)\n            self.write(\n                wrap_text(\n                    args,\n                    text_width,\n                    initial_indent=usage_prefix,\n                    subsequent_indent=indent,\n                )\n            )\n        else:\n            # The prefix is too long, put the arguments on the next line.\n            self.write(usage_prefix)\n            self.write(\"\\n\")\n            indent = \" \" * (max(self.current_indent, term_len(prefix)) + 4)\n            self.write(\n                wrap_text(\n                    args, text_width, initial_indent=indent, subsequent_indent=indent\n                )\n            )\n\n        self.write(\"\\n\")\n\n    def write_heading(self, heading: str) -> None:\n        \"\"\"Writes a heading into the buffer.\"\"\"\n        self.write(f\"{'':>{self.current_indent}}{heading}:\\n\")\n\n    def write_paragraph(self) -> None:\n        \"\"\"Writes a paragraph into the buffer.\"\"\"\n        if self.buffer:\n            self.write(\"\\n\")\n\n    def write_text(self, text: str) -> None:\n        \"\"\"Writes re-indented text into the buffer.  This rewraps and\n        preserves paragraphs.\n        \"\"\"\n        text_width = max(self.width - self.current_indent, 11)\n        indent = \" \" * self.current_indent\n        self.write(\n            wrap_text(\n                text,\n                text_width,\n                initial_indent=indent,\n                subsequent_indent=indent,\n                preserve_paragraphs=True,\n            )\n        )\n        self.write(\"\\n\")\n\n    def write_dl(\n        self,\n        rows: t.Sequence[t.Tuple[str, str]],\n        col_max: int = 30,\n        col_spacing: int = 2,\n    ) -> None:\n        \"\"\"Writes a definition list into the buffer.  This is how options\n        and commands are usually formatted.\n\n        :param rows: a list of two item tuples for the terms and values.\n        :param col_max: the maximum width of the first column.\n        :param col_spacing: the number of spaces between the first and\n                            second column.\n        \"\"\"\n        rows = list(rows)\n        widths = measure_table(rows)\n        if len(widths) != 2:\n            raise TypeError(\"Expected two columns for definition list\")\n\n        first_col = min(widths[0], col_max) + col_spacing\n\n        for first, second in iter_rows(rows, len(widths)):\n            self.write(f\"{'':>{self.current_indent}}{first}\")\n            if not second:\n                self.write(\"\\n\")\n                continue\n            if term_len(first) <= first_col - col_spacing:\n                self.write(\" \" * (first_col - term_len(first)))\n            else:\n                self.write(\"\\n\")\n                self.write(\" \" * (first_col + self.current_indent))\n\n            text_width = max(self.width - first_col - 2, 10)\n            wrapped_text = wrap_text(second, text_width, preserve_paragraphs=True)\n            lines = wrapped_text.splitlines()\n\n            if lines:\n                self.write(f\"{lines[0]}\\n\")\n\n                for line in lines[1:]:\n                    self.write(f\"{'':>{first_col + self.current_indent}}{line}\\n\")\n            else:\n                self.write(\"\\n\")\n\n    @contextmanager\n    def section(self, name: str) -> t.Iterator[None]:\n        \"\"\"Helpful context manager that writes a paragraph, a heading,\n        and the indents.\n\n        :param name: the section name that is written as heading.\n        \"\"\"\n        self.write_paragraph()\n        self.write_heading(name)\n        self.indent()\n        try:\n            yield\n        finally:\n            self.dedent()\n\n    @contextmanager\n    def indentation(self) -> t.Iterator[None]:\n        \"\"\"A context manager that increases the indentation.\"\"\"\n        self.indent()\n        try:\n            yield\n        finally:\n            self.dedent()\n\n    def getvalue(self) -> str:\n        \"\"\"Returns the buffer contents.\"\"\"\n        return \"\".join(self.buffer)\n\n\ndef join_options(options: t.Sequence[str]) -> t.Tuple[str, bool]:\n    \"\"\"Given a list of option strings this joins them in the most appropriate\n    way and returns them in the form ``(formatted_string,\n    any_prefix_is_slash)`` where the second item in the tuple is a flag that\n    indicates if any of the option prefixes was a slash.\n    \"\"\"\n    rv = []\n    any_prefix_is_slash = False\n\n    for opt in options:\n        prefix = split_opt(opt)[0]\n\n        if prefix == \"/\":\n            any_prefix_is_slash = True\n\n        rv.append((len(prefix), opt))\n\n    rv.sort(key=lambda x: x[0])\n    return \", \".join(x[1] for x in rv), any_prefix_is_slash\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "34c69a2eace1e435abff2fbc789eca5482115e4190645d954cdf0178063c88a3",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "```diff\n--- a/src/click/formatting.py\n+++ b/src/click/formatting.py\n@@ -155,7 +155,7 @@ class HelpFormatter:\n         text_width = max(self.width - self.current_indent, 11)\n         indent = \" \" * self.current_indent\n         self.write(\n             wrap_text(\n                 text,\n-                text_width,\n+                self.width,\n                 initial_indent=indent,\n                 subsequent_indent=indent,\n                 preserve_paragraphs=True,\n```",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078988,
+    "id": "gen-1788078988-pCCp67F5TXniVVKZuYSx",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Alibaba",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 110,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000354832,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.948e-05,
+        "upstream_inference_cost": 0.000354832,
+        "upstream_inference_prompt_cost": 0.000325352
+      },
+      "is_byok": false,
+      "prompt_tokens": 2428,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2538
+    }
+  },
+  "schema_version": 1
+}

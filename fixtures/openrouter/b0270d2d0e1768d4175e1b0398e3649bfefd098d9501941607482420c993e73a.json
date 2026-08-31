@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.587,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdd ability to inspect upcoming sleep in `stop` funcs, and add `stop_before_delay`\n\nPR body:\nThis seeks to solve a specific problem: if using a wait function like `wait_exponential` or `wait_random_exponential`, along with `stop_after_delay`, the overall time spent retrying is >= `max_delay`.\r\n\r\nHowever, in situations where you have a strict deadline and you can't block for longer than `max_delay`, it may be preferable to abort 1 retry attempt early so that you don't exceed that deadline.\r\n\r\nThis PR seeks to achieve that behavior by implementing `stop_before_delay`, which stops retries if the next attempt would take place after the `max_delay` time has elapsed, thereby ensuring that `max_delay` is never surpassed.\r\n\r\nExamples of problem using exponential delays, and a 5 second deadline w/ `stop_after_delay`:\r\n\r\n```py\r\nIn [5]: @retry(stop=stop_after_delay(5), wait=wait_exponential())\r\n   ...: def stop_after_w_e():\r\n   ...:     print(datetime.now())\r\n   ...:     raise Exception\r\n\r\nIn [11]: stop_after_w_e()\r\n2023-11-08 23:18:12.259584\r\n2023-11-08 23:18:13.261515\r\n2023-11-08 23:18:15.262064\r\n2023-11-08 23:18:19.263860\r\n---------------------------------------------------------------------------\r\nException                                 Traceback (most recent call last)\r\n\r\n```\r\n\r\nNote how the execution timestamp is 7 seconds after the initial one, despite the 5 second `max_delay`.\r\n\r\n```py\r\nIn [6]: @retry(stop=stop_after_delay(5), wait=wait_random_exponential())\r\n   ...: def stop_after_w_r_e():\r\n   ...:     print(datetime.now())\r\n   ...:     raise Exception\r\n   ...:\r\n\r\nIn [12]: stop_after_w_r_e()\r\n2023-11-08 23:19:02.682304\r\n2023-11-08 23:19:02.991432\r\n2023-11-08 23:19:04.510066\r\n2023-11-08 23:19:07.398501\r\n2023-11-08 23:19:14.172982\r\n---------------------------------------------------------------------------\r\nException                                 Traceback (most recent call last)\r\n```\r\nNote the same thing w/ random exponential backoff. In this case the final attempt is made 11.49 seconds after the first one, despite a 5 second `max_delay`. That's over 2x the amount of time spent blocking on retries than our strict deadline allows! \r\n\r\nThis situation with random exponential backoff is the one that I'm interested in improving upon for my own use case (avoiding thundering herds during connection retries from many parallel clients). This extra time spent waiting after `max_delay` can be quite long with higher amounts exponential backoff. eg. a supposedly 30s `max_delay` that actually blocks for over 1 minute can cause some confusion.\r\n\r\nWith `stop_before`, the `max_delay` is never exceeded:\r\n```py\r\nIn [12]: @retry(stop=stop_before_delay(5), wait=wait_exponential())\r\n    ...: def stop_before_w_e():\r\n    ...:     print(datetime.now())\r\n    ...:     raise Exception\r\n\r\nIn [13]: stop_before_w_e()\r\n2023-11-08 23:21:56.437116\r\n2023-11-08 23:21:57.439288\r\n2023-11-08 23:21:59.441351\r\n---------------------------------------------------------------------------\r\nException                                 Traceback (most recent call last)\r\n```\r\n\r\nTotal elapsed time is < 5 seconds (3 seconds).\r\n\r\n```py\r\nIn [14]: @retry(stop=stop_before_delay(5), wait=wait_random_exponential())\r\n    ...: def stop_before_w_r_e():\r\n    ...:     print(datetime.now())\r\n    ...:     raise Exception\r\n\r\nIn [15]: stop_before_w_r_e()\r\n2023-11-08 23:23:13.550395\r\n2023-11-08 23:23:14.344831\r\n2023-11-08 23:23:15.533050\r\n2023-11-08 23:23:17.907447\r\n---------------------------------------------------------------------------\r\nException                                 Traceback (most recent call last)\r\n```\r\n\r\nTotal elapsed time is < 5 seconds (4.35).\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/doc/source/index.rst b/doc/source/index.rst\nindex 804e607..bdf7ff2 100644\n--- a/doc/source/index.rst\n+++ b/doc/source/index.rst\n@@ -124,6 +124,16 @@ retrying stuff.\n         print(\"Stopping after 10 seconds\")\n         raise Exception\n \n+If you're on a tight deadline, and exceeding your delay time isn't ok, \n+then you can give up on retries one attempt before you would exceed the delay. \n+\n+.. testcode::\n+\n+    @retry(stop=stop_before_delay(10))\n+    def stop_before_10_s():\n+        print(\"Stopping 1 attempt before 10 seconds\")\n+        raise Exception\n+\n You can combine several stop conditions by using the `|` operator:\n \n .. testcode::\ndiff --git a/releasenotes/notes/add-stop-before-delay-a775f88ac872c923.yaml b/releasenotes/notes/add-stop-before-delay-a775f88ac872c923.yaml\nnew file mode 100644\nindex 0000000..85df4c3\n--- /dev/null\n+++ b/releasenotes/notes/add-stop-before-delay-a775f88ac872c923.yaml\n@@ -0,0 +1,7 @@\n+---\n+features:\n+  - |\n+    Added a new stop function: stop_before_delay, which will stop execution\n+    if the next sleep time would cause overall delay to exceed the specified delay. \n+    Useful for use cases where you have some upper bound on retry times that you must\n+    not exceed, so returning before that timeout is preferable than returning after that timeout.\n\\ No newline at end of file\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex b38898c..bd60556 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -50,6 +50,7 @@ from .nap import sleep_using_event  # noqa\n # Import all built-in stop strategies for easier usage.\n from .stop import stop_after_attempt  # noqa\n from .stop import stop_after_delay  # noqa\n+from .stop import stop_before_delay  # noqa\n from .stop import stop_all  # noqa\n from .stop import stop_any  # noqa\n from .stop import stop_never  # noqa\n@@ -316,6 +317,13 @@ class BaseRetrying(ABC):\n         if self.after is not None:\n             self.after(retry_state)\n \n+        if self.wait:\n+            sleep = self.wait(retry_state)\n+        else:\n+            sleep = 0.0\n+\n+        retry_state.upcoming_sleep = sleep\n+\n         self.statistics[\"delay_since_first_attempt\"] = retry_state.seconds_since_start\n         if self.stop(retry_state):\n             if self.retry_error_callback:\n@@ -325,10 +333,6 @@ class BaseRetrying(ABC):\n                 raise retry_exc.reraise()\n             raise retry_exc from fut.exception()\n \n-        if self.wait:\n-            sleep = self.wait(retry_state)\n-        else:\n-            sleep = 0.0\n         retry_state.next_action = RetryAction(sleep)\n         retry_state.idle_for += sleep\n         self.statistics[\"idle_for\"] += sleep\n@@ -451,6 +455,8 @@ class RetryCallState:\n         self.idle_for: float = 0.0\n         #: Next action as decided by the retry manager\n         self.next_action: t.Optional[RetryAction] = None\n+        #: Next sleep time as decided by the retry manager.\n+        self.upcoming_sleep: float = 0.0\n \n     @property\n     def seconds_since_start(self) -> t.Optional[float]:\n@@ -568,6 +574,7 @@ __all__ = [\n     \"sleep_using_event\",\n     \"stop_after_attempt\",\n     \"stop_after_delay\",\n+    \"stop_before_delay\",\n     \"stop_all\",\n     \"stop_any\",\n     \"stop_never\",\ndiff --git a/tenacity/stop.py b/tenacity/stop.py\nindex e647860..d7eb6b9 100644\n--- a/tenacity/stop.py\n+++ b/tenacity/stop.py\n@@ -92,7 +92,14 @@ class stop_after_attempt(stop_base):\n \n \n class stop_after_delay(stop_base):\n-    \"\"\"Stop when the time from the first attempt >= limit.\"\"\"\n+    \"\"\"\n+    Stop when the time from the first attempt >= limit.\n+\n+    Note: `max_delay` will be exceeded, so when used with a `wait`, the actual total delay will be greater\n+    than `max_delay` by some of the final sleep period before `max_delay` is exceeded.\n+\n+    If you need stricter timing with waits, consider `stop_before_delay` instead.\n+    \"\"\"\n \n     def __init__(self, max_delay: _utils.time_unit_type) -> None:\n         self.max_delay = _utils.to_seconds(max_delay)\n@@ -101,3 +108,20 @@ class stop_after_delay(stop_base):\n         if retry_state.seconds_since_start is None:\n             raise RuntimeError(\"__call__() called but seconds_since_start is not set\")\n         return retry_state.seconds_since_start >= self.max_delay\n+\n+\n+class stop_before_delay(stop_base):\n+    \"\"\"\n+    Stop right before the next attempt would take place after the time from the first attempt >= limit.\n+\n+    Most useful when you are using with a `wait` function like wait_random_exponential, but need to make\n+    sure that the max_delay is not exceeded.\n+    \"\"\"\n+\n+    def __init__(self, max_delay: _utils.time_unit_type) -> None:\n+        self.max_delay = _utils.to_seconds(max_delay)\n+\n+    def __call__(self, retry_state: \"RetryCallState\") -> bool:\n+        if retry_state.seconds_since_start is None:\n+            raise RuntimeError(\"__call__() called but seconds_since_start is not set\")\n+        return retry_state.seconds_since_start + retry_state.upcoming_sleep >= self.max_delay\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "b0270d2d0e1768d4175e1b0398e3649bfefd098d9501941607482420c993e73a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using `stop_after_delay` with exponential or random exponential backoff, the total retry time can significantly exceed the specified `max_delay` because the final retry attempt may start before the deadline but complete after it. This causes the actual blocking time to be longer than the configured maximum delay.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078294,
+    "id": "gen-1788078294-57HvsM0zs5JMqkAY6x16",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 64,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0002237606,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.033984e-05,
+        "upstream_inference_cost": 0.0002237606,
+        "upstream_inference_prompt_cost": 0.00021342076
+      },
+      "is_byok": false,
+      "prompt_tokens": 2642,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2706
+    }
+  },
+  "schema_version": 1
+}

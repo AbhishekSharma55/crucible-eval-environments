@@ -1,0 +1,380 @@
+{
+  "latency_s": 2.67,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: marshmallow-code/marshmallow#2906\nRepository: marshmallow-code/marshmallow\nBroken parent: 3bc191ab3c8cac8356839bcde0918cb6aed4d3a1\nFixed commit: c38b48ec3b8bb44315036d0c8a07bc8477eb5094\n\nLinked issues:\nIssue #1695:\nSee https://github.com/lovasoa/marshmallow_dataclass/issues/114\r\n\r\nIP, IPv4 and IPv6 fields have no mapping declared in the `TYPES_MAPPING` dict. At least `IPv4` and `IPv6` could be mapped to respectively `ipaddress.IPv4Address` and `ipaddress.IPv6Address` to transparently handle these data types with annotations. I'm unsure on how to do it for IP.\n\nPull request title:\nAdd ipaddress types to Schema.TYPE_MAPPING\n\nPull request body:\n## Summary\n\nCloses #1695.\n\nAdds mappings from Python's `ipaddress` types to their corresponding marshmallow field classes in `Schema.TYPE_MAPPING`:\n\n| Python type | Marshmallow field |\n|---|---|\n| `ipaddress.IPv4Address` | `fields.IPv4` |\n| `ipaddress.IPv6Address` | `fields.IPv6` |\n| `ipaddress.IPv4Interface` | `fields.IPv4Interface` |\n| `ipaddress.IPv6Interface` | `fields.IPv6Interface` |\n\nThis enables libraries like `marshmallow_dataclass` to automatically resolve these types from annotations.\n\n**Note:** The generic `IP` and `IPInterface` fields are intentionally excluded since there is no single Python type that maps to them. `IPv4Network`/`IPv6Network` are also excluded since marshmallow does not have corresponding network field classes.\n\n## Test plan\n\n- [x] Added parametrized tests in `TestIPTypeMappings` verifying all 4 new type mappings\n- [x] All 1136 existing tests pass\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex ee12217e..218e7bad 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -21,6 +21,11 @@ Bug fixes:\n - Fix typing of ``error_essages`` argument to `marshmallow.fields.Field` (:pr:`1636`).\n   Thanks :user:`repole` for reporting and :user:`dhruvildarji` for the PR.\n \n+Other changes:\n+\n+- Add ``ipaddress.*`` to `marshmallow.Schema.TYPE_MAPPING` (:issue:`1695`).\n+  Thanks :user:`liberforce` for the suggestion and :user:`dhruvildarji` for the PR.\n+\n 4.2.2 (2026-02-04)\n ------------------\n \ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex 4288f050..24efa902 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -8,6 +8,7 @@ import datetime as dt\n import decimal\n import functools\n import inspect\n+import ipaddress\n import json\n import operator\n import typing\n@@ -290,6 +291,10 @@ class Schema(metaclass=SchemaMeta):\n         dt.date: ma_fields.Date,\n         dt.timedelta: ma_fields.TimeDelta,\n         decimal.Decimal: ma_fields.Decimal,\n+        ipaddress.IPv4Address: ma_fields.IPv4,\n+        ipaddress.IPv6Address: ma_fields.IPv6,\n+        ipaddress.IPv4Interface: ma_fields.IPv4Interface,\n+        ipaddress.IPv6Interface: ma_fields.IPv6Interface,\n     }\n     #: Overrides for default schema-level error messages\n     error_messages: dict[str, str] = {}\n\n\nChanged source paths:\n- src/marshmallow/schema.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nI'll start by examining the repository structure and existing tests to understand conventions",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"marshmallow.schema\"}",
+              "name": "list_tests"
+            },
+            "id": "call_a298b59a541d44d0b4baaf2d",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/marshmallow/schema.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_7e15acc9be114a32ae55af86",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"marshmallow.schema\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | import json\\n   2 | \\n   3 | from marshmallow import EXCLUDE, Schema\\n   4 | from marshmallow.fields import Integer, String\\n   5 | \\n   6 | \\n   7 | # Test that valid `Meta` class attributes pass type checking\\n   8 | class MySchema(Schema):\\n   9 |     foo = String()\\n  10 |     bar = Integer()\\n  11 | \\n  12 |     class Meta(Schema.Meta):\\n  13 |         fields = (\\\"foo\\\", \\\"bar\\\")\\n  14 |         additional = (\\\"baz\\\", \\\"qux\\\")\\n  15 |         include = {\\n  16 |             \\\"foo2\\\": String(),\\n  17 |         }\\n  18 |         exclude = (\\\"bar\\\", \\\"baz\\\")\\n  19 |         many = True\\n  20 |         dateformat = \\\"%Y-%m-%d\\\"\\n  21 |         datetimeformat = \\\"%Y-%m-%dT%H:%M:%S\\\"\\n  22 |         timeformat = \\\"%H:%M:%S\\\"\\n  23 |         render_module = json\\n  24 |         ordered = False\\n  25 |         index_errors = True\\n  26 |         load_only = (\\\"foo\\\", \\\"bar\\\")\\n  27 |         dump_only = (\\\"baz\\\", \\\"qux\\\")\\n  28 |         unknown = EXCLUDE\\n  29 |         register = False\", \"path\": \"tests/mypy_test_cases/test_schema.py\", \"test_names\": []}, {\"fixtures\": [\"schema\", \"data\", \"schema\", \"data\", \"user\", \"blog\", \"employer\", \"user\"], \"opening_excerpt\": \"   1 | import datetime as dt\\n   2 | import math\\n   3 | import random\\n   4 | from collections import OrderedDict\\n   5 | from typing import NamedTuple, cast\\n   6 | \\n   7 | import pytest\\n   8 | import simplejson as json\\n   9 | \\n  10 | from marshmallow import (\\n  11 |     EXCLUDE,\\n  12 |     INCLUDE,\\n  13 |     RAISE,\\n  14 |     Schema,\\n  15 |     class_registry,\\n  16 |     fields,\\n  17 |     validate,\\n  18 |     validates,\\n  19 |     validates_schema,\\n  20 | )\\n  21 | from marshmallow.exceptions import (\\n  22 |     RegistryError,\\n  23 |     StringNotCollectionError,\\n  24 |     ValidationError,\\n  25 | )\\n  26 | from tests.base import (\\n  27 |     Blog,\\n  28 |     BlogOnlySchema,\\n  29 |     BlogSchema,\\n  30 |     BlogSchemaExclude,\\n  31 |     ExtendedUserSchema,\\n  32 |     User,\\n  33 |     UserExcludeSchema,\\n  34 |     UserFloatStringSchema,\\n  35 |     UserIntSchema,\\n  36 |     UserRelativeUrlSchema,\\n...[TRUNCATED; use read_file('tests/test_schema.py', start, end) for another window]...\", \"path\": \"tests/test_schema.py\", \"test_names\": [\"test_serializing_basic_object\", \"test_serializer_dump\", \"test_load_resets_errors\", \"test_load_validation_error_stores_input_data_and_valid_data\", \"test_load_resets_error_fields\", \"test_errored_fields_do_not_appear_in_output\", \"test_load_many_stores_error_indices\", \"test_dump_many\", \"test_multiple_errors_can_be_stored_for_a_given_index\", \"test_dump_returns_a_dict\", \"test_dumps_returns_a_string\", \"test_dumping_single_object_with_collection_schema\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | \\\"\\\"\\\"Test utilities and fixtures.\\\"\\\"\\\"\\n   2 | \\n   3 | import datetime as dt\\n   4 | import functools\\n   5 | import typing\\n   6 | import uuid\\n   7 | from enum import Enum, IntEnum\\n   8 | from zoneinfo import ZoneInfo\\n   9 | \\n  10 | import simplejson\\n  11 | \\n  12 | from marshmallow import Schema, fields, missing, post_load, validate\\n  13 | from marshmallow.exceptions import ValidationError\\n  14 | \\n  15 | central = ZoneInfo(\\\"America/Chicago\\\")\\n  16 | \\n  17 | \\n  18 | class GenderEnum(IntEnum):\\n  19 |     male = 1\\n  20 |     female = 2\\n  21 |     non_binary = 3\\n  22 | \\n  23 | \\n  24 | class HairColorEnum(Enum):\\n  25 |     black = \\\"black hair\\\"\\n  26 |     brown = \\\"brown hair\\\"\\n  27 |     blond = \\\"blond hair\\\"\\n  28 |     red = \\\"red hair\\\"\\n  29 | \\n  30 | \\n  31 | class DateEnum(Enum):\\n  32 |     date_1 = dt.date(2004, 2, 29)\\n  33 |     date_2 = dt.date(2008, 2, 29)\\n  34 |     date_3 = dt.date(2012, 2, 29)\\n  35 | \\n  36 | \\n...[TRUNCATED; use read_file('tests/base.py', start, end) for another window]...\", \"path\": \"tests/base.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from marshmallow import Schema, fields\\n   2 | \\n   3 | \\n   4 | class FooSerializer(Schema):\\n   5 |     _id = fields.Integer()\", \"path\": \"tests/foo_serializer.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from marshmallow import class_registry\\n   2 | \\n   3 | # Works without passing `all`\\n   4 | class_registry.get_class(\\\"MySchema\\\")\", \"path\": \"tests/mypy_test_cases/test_class_registry.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from __future__ import annotations\\n   2 | \\n   3 | import marshmallow as ma\\n   4 | \\n   5 | # OK types for 'message'\\n   6 | ma.ValidationError(\\\"foo\\\")\\n   7 | ma.ValidationError([\\\"foo\\\"])\\n   8 | ma.ValidationError({\\\"foo\\\": \\\"bar\\\"})\\n   9 | \\n  10 | # non-OK types for 'message'\\n  11 | ma.ValidationError(0)  # type: ignore[arg-type]\\n  12 | \\n  13 | # 'messages' is a dict|list\\n  14 | err = ma.ValidationError(\\\"foo\\\")\\n  15 | a: dict | list = err.messages\\n  16 | # union type can't assign to non-union type\\n  17 | b: str = err.messages  # type: ignore[assignment]\\n  18 | c: dict = err.messages  # type: ignore[assignment]\\n  19 | # 'messages_dict' is a dict, so that it can assign to a dict\\n  20 | d: dict = err.messages_dict\", \"path\": \"tests/mypy_test_cases/test_validation_error.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import typing\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | from marshmallow import (\\n   6 |     Schema,\\n   7 |     fields,\\n   8 |     post_dump,\\n   9 |     post_load,\\n  10 |     pre_dump,\\n  11 |     pre_load,\\n  12 |     validates,\\n  13 |     validates_schema,\\n  14 | )\\n  15 | from marshmallow.exceptions import ValidationError\\n  16 | from marshmallow.experimental.context import Context\\n  17 | from tests.base import Blog, User\\n  18 | \\n  19 | \\n  20 | class UserContextSchema(Schema):\\n  21 |     is_owner = fields.Method(\\\"get_is_owner\\\")\\n  22 |     is_collab = fields.Function(\\n  23 |         lambda user: user in Context[dict[str, typing.Any]].get()[\\\"blog\\\"]\\n  24 |     )\\n  25 | \\n  26 |     def get_is_owner(self, user):\\n  27 |         return Context.get()[\\\"blog\\\"].user.name == user.name\\n  28 | \\n  29 | \\n  30 | class TestContext:\\n  31 |     def test_context_load_dump(self):\\n  32 |         class ContextField(fields.Integer):\\n  33 |             def _serialize(self, value, attr, obj, **kwargs):\\n  34 |                 if (context := Context[dict].get(None)) is not None:\\n  35 |                     value *= context.get(\\\"factor\\\", 1)\\n  36 |                 return super()._serialize(value, attr, obj, **kwargs)\\n...[TRUNCATED; use read_file('tests/test_context.py', start, end) for another window]...\", \"path\": \"tests/test_context.py\", \"test_names\": [\"test_context_load_dump\", \"test_context_method\", \"test_context_function\", \"test_function_field_handles_bound_serializer\", \"test_nested_fields_inherit_context\", \"test_nested_list_fields_inherit_context\", \"test_nested_dict_fields_inherit_context\", \"test_nested_field_with_unpicklable_object_in_context\", \"test_function_field_passed_serialize_with_context\", \"test_function_field_deserialization_with_context\", \"test_decorated_processors_with_context\", \"test_validates_schema_with_context\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | \\n   3 | from marshmallow import (\\n   4 |     EXCLUDE,\\n   5 |     INCLUDE,\\n   6 |     RAISE,\\n   7 |     Schema,\\n   8 |     ValidationError,\\n   9 |     fields,\\n  10 |     post_dump,\\n  11 |     post_load,\\n  12 |     pre_dump,\\n  13 |     pre_load,\\n  14 |     validate,\\n  15 |     validates,\\n  16 |     validates_schema,\\n  17 | )\\n  18 | from tests.base import predicate\\n  19 | \\n  20 | \\n  21 | @pytest.mark.parametrize(\\\"partial_val\\\", (True, False))\\n  22 | def test_decorated_processors(partial_val):\\n  23 |     class ExampleSchema(Schema):\\n  24 |         \\\"\\\"\\\"Includes different ways to invoke decorators and set up methods\\\"\\\"\\\"\\n  25 | \\n  26 |         TAG = \\\"TAG\\\"\\n  27 | \\n  28 |         value = fields.Integer(as_string=True)\\n  29 | \\n  30 |         # Implicit default raw, pre dump, static method.\\n  31 |         @pre_dump\\n  32 |         def increment_value(self, item, **kwargs):\\n  33 |             assert \\\"many\\\" in kwargs\\n  34 |             item[\\\"value\\\"] += 1\\n  35 |             return item\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_decorators.py', start, end) for another window]...\", \"path\": \"tests/test_decorators.py\", \"test_names\": [\"test_decorated_processors\", \"test_decorated_processor_returning_none\", \"test_decorated_processor_inheritance\", \"test_decorator_error_handling\", \"test_decorator_error_handling_with_load\", \"test_decorator_error_handling_with_load_dict_error\", \"test_decorator_error_handling_with_dump\", \"test_decorator_post_dump_with_nested_original_and_pass_collection\", \"test_decorator_post_load_with_nested_original_and_pass_collection\", \"test_load_processors_receive_unknown\", \"test_post_load_method_that_appends_to_data\", \"test_pass_original_single\"]}], \"total_test_python_files\": 19}",
+        "role": "tool",
+        "tool_call_id": "call_a298b59a541d44d0b4baaf2d"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/marshmallow/schema.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | import json\\n   2 | \\n   3 | from marshmallow import EXCLUDE, Schema\\n   4 | from marshmallow.fields import Integer, String\\n   5 | \\n   6 | \\n   7 | # Test that valid `Meta` class attributes pass type checking\\n   8 | class MySchema(Schema):\\n   9 |     foo = String()\\n  10 |     bar = Integer()\\n  11 | \\n  12 |     class Meta(Schema.Meta):\\n  13 |         fields = (\\\"foo\\\", \\\"bar\\\")\\n  14 |         additional = (\\\"baz\\\", \\\"qux\\\")\\n  15 |         include = {\\n  16 |             \\\"foo2\\\": String(),\\n  17 |         }\\n  18 |         exclude = (\\\"bar\\\", \\\"baz\\\")\\n  19 |         many = True\\n  20 |         dateformat = \\\"%Y-%m-%d\\\"\\n  21 |         datetimeformat = \\\"%Y-%m-%dT%H:%M:%S\\\"\\n  22 |         timeformat = \\\"%H:%M:%S\\\"\\n  23 |         render_module = json\\n  24 |         ordered = False\\n  25 |         index_errors = True\\n  26 |         load_only = (\\\"foo\\\", \\\"bar\\\")\\n  27 |         dump_only = (\\\"baz\\\", \\\"qux\\\")\\n  28 |         unknown = EXCLUDE\\n  29 |         register = False\", \"path\": \"tests/mypy_test_cases/test_schema.py\", \"test_names\": []}, {\"fixtures\": [\"schema\", \"data\", \"schema\", \"data\", \"user\", \"blog\", \"employer\", \"user\"], \"opening_excerpt\": \"   1 | import datetime as dt\\n   2 | import math\\n   3 | import random\\n   4 | from collections import OrderedDict\\n   5 | from typing import NamedTuple, cast\\n   6 | \\n   7 | import pytest\\n   8 | import simplejson as json\\n   9 | \\n  10 | from marshmallow import (\\n  11 |     EXCLUDE,\\n  12 |     INCLUDE,\\n  13 |     RAISE,\\n  14 |     Schema,\\n  15 |     class_registry,\\n  16 |     fields,\\n  17 |     validate,\\n  18 |     validates,\\n  19 |     validates_schema,\\n  20 | )\\n  21 | from marshmallow.exceptions import (\\n  22 |     RegistryError,\\n  23 |     StringNotCollectionError,\\n  24 |     ValidationError,\\n  25 | )\\n  26 | from tests.base import (\\n  27 |     Blog,\\n  28 |     BlogOnlySchema,\\n  29 |     BlogSchema,\\n  30 |     BlogSchemaExclude,\\n  31 |     ExtendedUserSchema,\\n  32 |     User,\\n  33 |     UserExcludeSchema,\\n  34 |     UserFloatStringSchema,\\n  35 |     UserIntSchema,\\n  36 |     UserRelativeUrlSchema,\\n...[TRUNCATED; use read_file('tests/test_schema.py', start, end) for another window]...\", \"path\": \"tests/test_schema.py\", \"test_names\": [\"test_serializing_basic_object\", \"test_serializer_dump\", \"test_load_resets_errors\", \"test_load_validation_error_stores_input_data_and_valid_data\", \"test_load_resets_error_fields\", \"test_errored_fields_do_not_appear_in_output\", \"test_load_many_stores_error_indices\", \"test_dump_many\", \"test_multiple_errors_can_be_stored_for_a_given_index\", \"test_dump_returns_a_dict\", \"test_dumps_returns_a_string\", \"test_dumping_single_object_with_collection_schema\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | \\\"\\\"\\\"Test utilities and fixtures.\\\"\\\"\\\"\\n   2 | \\n   3 | import datetime as dt\\n   4 | import functools\\n   5 | import typing\\n   6 | import uuid\\n   7 | from enum import Enum, IntEnum\\n   8 | from zoneinfo import ZoneInfo\\n   9 | \\n  10 | import simplejson\\n  11 | \\n  12 | from marshmallow import Schema, fields, missing, post_load, validate\\n  13 | from marshmallow.exceptions import ValidationError\\n  14 | \\n  15 | central = ZoneInfo(\\\"America/Chicago\\\")\\n  16 | \\n  17 | \\n  18 | class GenderEnum(IntEnum):\\n  19 |     male = 1\\n  20 |     female = 2\\n  21 |     non_binary = 3\\n  22 | \\n  23 | \\n  24 | class HairColorEnum(Enum):\\n  25 |     black = \\\"black hair\\\"\\n  26 |     brown = \\\"brown hair\\\"\\n  27 |     blond = \\\"blond hair\\\"\\n  28 |     red = \\\"red hair\\\"\\n  29 | \\n  30 | \\n  31 | class DateEnum(Enum):\\n  32 |     date_1 = dt.date(2004, 2, 29)\\n  33 |     date_2 = dt.date(2008, 2, 29)\\n  34 |     date_3 = dt.date(2012, 2, 29)\\n  35 | \\n  36 | \\n...[TRUNCATED; use read_file('tests/base.py', start, end) for another window]...\", \"path\": \"tests/base.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from marshmallow import Schema, fields\\n   2 | \\n   3 | \\n   4 | class FooSerializer(Schema):\\n   5 |     _id = fields.Integer()\", \"path\": \"tests/foo_serializer.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from marshmallow import class_registry\\n   2 | \\n   3 | # Works without passing `all`\\n   4 | class_registry.get_class(\\\"MySchema\\\")\", \"path\": \"tests/mypy_test_cases/test_class_registry.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from __future__ import annotations\\n   2 | \\n   3 | import marshmallow as ma\\n   4 | \\n   5 | # OK types for 'message'\\n   6 | ma.ValidationError(\\\"foo\\\")\\n   7 | ma.ValidationError([\\\"foo\\\"])\\n   8 | ma.ValidationError({\\\"foo\\\": \\\"bar\\\"})\\n   9 | \\n  10 | # non-OK types for 'message'\\n  11 | ma.ValidationError(0)  # type: ignore[arg-type]\\n  12 | \\n  13 | # 'messages' is a dict|list\\n  14 | err = ma.ValidationError(\\\"foo\\\")\\n  15 | a: dict | list = err.messages\\n  16 | # union type can't assign to non-union type\\n  17 | b: str = err.messages  # type: ignore[assignment]\\n  18 | c: dict = err.messages  # type: ignore[assignment]\\n  19 | # 'messages_dict' is a dict, so that it can assign to a dict\\n  20 | d: dict = err.messages_dict\", \"path\": \"tests/mypy_test_cases/test_validation_error.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import typing\\n   2 | \\n   3 | import pytest\\n   4 | \\n   5 | from marshmallow import (\\n   6 |     Schema,\\n   7 |     fields,\\n   8 |     post_dump,\\n   9 |     post_load,\\n  10 |     pre_dump,\\n  11 |     pre_load,\\n  12 |     validates,\\n  13 |     validates_schema,\\n  14 | )\\n  15 | from marshmallow.exceptions import ValidationError\\n  16 | from marshmallow.experimental.context import Context\\n  17 | from tests.base import Blog, User\\n  18 | \\n  19 | \\n  20 | class UserContextSchema(Schema):\\n  21 |     is_owner = fields.Method(\\\"get_is_owner\\\")\\n  22 |     is_collab = fields.Function(\\n  23 |         lambda user: user in Context[dict[str, typing.Any]].get()[\\\"blog\\\"]\\n  24 |     )\\n  25 | \\n  26 |     def get_is_owner(self, user):\\n  27 |         return Context.get()[\\\"blog\\\"].user.name == user.name\\n  28 | \\n  29 | \\n  30 | class TestContext:\\n  31 |     def test_context_load_dump(self):\\n  32 |         class ContextField(fields.Integer):\\n  33 |             def _serialize(self, value, attr, obj, **kwargs):\\n  34 |                 if (context := Context[dict].get(None)) is not None:\\n  35 |                     value *= context.get(\\\"factor\\\", 1)\\n  36 |                 return super()._serialize(value, attr, obj, **kwargs)\\n...[TRUNCATED; use read_file('tests/test_context.py', start, end) for another window]...\", \"path\": \"tests/test_context.py\", \"test_names\": [\"test_context_load_dump\", \"test_context_method\", \"test_context_function\", \"test_function_field_handles_bound_serializer\", \"test_nested_fields_inherit_context\", \"test_nested_list_fields_inherit_context\", \"test_nested_dict_fields_inherit_context\", \"test_nested_field_with_unpicklable_object_in_context\", \"test_function_field_passed_serialize_with_context\", \"test_function_field_deserialization_with_context\", \"test_decorated_processors_with_context\", \"test_validates_schema_with_context\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | import pytest\\n   2 | \\n   3 | from marshmallow import (\\n   4 |     EXCLUDE,\\n   5 |     INCLUDE,\\n   6 |     RAISE,\\n   7 |     Schema,\\n   8 |     ValidationError,\\n   9 |     fields,\\n  10 |     post_dump,\\n  11 |     post_load,\\n  12 |     pre_dump,\\n  13 |     pre_load,\\n  14 |     validate,\\n  15 |     validates,\\n  16 |     validates_schema,\\n  17 | )\\n  18 | from tests.base import predicate\\n  19 | \\n  20 | \\n  21 | @pytest.mark.parametrize(\\\"partial_val\\\", (True, False))\\n  22 | def test_decorated_processors(partial_val):\\n  23 |     class ExampleSchema(Schema):\\n  24 |         \\\"\\\"\\\"Includes different ways to invoke decorators and set up methods\\\"\\\"\\\"\\n  25 | \\n  26 |         TAG = \\\"TAG\\\"\\n  27 | \\n  28 |         value = fields.Integer(as_string=True)\\n  29 | \\n  30 |         # Implicit default raw, pre dump, static method.\\n  31 |         @pre_dump\\n  32 |         def increment_value(self, item, **kwargs):\\n  33 |             assert \\\"many\\\" in kwargs\\n  34 |             item[\\\"value\\\"] += 1\\n  35 |             return item\\n  36 | \\n...[TRUNCATED; use read_file('tests/test_decorators.py', start, end) for another window]...\", \"path\": \"tests/test_decorators.py\", \"test_names\": [\"test_decorated_processors\", \"test_decorated_processor_returning_none\", \"test_decorated_processor_inheritance\", \"test_decorator_error_handling\", \"test_decorator_error_handling_with_load\", \"test_decorator_error_handling_with_load_dict_error\", \"test_decorator_error_handling_with_dump\", \"test_decorator_post_dump_with_nested_original_and_pass_collection\", \"test_decorator_post_load_with_nested_original_and_pass_collection\", \"test_load_processors_receive_unknown\", \"test_post_load_method_that_appends_to_data\", \"test_pass_original_single\"]}], \"total_test_python_files\": 19}",
+        "role": "tool",
+        "tool_call_id": "call_7e15acc9be114a32ae55af86"
+      },
+      {
+        "content": "Let me look at the existing tests for `TYPE_MAPPING` and the schema module to understand the conventions",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"TYPE_MAPPING\"}",
+              "name": "search"
+            },
+            "id": "call_c88d18048b1c4088a1b4fba0",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"test.*type.*mapping|test.*TYPE_MAPPING|TestIPType|ipaddress\"}",
+              "name": "search"
+            },
+            "id": "call_a56b8ce64d464c8b8c0ccae3",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 2, \"matches\": [\"CHANGELOG.rst:1172:- Restore ``Schema.TYPE_MAPPING``, which was removed in 3.0.0b17 (:issue:`1012`).\", \"src/marshmallow/schema.py:278:    TYPE_MAPPING: dict[type, type[Field]] = {\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"TYPE_MAPPING\"}",
+        "role": "tool",
+        "tool_call_id": "call_c88d18048b1c4088a1b4fba0"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 37, \"matches\": [\"src/marshmallow/fields.py:10:import ipaddress\", \"src/marshmallow/fields.py:1766:class IP(Field[ipaddress.IPv4Address | ipaddress.IPv6Address]):\", \"src/marshmallow/fields.py:1792:    ) -> ipaddress.IPv4Address | ipaddress.IPv6Address:\", \"src/marshmallow/fields.py:1794:            return (self.DESERIALIZATION_CLASS or ipaddress.ip_address)(\", \"src/marshmallow/fields.py:1809:    DESERIALIZATION_CLASS = ipaddress.IPv4Address\", \"src/marshmallow/fields.py:1820:    DESERIALIZATION_CLASS = ipaddress.IPv6Address\", \"src/marshmallow/fields.py:1823:class IPInterface(Field[ipaddress.IPv4Interface | ipaddress.IPv6Interface]):\", \"src/marshmallow/fields.py:1831:    see https://python.readthedocs.io/en/latest/library/ipaddress.html#interface-objects\", \"src/marshmallow/fields.py:1854:    ) -> ipaddress.IPv4Interface | ipaddress.IPv6Interface:\", \"src/marshmallow/fields.py:1856:            return (self.DESERIALIZATION_CLASS or ipaddress.ip_interface)(\", \"src/marshmallow/fields.py:1868:    DESERIALIZATION_CLASS = ipaddress.IPv4Interface\", \"src/marshmallow/fields.py:1876:    DESERIALIZATION_CLASS = ipaddress.IPv6Interface\", \"tests/test_deserialization.py:4:import ipaddress\", \"tests/test_deserialization.py:1063:        assert isinstance(result, ipaddress.IPv4Address)\", \"tests/test_deserialization.py:1068:        assert isinstance(result, ipaddress.IPv6Address)\", \"tests/test_deserialization.py:1086:        assert isinstance(result, ipaddress.IPv4Address)\", \"tests/test_deserialization.py:1111:        assert isinstance(result, ipaddress.IPv6Address)\", \"tests/test_deserialization.py:1118:        assert isinstance(result, ipaddress.IPv4Interface)\", \"tests/test_deserialization.py:1123:        assert isinstance(result, ipaddress.IPv6Interface)\", \"tests/test_deserialization.py:1149:        assert isinstance(result, ipaddress.IPv4Interface)\", \"tests/test_deserialization.py:1175:        assert isinstance(result, ipaddress.IPv6Interface)\", \"tests/test_deserialization.py:1530:            pytest.param(fields.IP(), ipaddress.IPv4Address(\\\"67.60.134.65\\\"), id=\\\"IP\\\"),\", \"tests/test_deserialization.py:1532:                fields.IPv4(), ipaddress.IPv4Address(\\\"55.81.158.106\\\"), id=\\\"IPv4\\\"\", \"tests/test_deserialization.py:1536:                ipaddress.IPv6Address(\\\"89f4:41b6:b97e:ad48:8480:1fda:a811:d1a5\\\"),\", \"tests/test_serialization.py:5:import ipaddress\", \"tests/test_serialization.py:130:        ipv6_exploded_string = ipaddress.ip_address(\\\"ffff::ffff\\\").exploded\", \"tests/test_serialization.py:132:        user.ipv4 = ipaddress.ip_address(ipv4_string)\", \"tests/test_serialization.py:133:        user.ipv6 = ipaddress.ip_address(ipv6_string)\", \"tests/test_serialization.py:150:        user.ipv4 = ipaddress.ip_address(ipv4_string)\", \"tests/test_serialization.py:160:        ipv6_exploded_string = ipaddress.ip_address(\\\"ffff::ffff\\\").exploded\", \"tests/test_serialization.py:162:        user.ipv6 = ipaddress.ip_address(ipv6_string)\", \"tests/test_serialization.py:177:        ipv6interface_exploded_string = ipaddress.ip_interface(\", \"tests/test_serialization.py:181:        user.ipv4interface = ipaddress.ip_interface(ipv4interface_string)\", \"tests/test_serialization.py:182:        user.ipv6interface = ipaddress.ip_interface(ipv6interface_string)\", \"tests/test_serialization.py:202:        user.ipv4interface = ipaddress.ip_interface(ipv4interface_string)\", \"tests/test_serialization.py:212:        ipv6interface_exploded_string = ipaddress.ip_interface(\", \"tests/test_serialization.py:216:        user.ipv6interface = ipaddress.ip_interface(ipv6interface_string)\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"test.*type.*mapping|test.*TYPE_MAPPING|TestIPType|ipaddress\"}",
+        "role": "tool",
+        "tool_call_id": "call_a56b8ce64d464c8b8c0ccae3"
+      },
+      {
+        "content": "Let me look at the `TYPE_MAPPING` definition in the schema module at the parent side, and also look at existing tests for type mapping patterns",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 310, \"path\": \"src/marshmallow/schema.py\", \"start\": 270}",
+              "name": "read_file"
+            },
+            "id": "call_0a42af03770e4c2daec79268",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"class Test.*Mapping|def test.*type_mapping|def test.*TYPE_MAPPING\"}",
+              "name": "search"
+            },
+            "id": "call_2ea4daeda9ba4199ab1cb1dd",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \" 270 | \\n 271 |     .. versionchanged:: 3.0.0\\n 272 |         Remove ``prefix`` parameter.\\n 273 | \\n 274 |     .. versionchanged:: 4.0.0\\n 275 |         Remove ``context`` parameter.\\n 276 |     \\\"\\\"\\\"\\n 277 | \\n 278 |     TYPE_MAPPING: dict[type, type[Field]] = {\\n 279 |         str: ma_fields.String,\\n 280 |         bytes: ma_fields.String,\\n 281 |         dt.datetime: ma_fields.DateTime,\\n 282 |         float: ma_fields.Float,\\n 283 |         bool: ma_fields.Boolean,\\n 284 |         tuple: ma_fields.Raw,\\n 285 |         list: ma_fields.Raw,\\n 286 |         set: ma_fields.Raw,\\n 287 |         int: ma_fields.Integer,\\n 288 |         uuid.UUID: ma_fields.UUID,\\n 289 |         dt.time: ma_fields.Time,\\n 290 |         dt.date: ma_fields.Date,\\n 291 |         dt.timedelta: ma_fields.TimeDelta,\\n 292 |         decimal.Decimal: ma_fields.Decimal,\\n 293 |     }\\n 294 |     #: Overrides for default schema-level error messages\\n 295 |     error_messages: dict[str, str] = {}\\n 296 | \\n 297 |     _default_error_messages: dict[str, str] = {\\n 298 |         \\\"type\\\": \\\"Invalid input type.\\\",\\n 299 |         \\\"unknown\\\": \\\"Unknown field.\\\",\\n 300 |     }\\n 301 | \\n 302 |     OPTIONS_CLASS: type = SchemaOpts\\n 303 | \\n 304 |     set_class = OrderedSet\\n 305 |     dict_class: type[dict] = dict\\n 306 |     \\\"\\\"\\\"`dict` type to return when serializing.\\\"\\\"\\\"\\n 307 | \\n 308 |     # These get set by SchemaMeta\\n 309 |     opts: typing.Any\\n 310 |     _declared_fields: dict[str, Field] = {}\\n...[WINDOWED READ; 269 earlier lines omitted; 939 later lines omitted]...\", \"end\": 310, \"ok\": true, \"path\": \"src/marshmallow/schema.py\", \"start\": 270, \"total_lines\": 1249}",
+        "role": "tool",
+        "tool_call_id": "call_0a42af03770e4c2daec79268"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"class Test.*Mapping|def test.*type_mapping|def test.*TYPE_MAPPING\"}",
+        "role": "tool",
+        "tool_call_id": "call_2ea4daeda9ba4199ab1cb1dd"
+      },
+      {
+        "content": "Now let me look at how `TYPE_MAPPING` is used - specifically the `_resolve_field_by_type` method or similar, and how tests for existing type mappings are",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"_resolve_field_by_type|resolve_field|TYPE_MAPPING\"}",
+              "name": "search"
+            },
+            "id": "call_44c67d116b2046ceb5fbbb41",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 8, \"matches\": [\"CHANGELOG.rst:1172:- Restore ``Schema.TYPE_MAPPING``, which was removed in 3.0.0b17 (:issue:`1012`).\", \"src/marshmallow/fields.py:101:def _resolve_field_instance(cls_or_instance: Field | type[Field]) -> Field:\", \"src/marshmallow/fields.py:718:            self.inner: Field[_InternalT] = _resolve_field_instance(cls_or_instance)\", \"src/marshmallow/fields.py:795:                _resolve_field_instance(cls_or_instance)\", \"src/marshmallow/fields.py:1589:                self.key_field = _resolve_field_instance(keys)\", \"src/marshmallow/fields.py:1599:                self.value_field = _resolve_field_instance(values)\", \"src/marshmallow/fields.py:1923:                    self.field = _resolve_field_instance(by_value)\", \"src/marshmallow/schema.py:278:    TYPE_MAPPING: dict[type, type[Field]] = {\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"_resolve_field_by_type|resolve_field|TYPE_MAPPING\"}",
+        "role": "tool",
+        "tool_call_id": "call_44c67d116b2046ceb5fbbb41"
+      },
+      {
+        "content": "Let me search for how `TYPE_MAPPING` is used in the schema to resolve types\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"TYPE_MAPPING\\\\.get|TYPE_MAPPING\\\\[\"}",
+              "name": "search"
+            },
+            "id": "call_a12e291a03604ed487fa3883",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"TYPE_MAPPING\\\\.get|TYPE_MAPPING\\\\[\"}",
+        "role": "tool",
+        "tool_call_id": "call_a12e291a03604ed487fa3883"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"\\\\.TYPE_MAPPING\"}",
+              "name": "search"
+            },
+            "id": "call_453854c1fde5462c8af8bebd",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\"CHANGELOG.rst:1172:- Restore ``Schema.TYPE_MAPPING``, which was removed in 3.0.0b17 (:issue:`1012`).\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"\\\\.TYPE_MAPPING\"}",
+        "role": "tool",
+        "tool_call_id": "call_453854c1fde5462c8af8bebd"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 1058500283,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "80dbf87acd1ae3b56d3f69bd20666a3cf491b48abd1cb4b64c2750d465331851",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Let me look at how `TYPE_MAPPING` is actually used in the codebase - maybe it's used by `marshmallow_dataclass` or in the schema's `_resolve_field_by_type` method",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"pattern\": \"_resolve_field_by_type|_dict_from_mapping|_get_field_by_type\"}",
+                "name": "search"
+              },
+              "id": "call_4c0c04881381497dadbad440",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788120460,
+    "id": "gen-1788120460-vy8ghYwLxYbPFvx7dH4z",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 105,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000207143664,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.65816e-05,
+        "upstream_inference_cost": 0.000207143664,
+        "upstream_inference_prompt_cost": 0.000190562064
+      },
+      "is_byok": false,
+      "prompt_tokens": 11015,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 10752,
+        "video_tokens": 0
+      },
+      "total_tokens": 11120
+    }
+  },
+  "schema_version": 1
+}

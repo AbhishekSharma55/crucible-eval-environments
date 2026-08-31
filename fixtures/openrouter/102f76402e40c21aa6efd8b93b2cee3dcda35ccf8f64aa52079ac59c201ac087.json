@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.851,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nPull threading.local out of the generated repr's globals.\n\nPR body:\nGenerated `__repr__` methods for Pythons with f-strings included\r\na `threading.local` object in that method's `globals()` dictionary.\r\nBecause `cloudpickle` attempts to serialize all globals of this method,\r\nit ends up trying to pickle the `threading.local`, which cannot be\r\npickled.\r\n\r\nInstead, we now pull use of the thread-local out into its own function,\r\nwhich `cloudpickle` will happily serialize. As an added benefit, this\r\neliminates some duplicated code between f-string and non\u2013f-string\r\n`__repr__`s.\r\n\r\nShould fix:\r\n\r\n- https://github.com/python-attrs/attrs/issues/458\r\n- https://github.com/cloudpipe/cloudpickle/issues/320\r\n\r\n# Pull Request Check List\r\n\r\n- [x] Added **tests** for changed code.\r\n    I'm not sure what the best direction to go on this is. I run this locally and see that when I cloudpickle an attrs class, it works fine. It would be pretty simple to add a test dep on cloudpickle and then create and pickle an attrs class in a new test case. But would that be too much of a special-case test case for this specific library? That said, it is more likely that changes here would cause problems in cloudpickling, rather than changes in cloudpickle causing problems here, and it would be nice to catch them faster.\r\n- (N/A) New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- (N/A) Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n- (N/A) Updated **documentation** for changed code.\r\n- [X] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [X] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n\r\nAnother implementation idea I had would be to simply pull the `threading.local` out into another module, because that would make the global a module (which would be pickled by reference) rather than a local (which would be pickled by value). That, however, would leave essentially a two-line `import threading; repr_context = threading.local()` module, which, ehhhhhhhh\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/847.change.rst b/changelog.d/847.change.rst\nnew file mode 100644\nindex 00000000..c4657bff\n--- /dev/null\n+++ b/changelog.d/847.change.rst\n@@ -0,0 +1,2 @@\n+Attrs classes are now fully compatible with cloudpickle.\n+`#847 <https://github.com/python-attrs/attrs/issues/847>`_\ndiff --git a/setup.py b/setup.py\nindex 79e45bfd..0314ba00 100644\n--- a/setup.py\n+++ b/setup.py\n@@ -47,6 +47,8 @@ INSTALL_REQUIRES = []\n EXTRAS_REQUIRE = {\n     \"docs\": [\"furo\", \"sphinx\", \"zope.interface\", \"sphinx-notfound-page\"],\n     \"tests_no_zope\": [\n+        # For regression test to ensure cloudpickle compat doesn't break.\n+        \"cloudpickle\",\n         # 5.0 introduced toml; parallel was broken until 5.0.2\n         \"coverage[toml]>=5.0.2\",\n         \"hypothesis\",\ndiff --git a/src/attr/_compat.py b/src/attr/_compat.py\nindex cc20246c..9d03ac19 100644\n--- a/src/attr/_compat.py\n+++ b/src/attr/_compat.py\n@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function\n \n import platform\n import sys\n+import threading\n import types\n import warnings\n \n@@ -243,3 +244,17 @@ def make_set_closure_cell():\n \n \n set_closure_cell = make_set_closure_cell()\n+\n+# Thread-local global to track attrs instances which are already being repr'd.\n+# This is needed because there is no other (thread-safe) way to pass info\n+# about the instances that are already being repr'd through the call stack\n+# in order to ensure we don't perform infinite recursion.\n+#\n+# For instance, if an instance contains a dict which contains that instance,\n+# we need to know that we're already repr'ing the outside instance from within\n+# the dict's repr() call.\n+#\n+# This lives here rather than in _make.py so that the functions in _make.py\n+# don't have a direct reference to the thread-local in their globals dict.\n+# If they have such a reference, it breaks cloudpickle.\n+repr_context = threading.local()\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 9dba4e83..c2a92cef 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -4,12 +4,13 @@ import copy\n import inspect\n import linecache\n import sys\n-import threading\n import warnings\n \n from operator import itemgetter\n \n-from . import _config, setters\n+# We need to import _compat itself in addition to the _compat members to avoid\n+# having the thread-local in the globals here.\n+from . import _compat, _config, setters\n from ._compat import (\n     HAS_F_STRINGS,\n     PY2,\n@@ -1864,8 +1865,6 @@ def _add_eq(cls, attrs=None):\n     return cls\n \n \n-_already_repring = threading.local()\n-\n if HAS_F_STRINGS:\n \n     def _make_repr(attrs, ns, cls):\n@@ -1883,7 +1882,7 @@ if HAS_F_STRINGS:\n             for name, r, _ in attr_names_with_reprs\n             if r != repr\n         }\n-        globs[\"_already_repring\"] = _already_repring\n+        globs[\"_compat\"] = _compat\n         globs[\"AttributeError\"] = AttributeError\n         globs[\"NOTHING\"] = NOTHING\n         attribute_fragments = []\n@@ -1908,24 +1907,23 @@ if HAS_F_STRINGS:\n         else:\n             cls_name_fragment = ns + \".{self.__class__.__name__}\"\n \n-        lines = []\n-        lines.append(\"def __repr__(self):\")\n-        lines.append(\"  try:\")\n-        lines.append(\"    working_set = _already_repring.working_set\")\n-        lines.append(\"  except AttributeError:\")\n-        lines.append(\"    working_set = {id(self),}\")\n-        lines.append(\"    _already_repring.working_set = working_set\")\n-        lines.append(\"  else:\")\n-        lines.append(\"    if id(self) in working_set:\")\n-        lines.append(\"      return '...'\")\n-        lines.append(\"    else:\")\n-        lines.append(\"      working_set.add(id(self))\")\n-        lines.append(\"  try:\")\n-        lines.append(\n-            \"    return f'%s(%s)'\" % (cls_name_fragment, repr_fragment)\n-        )\n-        lines.append(\"  finally:\")\n-        lines.append(\"    working_set.remove(id(self))\")\n+        lines = [\n+            \"def __repr__(self):\",\n+            \"  try:\",\n+            \"    already_repring = _compat.repr_context.already_repring\",\n+            \"  except AttributeError:\",\n+            \"    already_repring = {id(self),}\",\n+            \"    _compat.repr_context.already_repring = already_repring\",\n+            \"  else:\",\n+            \"    if id(self) in already_repring:\",\n+            \"      return '...'\",\n+            \"    else:\",\n+            \"      already_repring.add(id(self))\",\n+            \"  try:\",\n+            \"    return f'%s(%s)'\" % (cls_name_fragment, repr_fragment),\n+            \"  finally:\",\n+            \"    already_repring.remove(id(self))\",\n+        ]\n \n         return _make_method(\n             \"__repr__\", \"\\n\".join(lines), unique_filename, globs=globs\n@@ -1954,12 +1952,12 @@ else:\n             Automatically created by attrs.\n             \"\"\"\n             try:\n-                working_set = _already_repring.working_set\n+                already_repring = _compat.repr_context.already_repring\n             except AttributeError:\n-                working_set = set()\n-                _already_repring.working_set = working_set\n+                already_repring = set()\n+                _compat.repr_context.already_repring = already_repring\n \n-            if id(self) in working_set:\n+            if id(self) in already_repring:\n                 return \"...\"\n             real_cls = self.__class__\n             if ns is None:\n@@ -1979,7 +1977,7 @@ else:\n             # for the duration of this call, it's safe to depend on id(...)\n             # stability, and not need to track the instance and therefore\n             # worry about properties like weakref- or hash-ability.\n-            working_set.add(id(self))\n+            already_repring.add(id(self))\n             try:\n                 result = [class_name, \"(\"]\n                 first = True\n@@ -1993,7 +1991,7 @@ else:\n                     )\n                 return \"\".join(result) + \")\"\n             finally:\n-                working_set.remove(id(self))\n+                already_repring.remove(id(self))\n \n         return __repr__\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "102f76402e40c21aa6efd8b93b2cee3dcda35ccf8f64aa52079ac59c201ac087",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Attrs classes cannot be serialized with cloudpickle because the generated `__repr__` method includes a non-picklable `threading.local` object in its globals.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078570,
+    "id": "gen-1788078570-fTIQ9qWpSXhRXHak1x7D",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 39,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00019498752,
+      "cost_details": {
+        "upstream_inference_completions_cost": 6.28992e-06,
+        "upstream_inference_cost": 0.00019498752,
+        "upstream_inference_prompt_cost": 0.0001886976
+      },
+      "is_byok": false,
+      "prompt_tokens": 2340,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2379
+    }
+  },
+  "schema_version": 1
+}

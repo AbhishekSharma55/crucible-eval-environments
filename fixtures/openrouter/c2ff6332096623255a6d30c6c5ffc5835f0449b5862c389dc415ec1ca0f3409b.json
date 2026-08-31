@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.503,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nwait_chain: reject empty strategy list with ValueError instead of IndexError\n\nPR body:\n## Summary\n\n```wait_chain()``` accepts a variadic list of strategies, but did not validate that the list is non-empty. The bad configuration only surfaced at the first call site of the resulting wait function, where `self.strategies[-1]` raised `IndexError: tuple index out of range`. This is confusing because the programmer error is at construction time, not at the moment the wait function is invoked inside a running retry.\n\nThis change makes `wait_chain()` raise a clear `ValueError(\"wait_chain() requires at least one strategy\")` at construction time.\n\n## Repro of the pre-fix behaviour\n\n```pycon\n>>> import tenacity\n>>> fn = tenacity.wait_chain()\n>>> from tenacity import RetryCallState\n>>> s = RetryCallState(None, None, (), {})\n>>> s.attempt_number = 1\n>>> s.set_result(None)\n>>> fn(s)\nTraceback (most recent call last):\n  ...\nIndexError: tuple index out of range\n```\n\nWith the patch, the same sequence raises `ValueError` on the `wait_chain()` call itself.\n\n## Changes\n\n- `tenacity/wait.py`: `wait_chain.__init__` now raises `ValueError` when `*strategies` is empty.\n- `tests/test_tenacity.py`: added `test_wait_chain_requires_at_least_one_strategy`, which covers `wait_chain()` directly, `Retrying(... wait=wait_chain())` at construction, and confirms a non-empty chain still works.\n- `releasenotes/notes/fix-wait-chain-empty-strategies-...yaml`: short user-facing note.\n\n## Tests\n\n- New test fails on the pre-fix code (`AssertionError: ValueError not raised`) and passes on the patched code.\n- Full `tests/test_tenacity.py` run: 128 passed.\n- `ruff check`: clean.\n- `ruff format --check`: clean.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/fix-wait-chain-empty-strategies-d3a8f7c2b1e4f569.yaml b/releasenotes/notes/fix-wait-chain-empty-strategies-d3a8f7c2b1e4f569.yaml\nnew file mode 100644\nindex 0000000..2e61ba5\n--- /dev/null\n+++ b/releasenotes/notes/fix-wait-chain-empty-strategies-d3a8f7c2b1e4f569.yaml\n@@ -0,0 +1,8 @@\n+---\n+fixes:\n+  - |\n+    ``wait_chain()`` now raises ``ValueError`` at construction time when\n+    called with no strategies, instead of raising a confusing\n+    ``IndexError`` from ``__call__`` the first time it is used. Empty\n+    wait chains have no useful behaviour, so failing early gives a\n+    clearer error message.\ndiff --git a/tenacity/wait.py b/tenacity/wait.py\nindex c7a430e..3b53da2 100644\n--- a/tenacity/wait.py\n+++ b/tenacity/wait.py\n@@ -104,6 +104,8 @@ class wait_chain(wait_base):\n     \"\"\"\n \n     def __init__(self, *strategies: wait_base) -> None:\n+        if not strategies:\n+            raise ValueError(\"wait_chain() requires at least one strategy\")\n         self.strategies = strategies\n \n     def __call__(self, retry_state: \"RetryCallState\") -> float:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "c2ff6332096623255a6d30c6c5ffc5835f0449b5862c389dc415ec1ca0f3409b",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When `wait_chain()` is called with no strategies, it does not raise an error at construction time. Instead, the first time the resulting wait function is invoked, it raises an `IndexError` with the message \"tuple index out of range\", which is confusing because the mistake was made earlier when configuring the retry.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078333,
+    "id": "gen-1788078333-btInb8SqJqouWgDqy0gV",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Baidu",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 67,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 8.231482e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.082452e-05,
+        "upstream_inference_cost": 8.231482e-05,
+        "upstream_inference_prompt_cost": 7.14903e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 885,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 952
+    }
+  },
+  "schema_version": 1
+}

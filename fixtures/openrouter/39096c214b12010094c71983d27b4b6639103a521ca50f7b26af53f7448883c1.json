@@ -1,0 +1,74 @@
+{
+  "latency_s": 5.555,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAccept empty message in retry_if_exception_message\n\nPR body:\n## Problem\n\n`retry_if_exception_message` validates its two mutually-exclusive arguments\nwith truthiness checks:\n\n```python\nif message and match:            # both given\n    raise TypeError(...)\nif not message and not match:    # neither given\n    raise TypeError(...)\n...\nself.match = re.compile(match) if match else None\n...\ndef _check(self, exception):\n    if self.message:             # skips message == \"\"\n        return self.message == str(exception)\n```\n\nAn **empty string is a valid message target** \u2014 it matches exceptions whose\n`str()` is empty, e.g. a bare `raise RuntimeError()` (`str(RuntimeError()) == \"\"`).\nBut `not message` is `True` for `\"\"`, so:\n\n```python\nretry_if_exception_message(message=\"\")\n# TypeError: retry_if_exception_message() missing 1 required argument 'message' or 'match'\n```\n\nThe result is an asymmetry: you can match *every* exception message **except**\nthe empty one. `_check`'s `if self.message:` would drop the empty-message branch\nas well, falling through to `assert self.match is not None`.\n\n## Fix\n\nReplace the truthiness guards with `is None` checks, so an empty message is\naccepted and matched like any other. `retry_if_not_exception_message` inherits\nthe same constructor and is fixed by the same change.\n\n## Tests\n\nAdded `test_retry_if_exception_message_empty_message` and\n`test_retry_if_not_exception_message_empty_message`: construct with `message=\"\"`\nand drive the predicate against a bare `RuntimeError()` (matches) and a\n`RuntimeError(\"boom\")` (does not), plus the inverse for the not-variant. Both\nfail before the change (`TypeError` at construction) and pass after. The\nexisting `test_..._negative_no_inputs` (passing *no* arguments must raise) still\npasses.\n\nFull suite: `167 passed, 1 skipped, 12 subtests`. `ruff check` / `ruff format --check` clean.\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/fix-exception-message-empty-string-7b1e9c4a2f6d0835.yaml b/releasenotes/notes/fix-exception-message-empty-string-7b1e9c4a2f6d0835.yaml\nnew file mode 100644\nindex 0000000..38a6f3b\n--- /dev/null\n+++ b/releasenotes/notes/fix-exception-message-empty-string-7b1e9c4a2f6d0835.yaml\n@@ -0,0 +1,9 @@\n+---\n+fixes:\n+  - |\n+    ``retry_if_exception_message`` (and its inverse\n+    ``retry_if_not_exception_message``) now accept an empty ``message=\"\"``\n+    and match exceptions whose ``str()`` is empty, such as a bare\n+    ``RuntimeError()``. Previously a truthiness check treated ``message=\"\"``\n+    as \"no message given\" and raised a spurious ``TypeError`` at\n+    construction time, making every message matchable except the empty one.\ndiff --git a/tenacity/retry.py b/tenacity/retry.py\nindex df0cc4d..e59f4c0 100644\n--- a/tenacity/retry.py\n+++ b/tenacity/retry.py\n@@ -223,22 +223,22 @@ class retry_if_exception_message(retry_if_exception):\n         message: str | None = None,\n         match: None | str | re.Pattern[str] = None,\n     ) -> None:\n-        if message and match:\n+        if message is not None and match is not None:\n             raise TypeError(\n                 f\"{self.__class__.__name__}() takes either 'message' or 'match', not both\"\n             )\n \n-        if not message and not match:\n+        if message is None and match is None:\n             raise TypeError(\n                 f\"{self.__class__.__name__}() missing 1 required argument 'message' or 'match'\"\n             )\n \n         self.message = message\n-        self.match = re.compile(match) if match else None\n+        self.match = re.compile(match) if match is not None else None\n         super().__init__(self._check)\n \n     def _check(self, exception: BaseException) -> bool:\n-        if self.message:\n+        if self.message is not None:\n             return self.message == str(exception)\n         assert self.match is not None\n         return bool(self.match.match(str(exception)))\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "39096c214b12010094c71983d27b4b6639103a521ca50f7b26af53f7448883c1",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `retry_if_exception_message` function (and its inverse `retry_if_not_exception_message`) incorrectly rejects an empty string as the `message` argument, raising a `TypeError` at construction time. This prevents matching exceptions whose string representation is empty, such as a bare `RuntimeError()`.",
+          "reasoning": "We need to write a concise problem statement describing only the externally observable bug or missing behavior. The bug is that `retry_if_exception_message` (and its inverse) cannot be used with an empty string as the message argument. It raises a TypeError when `message=\"\"` is passed, even though an empty string is a valid message to match (e.g., for exceptions with empty string representation). So the externally observable behavior is that you cannot match exceptions that have an empty message string. The problem statement should not reveal implementation details, fix, or code.",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to write a concise problem statement describing only the externally observable bug or missing behavior. The bug is that `retry_if_exception_message` (and its inverse) cannot be used with an empty string as the message argument. It raises a TypeError when `message=\"\"` is passed, even though an empty string is a valid message to match (e.g., for exceptions with empty string representation). So the externally observable behavior is that you cannot match exceptions that have an empty message string. The problem statement should not reveal implementation details, fix, or code.",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078223,
+    "id": "gen-1788078223-wkGizBaQFjA83xDAyZ0p",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 179,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 113
+      },
+      "cost": 0.00011966976,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.886912e-05,
+        "upstream_inference_cost": 0.00011966976,
+        "upstream_inference_prompt_cost": 9.080064e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1126,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1305
+    }
+  },
+  "schema_version": 1
+}

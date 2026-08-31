@@ -1,0 +1,69 @@
+{
+  "latency_s": 12.546,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nRevert \"Use shlex.quote for quoting shell arguments\"\n\nPR body:\nThis caused issues if the pager/editor command had options like `less -FRSX`, they would then get quoted as a single word rather than `less` then `-FRSX`.\r\n\r\n`shlex.quote` doesn't seem to do the right thing on Windows cmd. Using `shlex.split` on the command first wouldn't help, as it would need to get re-joined and `subprocess.list2cmdline` is not an external API. Let's hold off until #1476 instead.\r\n\r\nReverts #1470\r\nCloses #1514 \n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/src/click/_compat.py b/src/click/_compat.py\nindex ed57a18f..60cb115b 100644\n--- a/src/click/_compat.py\n+++ b/src/click/_compat.py\n@@ -174,8 +174,6 @@ if PY2:\n     iteritems = lambda x: x.iteritems()\n     range_type = xrange\n \n-    from pipes import quote as shlex_quote\n-\n     def is_bytes(x):\n         return isinstance(x, (buffer, bytearray))\n \n@@ -284,8 +282,6 @@ else:\n     isidentifier = lambda x: x.isidentifier()\n     iteritems = lambda x: iter(x.items())\n \n-    from shlex import quote as shlex_quote\n-\n     def is_bytes(x):\n         return isinstance(x, (bytes, memoryview, bytearray))\n \ndiff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py\nindex c6e86cc0..88bec377 100644\n--- a/src/click/_termui_impl.py\n+++ b/src/click/_termui_impl.py\n@@ -17,7 +17,6 @@ from ._compat import int_types\n from ._compat import isatty\n from ._compat import open_stream\n from ._compat import range_type\n-from ._compat import shlex_quote\n from ._compat import strip_ansi\n from ._compat import term_len\n from ._compat import WIN\n@@ -346,10 +345,7 @@ def pager(generator, color=None):\n     fd, filename = tempfile.mkstemp()\n     os.close(fd)\n     try:\n-        if (\n-            hasattr(os, \"system\")\n-            and os.system(\"more {}\".format(shlex_quote(filename))) == 0\n-        ):\n+        if hasattr(os, \"system\") and os.system('more \"{}\"'.format(filename)) == 0:\n             return _pipepager(generator, \"more\", color)\n         return _nullpager(stdout, generator, color)\n     finally:\n@@ -418,7 +414,7 @@ def _tempfilepager(generator, cmd, color):\n     with open_stream(filename, \"wb\")[0] as f:\n         f.write(text.encode(encoding))\n     try:\n-        os.system(\"{} {}\".format(shlex_quote(cmd), shlex_quote(filename)))\n+        os.system('{} \"{}\"'.format(cmd, filename))\n     finally:\n         os.unlink(filename)\n \n@@ -463,9 +459,7 @@ class Editor(object):\n             environ = None\n         try:\n             c = subprocess.Popen(\n-                \"{} {}\".format(shlex_quote(editor), shlex_quote(filename)),\n-                env=environ,\n-                shell=True,\n+                '{} \"{}\"'.format(editor, filename), env=environ, shell=True,\n             )\n             exit_code = c.wait()\n             if exit_code != 0:\n@@ -536,16 +530,18 @@ def open_url(url, wait=False, locate=False):\n     elif WIN:\n         if locate:\n             url = _unquote_file(url)\n-            args = \"explorer /select,{}\".format(shlex_quote(url))\n+            args = 'explorer /select,\"{}\"'.format(_unquote_file(url.replace('\"', \"\")))\n         else:\n-            args = 'start {} \"\" {}'.format(\"/WAIT\" if wait else \"\", shlex_quote(url))\n+            args = 'start {} \"\" \"{}\"'.format(\n+                \"/WAIT\" if wait else \"\", url.replace('\"', \"\")\n+            )\n         return os.system(args)\n     elif CYGWIN:\n         if locate:\n             url = _unquote_file(url)\n-            args = \"cygstart {}\".format(shlex_quote(os.path.dirname(url)))\n+            args = 'cygstart \"{}\"'.format(os.path.dirname(url).replace('\"', \"\"))\n         else:\n-            args = \"cygstart {} {}\".format(\"-w\" if wait else \"\", shlex_quote(url))\n+            args = 'cygstart {} \"{}\"'.format(\"-w\" if wait else \"\", url.replace('\"', \"\"))\n         return os.system(args)\n \n     try:\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "4f1279619d7e9845ffbcf739775f317ab3d74587e1790f187a76ef03bb4d4c7a",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using Click's pager or editor functionality, commands with multiple arguments (like `less -FRSX`) are incorrectly quoted as a single argument instead of being split into separate arguments, causing the pager or editor to fail to execute properly. On Windows, the quoting also produces incorrect results for command-line operations.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078446,
+    "id": "gen-1788078446-JmT8pta2IIZJ5o5uYpjG",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "DigitalOcean",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 65,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 9.09741e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.092e-05,
+        "upstream_inference_cost": 9.09741e-05,
+        "upstream_inference_prompt_cost": 8.00541e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 1179,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1244
+    }
+  },
+  "schema_version": 1
+}

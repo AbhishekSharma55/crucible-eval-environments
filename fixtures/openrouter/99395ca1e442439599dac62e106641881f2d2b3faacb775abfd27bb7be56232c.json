@@ -1,0 +1,74 @@
+{
+  "latency_s": 4.712,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nPreserve function default and kwdefault through retry decorator\n\nPR body:\nHello, and thanks for the great package. I noticed that the `retry` decorator uses `functools.wraps`. By default, this means that `__defaults__` and `__kwdefaults__` will always be `None` on the wrapped function. In general this is reasonable behavior, since a wrapper could change these defaults. However, I believe the retry decorator does not, and thus should preserve these attributes. I've created a patch to change this, please let me know what you think :)\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/releasenotes/notes/some-slug-for-preserve-defaults-86682846dfa18005.yaml b/releasenotes/notes/some-slug-for-preserve-defaults-86682846dfa18005.yaml\nnew file mode 100644\nindex 0000000..617953c\n--- /dev/null\n+++ b/releasenotes/notes/some-slug-for-preserve-defaults-86682846dfa18005.yaml\n@@ -0,0 +1,4 @@\n+---\n+fixes:\n+  - |\n+    Preserve __defaults__ and __kwdefaults__ through retry decorator\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex ba8011b..9a5fa41 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -284,7 +284,7 @@ class BaseRetrying(ABC):\n         :param f: A function to wraps for retrying.\n         \"\"\"\n \n-        @functools.wraps(f)\n+        @functools.wraps(f, functools.WRAPPER_ASSIGNMENTS + (\"__defaults__\", \"__kwdefaults__\"))\n         def wrapped_f(*args: t.Any, **kw: t.Any) -> t.Any:\n             return self(f, *args, **kw)\n \ndiff --git a/tenacity/_asyncio.py b/tenacity/_asyncio.py\nindex 9e10c07..d901cbd 100644\n--- a/tenacity/_asyncio.py\n+++ b/tenacity/_asyncio.py\n@@ -83,7 +83,7 @@ class AsyncRetrying(BaseRetrying):\n         fn = super().wraps(fn)\n         # Ensure wrapper is recognized as a coroutine function.\n \n-        @functools.wraps(fn)\n+        @functools.wraps(fn, functools.WRAPPER_ASSIGNMENTS + (\"__defaults__\", \"__kwdefaults__\"))\n         async def async_wrapped(*args: t.Any, **kwargs: t.Any) -> t.Any:\n             return await fn(*args, **kwargs)\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "temperature": 0.0
+  },
+  "request_hash": "99395ca1e442439599dac62e106641881f2d2b3faacb775abfd27bb7be56232c",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `retry` decorator causes the wrapped function to lose its default argument values, making `__defaults__` and `__kwdefaults__` always `None` regardless of the original function's defaults.",
+          "reasoning": "We need to produce a problem statement based on the PR title and body. The PR says that the retry decorator uses functools.wraps, which by default does not preserve __defaults__ and __kwdefaults__, so they become None. The user wants these attributes preserved because the retry decorator does not change them. The patch adds those attributes to the wrapper assignments. The problem statement should describe the externally observable bug: that after applying the retry decorator, the wrapped function's default arguments (both positional and keyword-only) are lost (set to None). So the problem is that the retry decorator incorrectly clears the default argument values of the decorated function.",
+          "reasoning_details": [
+            {
+              "format": "unknown",
+              "index": 0,
+              "text": "We need to produce a problem statement based on the PR title and body. The PR says that the retry decorator uses functools.wraps, which by default does not preserve __defaults__ and __kwdefaults__, so they become None. The user wants these attributes preserved because the retry decorator does not change them. The patch adds those attributes to the wrapper assignments. The problem statement should describe the externally observable bug: that after applying the retry decorator, the wrapped function's default arguments (both positional and keyword-only) are lost (set to None). So the problem is that the retry decorator incorrectly clears the default argument values of the decorated function.",
+              "type": "reasoning.text"
+            }
+          ],
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078159,
+    "id": "gen-1788078159-VYzFjn9FpqoTcXmOMI9c",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "GMICloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 186,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 139
+      },
+      "cost": 0.000121632,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.1664e-05,
+        "upstream_inference_cost": 0.000121632,
+        "upstream_inference_prompt_cost": 7.9968e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 714,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 900
+    }
+  },
+  "schema_version": 1
+}

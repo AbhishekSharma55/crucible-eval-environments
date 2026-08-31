@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.834,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nAdded attrs.validators.min_len()\n\nPR body:\n# Summary\r\n\r\n<!-- Please tell us what your pull request is about here. -->\r\n\r\n\r\n# Pull Request Check List\r\n\r\n<!--\r\nThis is just a friendly reminder about the most common mistakes.\r\nPlease make sure that you tick all boxes.\r\nBut please read our [contribution guide](https://github.com/python-attrs/attrs/blob/main/.github/CONTRIBUTING.md) at least once, it will save you unnecessary review cycles!\r\n\r\nIf an item doesn't apply to your pull request, **check it anyway** to make it apparent that there's nothing left to do.\r\nIf your pull request is a documentation fix or a trivial typo, feel free to delete the whole thing.\r\n-->\r\n\r\n- [ ] Added **tests** for changed code.\r\n  Our CI fails if coverage is not 100%.\r\n- [ ] New features have been added to our [Hypothesis testing strategy](https://github.com/python-attrs/attrs/blob/main/tests/strategies.py).\r\n- [ ] Changes or additions to public APIs are reflected in our type stubs (files ending in ``.pyi``).\r\n    - [ ] ...and used in the stub test file `tests/typing_example.py`.\r\n    - [ ] If they've been added to `attr/__init__.pyi`, they've *also* been re-imported in `attrs/__init__.pyi`.\r\n- [ ] Updated **documentation** for changed code.\r\n    - [ ] New functions/classes have to be added to `docs/api.rst` by hand.\r\n    - [ ] Changes to the signature of `@attr.s()` have to be added by hand too.\r\n    - [ ] Changed/added classes/methods/functions have appropriate `versionadded`, `versionchanged`, or `deprecated` [directives](http://www.sphinx-doc.org/en/stable/markup/para.html#directive-versionadded).\r\n          Find the appropriate next version in our [``__init__.py``](https://github.com/python-attrs/attrs/blob/main/src/attr/__init__.py) file.\r\n- [ ] Documentation in `.rst` files is written using [semantic newlines](https://rhodesmill.org/brandon/2012/one-sentence-per-line/).\r\n- [ ] Changes (and possible deprecations) have news fragments in [`changelog.d`](https://github.com/python-attrs/attrs/blob/main/changelog.d).\r\n- [ ] Consider granting [push permissions to the PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), so maintainers can fix minor issues themselves without pestering you.\r\n\r\n<!--\r\nIf you have *any* questions to *any* of the points above, just **submit and ask**!\r\nThis checklist is here to *help* you, not to deter you from contributing!\r\n-->\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/changelog.d/916.change.rst b/changelog.d/916.change.rst\nnew file mode 100644\nindex 00000000..4a5ccd22\n--- /dev/null\n+++ b/changelog.d/916.change.rst\n@@ -0,0 +1 @@\n+Added ``attrs.validators.min_len()``.\ndiff --git a/docs/api.rst b/docs/api.rst\nindex 06c5a809..a60a6e08 100644\n--- a/docs/api.rst\n+++ b/docs/api.rst\n@@ -524,6 +524,22 @@ All objects from ``attrs.validators`` are also available from ``attr.validators`\n          ...\n       ValueError: (\"Length of 'x' must be <= 4: 5\")\n \n+.. autofunction:: attrs.validators.min_len\n+\n+   For example:\n+\n+   .. doctest::\n+\n+      >>> @attrs.define\n+      ... class C:\n+      ...     x = attrs.field(validator=attrs.validators.min_len(1))\n+      >>> C(\"bacon\")\n+      C(x='bacon')\n+      >>> C(\"\")\n+      Traceback (most recent call last):\n+         ...\n+      ValueError: (\"Length of 'x' must be => 1: 0\")\n+\n .. autofunction:: attrs.validators.instance_of\n \n    For example:\ndiff --git a/src/attr/validators.py b/src/attr/validators.py\nindex 0b0c8342..7e3ff163 100644\n--- a/src/attr/validators.py\n+++ b/src/attr/validators.py\n@@ -37,6 +37,7 @@ __all__ = [\n     \"lt\",\n     \"matches_re\",\n     \"max_len\",\n+    \"min_len\",\n     \"optional\",\n     \"provides\",\n     \"set_disabled\",\n@@ -559,3 +560,34 @@ def max_len(length):\n     .. versionadded:: 21.3.0\n     \"\"\"\n     return _MaxLengthValidator(length)\n+\n+\n+@attrs(repr=False, frozen=True, slots=True)\n+class _MinLengthValidator(object):\n+    min_length = attrib()\n+\n+    def __call__(self, inst, attr, value):\n+        \"\"\"\n+        We use a callable class to be able to change the ``__repr__``.\n+        \"\"\"\n+        if len(value) < self.min_length:\n+            raise ValueError(\n+                \"Length of '{name}' must be => {min}: {len}\".format(\n+                    name=attr.name, min=self.min_length, len=len(value)\n+                )\n+            )\n+\n+    def __repr__(self):\n+        return \"<min_len validator for {min}>\".format(min=self.min_length)\n+\n+\n+def min_len(length):\n+    \"\"\"\n+    A validator that raises `ValueError` if the initializer is called\n+    with a string or iterable that is shorter than *length*.\n+\n+    :param int length: Minimum length of the string or iterable\n+\n+    .. versionadded:: 22.1.0\n+    \"\"\"\n+    return _MinLengthValidator(length)\ndiff --git a/src/attr/validators.pyi b/src/attr/validators.pyi\nindex 5e00b854..81b9910f 100644\n--- a/src/attr/validators.pyi\n+++ b/src/attr/validators.pyi\n@@ -76,3 +76,4 @@ def le(val: _T) -> _ValidatorType[_T]: ...\n def ge(val: _T) -> _ValidatorType[_T]: ...\n def gt(val: _T) -> _ValidatorType[_T]: ...\n def max_len(length: int) -> _ValidatorType[_T]: ...\n+def min_len(length: int) -> _ValidatorType[_T]: ...\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "5e40e5c7184f4f7bcc97d942714c4bef409c4f24cf9601265247572e76d8f423",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "The `attrs` library lacks a validator that checks whether a string or iterable has a minimum length, causing users to manually implement such validation or use workarounds.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078572,
+    "id": "gen-1788078572-lWPNSpLDiCk6ezycaqSo",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Alibaba",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 34,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000228872,
+      "cost_details": {
+        "upstream_inference_completions_cost": 9.112e-06,
+        "upstream_inference_cost": 0.000228872,
+        "upstream_inference_prompt_cost": 0.00021976
+      },
+      "is_byok": false,
+      "prompt_tokens": 1640,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1674
+    }
+  },
+  "schema_version": 1
+}

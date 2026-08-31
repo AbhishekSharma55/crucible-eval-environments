@@ -1,0 +1,69 @@
+{
+  "latency_s": 2.078,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nMake Converter (including pipe) correctly infer the return type\n\nPR body:\nWhen running in adapter mode.\r\n\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/src/attr/_compat.py b/src/attr/_compat.py\nindex 4c515d22..104eeb07 100644\n--- a/src/attr/_compat.py\n+++ b/src/attr/_compat.py\n@@ -13,6 +13,7 @@ PYPY = platform.python_implementation() == \"PyPy\"\n PY_3_8_PLUS = sys.version_info[:2] >= (3, 8)\n PY_3_9_PLUS = sys.version_info[:2] >= (3, 9)\n PY_3_10_PLUS = sys.version_info[:2] >= (3, 10)\n+PY_3_11_PLUS = sys.version_info[:2] >= (3, 11)\n PY_3_12_PLUS = sys.version_info[:2] >= (3, 12)\n PY_3_13_PLUS = sys.version_info[:2] >= (3, 13)\n PY_3_14_PLUS = sys.version_info[:2] >= (3, 14)\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 6ff79baa..bf00c5f8 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -22,6 +22,7 @@ from . import _compat, _config, setters\n from ._compat import (\n     PY_3_8_PLUS,\n     PY_3_10_PLUS,\n+    PY_3_11_PLUS,\n     _AnnotationExtractor,\n     _get_annotations,\n     get_generic_base,\n@@ -2705,28 +2706,27 @@ class Converter:\n         self.takes_self = takes_self\n         self.takes_field = takes_field\n \n-        self._first_param_type = _AnnotationExtractor(\n-            converter\n-        ).get_first_param_type()\n+        ex = _AnnotationExtractor(converter)\n+        self._first_param_type = ex.get_first_param_type()\n \n-        self.__call__ = {\n-            (False, False): self._takes_only_value,\n-            (True, False): self._takes_instance,\n-            (False, True): self._takes_field,\n-            (True, True): self._takes_both,\n-        }[self.takes_self, self.takes_field]\n-\n-    def _takes_only_value(self, value, instance, field):\n-        return self.converter(value)\n-\n-    def _takes_instance(self, value, instance, field):\n-        return self.converter(value, instance)\n-\n-    def _takes_field(self, value, instance, field):\n-        return self.converter(value, field)\n+        if not (self.takes_self or self.takes_field):\n+            self.__call__ = lambda value, _, __: self.converter(value)\n+        elif self.takes_self and not self.takes_field:\n+            self.__call__ = lambda value, instance, __: self.converter(\n+                value, instance\n+            )\n+        elif not self.takes_self and self.takes_field:\n+            self.__call__ = lambda value, __, field: self.converter(\n+                value, field\n+            )\n+        else:\n+            self.__call__ = lambda value, instance, field: self.converter(\n+                value, instance, field\n+            )\n \n-    def _takes_both(self, value, instance, field):\n-        return self.converter(value, instance, field)\n+        rt = ex.get_return_type()\n+        if rt is not None:\n+            self.__call__.__annotations__[\"return\"] = rt\n \n     @staticmethod\n     def _get_global_name(attr_name: str) -> str:\n@@ -2948,8 +2948,12 @@ def pipe(*converters):\n         if t:\n             pipe_converter.__annotations__[\"val\"] = t\n \n+        last = converters[-1]\n+        if not PY_3_11_PLUS and isinstance(last, Converter):\n+            last = last.__call__\n+\n         # Get return type from last converter.\n-        rt = _AnnotationExtractor(converters[-1]).get_return_type()\n+        rt = _AnnotationExtractor(last).get_return_type()\n         if rt:\n             pipe_converter.__annotations__[\"return\"] = rt\n \n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "a3003727370e8759040ade15b2227f05bd1492d2cb7617f53ad362b9d7f8bed2",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When using `attr` in adapter mode, the `Converter` class and `pipe` function fail to correctly infer the return type annotation, causing type checkers to report incorrect or missing return types.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078619,
+    "id": "gen-1788078619-fC13sq5zOkTJtvEZsRcG",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Phala",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 41,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000235,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.64e-05,
+        "upstream_inference_cost": 0.000235,
+        "upstream_inference_prompt_cost": 0.0002186
+      },
+      "is_byok": false,
+      "prompt_tokens": 1093,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1134
+    }
+  },
+  "schema_version": 1
+}

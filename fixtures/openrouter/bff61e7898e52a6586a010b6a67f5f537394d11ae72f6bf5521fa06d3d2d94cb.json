@@ -1,0 +1,329 @@
+{
+  "latency_s": 4.671,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: pallets/flask#4189\nRepository: pallets/flask\nBroken parent: e06dad62f6b49dff935f241114b3590774e2786a\nFixed commit: 48ee204dd5bdc47f397553fb45b5fe37003c07d1\n\nLinked issues:\nIssue #4188:\nWerkzeug 2.0 has introduced a new parameter `exclude_patterns` to `run_simple`.\r\n\r\nIt would be great to support this option in flask CLI\n\nPull request title:\nAdd `exclude-patterns` option to `flask run` CLI\n\nPull request body:\nPass `exclude_patterns` to Werkzeug's `run_simple` function.\nThis configures a list of patterns to ignore when running the reloader.\n\n- fixes  #4188\n\n<!--\nBefore opening a PR, open a ticket describing the issue or feature the\nPR will address. Follow the steps in CONTRIBUTING.rst.\n\nReplace this comment with a description of the change. Describe how it\naddresses the linked ticket.\n-->\n\n<!--\nLink to relevant issues or previous PRs, one per line. Use \"fixes\" to\nautomatically close an issue.\n-->\n\n<!--\nEnsure each step in CONTRIBUTING.rst is complete by adding an \"x\" to\neach box below.\n\nIf only docs were changed, these aren't relevant and can be removed.\n-->\n\nChecklist:\n\n- [ ] Add tests that demonstrate the correct behavior of the change. Tests should fail without the change.\n- [x] Add or update relevant docs, in the docs folder and in code.\n- [x] Add an entry in `CHANGES.rst` summarizing the change and linking to the issue.\n- [ ] Add `.. versionchanged::` entries in any relevant code docs.\n- [x] Run `pre-commit` hooks and fix any issues.\n- [ ] Run `pytest` and `tox`, no tests failed.\n\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGES.rst b/CHANGES.rst\nindex 3af9a706..5f9c2e69 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -39,6 +39,9 @@ Unreleased\n     load command entry points. :issue:`4419`\n -   Overriding ``FlaskClient.open`` will not cause an error on redirect.\n     :issue:`3396`\n+-   Add an ``--exclude-patterns`` option to the ``flask run`` CLI\n+    command to specify patterns that will be ignored by the reloader.\n+    :issue:`4188`\n \n \n Version 2.0.3\ndiff --git a/docs/cli.rst b/docs/cli.rst\nindex e367c4b9..4b40307e 100644\n--- a/docs/cli.rst\n+++ b/docs/cli.rst\n@@ -262,6 +262,15 @@ separated with ``:``, or ``;`` on Windows.\n            * Detected change in '/path/to/file1', reloading\n \n \n+Ignore files with the Reloader\n+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n+\n+The reloader can also ignore files using :mod:`fnmatch` patterns with\n+the ``--exclude-patterns`` option, or the ``FLASK_RUN_EXCLUDE_PATTERNS``\n+environment variable. Multiple patterns are separated with ``:``, or\n+``;`` on Windows.\n+\n+\n Debug Mode\n ----------\n \ndiff --git a/src/flask/cli.py b/src/flask/cli.py\nindex 3a51535e..d59942b8 100644\n--- a/src/flask/cli.py\n+++ b/src/flask/cli.py\n@@ -796,9 +796,28 @@ class SeparatedPathType(click.Path):\n         f\" are separated by {os.path.pathsep!r}.\"\n     ),\n )\n+@click.option(\n+    \"--exclude-patterns\",\n+    default=None,\n+    type=SeparatedPathType(),\n+    help=(\n+        \"Files matching these fnmatch patterns will not trigger a reload\"\n+        \" on change. Multiple patterns are separated by\"\n+        f\" {os.path.pathsep!r}.\"\n+    ),\n+)\n @pass_script_info\n def run_command(\n-    info, host, port, reload, debugger, eager_loading, with_threads, cert, extra_files\n+    info,\n+    host,\n+    port,\n+    reload,\n+    debugger,\n+    eager_loading,\n+    with_threads,\n+    cert,\n+    extra_files,\n+    exclude_patterns,\n ):\n     \"\"\"Run a local development server.\n \n@@ -830,6 +849,7 @@ def run_command(\n         threaded=with_threads,\n         ssl_context=cert,\n         extra_files=extra_files,\n+        exclude_patterns=exclude_patterns,\n     )\n \n \n\n\nChanged source paths:\n- src/flask/cli.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "I'll start by examining the relevant test files and the source code to understand the conventions.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"src/flask/cli.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_2b17eaa3850d415088968d2c",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"src/flask/cli.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/inner2/flask.py\", \"test_names\": []}, {\"fixtures\": [\"runner\", \"invoke\", \"invoke_no_routes\"], \"opening_excerpt\": \"   1 | # This file was part of Flask-CLI and was modified under the terms of\\n   2 | # its Revised BSD License. Copyright \\u00a9 2015 CERN.\\n   3 | import os\\n   4 | import platform\\n   5 | import ssl\\n   6 | import sys\\n   7 | import types\\n   8 | from functools import partial\\n   9 | from pathlib import Path\\n  10 | from unittest.mock import patch\\n  11 | \\n  12 | import click\\n  13 | import pytest\\n  14 | from _pytest.monkeypatch import notset\\n  15 | from click.testing import CliRunner\\n  16 | \\n  17 | from flask import Blueprint\\n  18 | from flask import current_app\\n  19 | from flask import Flask\\n  20 | from flask.cli import AppGroup\\n  21 | from flask.cli import DispatchingApp\\n  22 | from flask.cli import dotenv\\n  23 | from flask.cli import find_best_app\\n  24 | from flask.cli import FlaskGroup\\n  25 | from flask.cli import get_version\\n  26 | from flask.cli import load_dotenv\\n  27 | from flask.cli import locate_app\\n  28 | from flask.cli import main as cli_main\\n  29 | from flask.cli import NoAppException\\n  30 | from flask.cli import prepare_import\\n  31 | from flask.cli import run_command\\n  32 | from flask.cli import ScriptInfo\\n  33 | from flask.cli import with_appcontext\\n  34 | \\n  35 | cwd = Path.cwd()\\n  36 | test_path = (Path(__file__) / \\\"..\\\" / \\\"test_apps\\\").resolve()\\n...[TRUNCATED; use read_file('tests/test_cli.py', start, end) for another window]...\", \"path\": \"tests/test_cli.py\", \"test_names\": [\"test_cli_name\", \"test_find_best_app\", \"test_prepare_import\", \"test_locate_app\", \"test_locate_app_raises\", \"test_locate_app_suppress_raise\", \"test_get_version\", \"test_scriptinfo\", \"test_lazy_load_error\", \"test_with_appcontext\", \"test_appgroup\", \"test_flaskgroup\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | testapp = Flask(\\\"testapp\\\")\", \"path\": \"tests/test_apps/cliapp/app.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | \\n   4 | def create_app():\\n   5 |     return Flask(\\\"app\\\")\\n   6 | \\n   7 | \\n   8 | def create_app2(foo, bar):\\n   9 |     return Flask(\\\"_\\\".join([\\\"app2\\\", foo, bar]))\\n  10 | \\n  11 | \\n  12 | def no_app():\\n  13 |     pass\", \"path\": \"tests/test_apps/cliapp/factory.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | raise ImportError()\\n   4 | \\n   5 | testapp = Flask(\\\"testapp\\\")\", \"path\": \"tests/test_apps/cliapp/importerrorapp.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | application = Flask(__name__)\", \"path\": \"tests/test_apps/cliapp/inner1/__init__.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | from flask import Flask\\n   2 | \\n   3 | app1 = Flask(\\\"app1\\\")\\n   4 | app2 = Flask(\\\"app2\\\")\", \"path\": \"tests/test_apps/cliapp/multiapp.py\", \"test_names\": []}, {\"fixtures\": [\"fixture_app\", \"client\"], \"opening_excerpt\": \"   1 | import pytest\\n   2 | \\n   3 | from js_example import app\\n   4 | \\n   5 | \\n   6 | @pytest.fixture(name=\\\"app\\\")\\n   7 | def fixture_app():\\n   8 |     app.testing = True\\n   9 |     yield app\\n  10 |     app.testing = False\\n  11 | \\n  12 | \\n  13 | @pytest.fixture\\n  14 | def client(app):\\n  15 |     return app.test_client()\", \"path\": \"examples/javascript/tests/conftest.py\", \"test_names\": []}], \"total_test_python_files\": 44}",
+        "role": "tool",
+        "tool_call_id": "call_2b17eaa3850d415088968d2c"
+      },
+      {
+        "content": "Let me look at the test_cli.py file to understand the conventions for testing the run_command, and also look at the source code.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"run_command|run_simple|extra_files|SeparatedPathTy",
+              "name": "search"
+            },
+            "id": "call_c118e2cfeb98414d88d4a7e3",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"path\": \"tests/test_cli.py\", \"start\": 1, \"end\": 80}",
+              "name": "read_file"
+            },
+            "id": "call_71eacb6d85e54adbba548b51",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"error\": \"tool arguments are invalid JSON: Unterminated string starting at: line 1 column 13 (char 12); send one JSON object matching the tool schema\", \"ok\": false}",
+        "role": "tool",
+        "tool_call_id": "call_c118e2cfeb98414d88d4a7e3"
+      },
+      {
+        "content": "{\"content\": \"   1 | # This file was part of Flask-CLI and was modified under the terms of\\n   2 | # its Revised BSD License. Copyright \\u00a9 2015 CERN.\\n   3 | import os\\n   4 | import platform\\n   5 | import ssl\\n   6 | import sys\\n   7 | import types\\n   8 | from functools import partial\\n   9 | from pathlib import Path\\n  10 | from unittest.mock import patch\\n  11 | \\n  12 | import click\\n  13 | import pytest\\n  14 | from _pytest.monkeypatch import notset\\n  15 | from click.testing import CliRunner\\n  16 | \\n  17 | from flask import Blueprint\\n  18 | from flask import current_app\\n  19 | from flask import Flask\\n  20 | from flask.cli import AppGroup\\n  21 | from flask.cli import DispatchingApp\\n  22 | from flask.cli import dotenv\\n  23 | from flask.cli import find_best_app\\n  24 | from flask.cli import FlaskGroup\\n  25 | from flask.cli import get_version\\n  26 | from flask.cli import load_dotenv\\n  27 | from flask.cli import locate_app\\n  28 | from flask.cli import main as cli_main\\n  29 | from flask.cli import NoAppException\\n  30 | from flask.cli import prepare_import\\n  31 | from flask.cli import run_command\\n  32 | from flask.cli import ScriptInfo\\n  33 | from flask.cli import with_appcontext\\n  34 | \\n  35 | cwd = Path.cwd()\\n  36 | test_path = (Path(__file__) / \\\"..\\\" / \\\"test_apps\\\").resolve()\\n  37 | \\n  38 | \\n  39 | @pytest.fixture\\n  40 | def runner():\\n  41 |     return CliRunner()\\n  42 | \\n  43 | \\n  44 | def test_cli_name(test_apps):\\n  45 |     \\\"\\\"\\\"Make sure the CLI object's name is the app's name and not the app itself\\\"\\\"\\\"\\n  46 |     from cliapp.app import testapp\\n  47 | \\n  48 |     assert testapp.cli.name == testapp.name\\n  49 | \\n  50 | \\n  51 | def test_find_best_app(test_apps):\\n  52 |     class Module:\\n  53 |         app = Flask(\\\"appname\\\")\\n  54 | \\n  55 |     assert find_best_app(Module) == Module.app\\n  56 | \\n  57 |     class Module:\\n  58 |         application = Flask(\\\"appname\\\")\\n  59 | \\n  60 |     assert find_best_app(Module) == Module.application\\n  61 | \\n  62 |     class Module:\\n  63 |         myapp = Flask(\\\"appname\\\")\\n  64 | \\n  65 |     assert find_best_app(Module) == Module.myapp\\n  66 | \\n  67 |     class Module:\\n  68 |         @staticmethod\\n  69 |         def create_app():\\n  70 |             return Flask(\\\"appname\\\")\\n  71 | \\n  72 |     app = find_best_app(Module)\\n  73 |     assert isinstance(app, Flask)\\n  74 |     assert app.name == \\\"appname\\\"\\n  75 | \\n  76 |     class Module:\\n  77 |         @staticmethod\\n  78 |         def create_app(**kwargs):\\n  79 |             return Flask(\\\"appname\\\")\\n  80 | \\n...[WINDOWED READ; 584 later lines omitted]...\", \"end\": 80, \"ok\": true, \"path\": \"tests/test_cli.py\", \"start\": 1, \"total_lines\": 664}",
+        "role": "tool",
+        "tool_call_id": "call_71eacb6d85e54adbba548b51"
+      },
+      {
+        "content": "Let me search for existing tests related to `run_command` and `run_simple` to understand the testing patterns.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"run_command\"}",
+              "name": "search"
+            },
+            "id": "call_88a0410db42646a7a592059f",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"run_simple\"}",
+              "name": "search"
+            },
+            "id": "call_e4f3d12adae0413f932f83e4",
+            "index": 1,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"exclude_patterns\"}",
+              "name": "search"
+            },
+            "id": "call_c187350ebe70417daab7624e",
+            "index": 2,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 16, \"matches\": [\"docs/api.rst:771:.. autodata:: run_command\", \"docs/cli.rst:101:The :func:`run <cli.run_command>` command will start the development server. It\", \"src/flask/cli.py:498:            self.add_command(run_command)\", \"src/flask/cli.py:800:def run_command(\", \"tests/test_cli.py:31:from flask.cli import run_command\", \"tests/test_cli.py:552:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", __file__])\", \"tests/test_cli.py:556:        run_command.make_context(\\\"run\\\", [\\\"--key\\\", __file__])\", \"tests/test_cli.py:558:    ctx = run_command.make_context(\\\"run\\\", [\\\"--cert\\\", __file__, \\\"--key\\\", __file__])\", \"tests/test_cli.py:567:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"adhoc\\\"])\", \"tests/test_cli.py:571:    ctx = run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"adhoc\\\"])\", \"tests/test_cli.py:576:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"adhoc\\\", \\\"--key\\\", __file__])\", \"tests/test_cli.py:584:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"not_here\\\"])\", \"tests/test_cli.py:587:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"flask\\\"])\", \"tests/test_cli.py:593:    ctx = run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"ssl_context\\\"])\", \"tests/test_cli.py:598:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"ssl_context\\\", \\\"--key\\\", __file__])\", \"tests/test_cli.py:604:        run_command.make_context(\\\"run\\\", [\\\"--cert\\\", \\\"not_here\\\"])\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"run_command\"}",
+        "role": "tool",
+        "tool_call_id": "call_88a0410db42646a7a592059f"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 25, \"matches\": [\"docs/patterns/appdispatch.rst:23:through :func:`werkzeug.serving.run_simple`::\", \"docs/patterns/appdispatch.rst:25:    from werkzeug.serving import run_simple\", \"docs/patterns/appdispatch.rst:26:    run_simple('localhost', 5000, application, use_reloader=True)\", \"docs/patterns/appdispatch.rst:28:Note that :func:`run_simple <werkzeug.serving.run_simple>` is not intended for\", \"docs/patterns/appdispatch.rst:33:debugging and :func:`run_simple <werkzeug.serving.run_simple>`::\", \"docs/patterns/appdispatch.rst:36:    from werkzeug.serving import run_simple\", \"docs/patterns/appdispatch.rst:46:        run_simple('localhost', 5000, app,\", \"src/flask/app.py:852:            server. See :func:`werkzeug.serving.run_simple` for more\", \"src/flask/app.py:916:        from werkzeug.serving import run_simple\", \"src/flask/app.py:919:            run_simple(t.cast(str, host), port, self, **options)\", \"src/flask/cli.py:822:    from werkzeug.serving import run_simple\", \"src/flask/cli.py:824:    run_simple(\", \"tests/test_basic.py:1575:    # Mocks werkzeug.serving.run_simple method\", \"tests/test_basic.py:1576:    def run_simple_mock(*args, **kwargs):\", \"tests/test_basic.py:1579:    monkeypatch.setattr(werkzeug.serving, \\\"run_simple\\\", run_simple_mock)\", \"tests/test_basic.py:1944:    # Mocks werkzeug.serving.run_simple method\", \"tests/test_basic.py:1945:    def run_simple_mock(*args, **kwargs):\", \"tests/test_basic.py:1948:    monkeypatch.setattr(werkzeug.serving, \\\"run_simple\\\", run_simple_mock)\", \"tests/test_basic.py:1956:    # Mocks werkzeug.serving.run_simple method\", \"tests/test_basic.py:1957:    def run_simple_mock(hostname, port, application, *args, **kwargs):\", \"tests/test_basic.py:1960:    monkeypatch.setattr(werkzeug.serving, \\\"run_simple\\\", run_simple_mock)\", \"tests/test_basic.py:1981:    def run_simple_mock(hostname, port, *args, **kwargs):\", \"tests/test_basic.py:1985:    monkeypatch.setattr(werkzeug.serving, \\\"run_simple\\\", run_simple_mock)\", \"tests/test_templating.py:385:    def run_simple_mock(*args, **kwargs):\", \"tests/test_templating.py:388:    monkeypatch.setattr(werkzeug.serving, \\\"run_simple\\\", run_simple_mock)\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"run_simple\"}",
+        "role": "tool",
+        "tool_call_id": "call_e4f3d12adae0413f932f83e4"
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"exclude_patterns\"}",
+        "role": "tool",
+        "tool_call_id": "call_c187350ebe70417daab7624e"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 401609570,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "bff61e7898e52a6586a010b6a67f5f537394d11ae72f6bf5521fa06d3d2d94cb",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "Good - `exclude_patterns` doesn't exist at the parent. Let me look at the existing test patterns for `run_command` in test_cli.py and the mock patterns in test_basic.py",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\": \"tests/test_cli.py\", \"start\": 540, \"end\": 620}",
+                "name": "read_file"
+              },
+              "id": "call_9466e534c95e4f04863fb5b9",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"path\": \"tests/test_basic.py\", \"start\": 1570, \"end\": 1600}",
+                "name": "read_file"
+              },
+              "id": "call_f2dd36a38abe442bbf6694cf",
+              "index": 1,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788159766,
+    "id": "gen-1788159766-dRpQUUxQVBBTOqIiaCEW",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "GMICloud",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 189,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0003296832,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.2336e-05,
+        "upstream_inference_cost": 0.0003296832,
+        "upstream_inference_prompt_cost": 0.0002873472
+      },
+      "is_byok": false,
+      "prompt_tokens": 6252,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 4608,
+        "video_tokens": 0
+      },
+      "total_tokens": 6441
+    }
+  },
+  "schema_version": 1
+}

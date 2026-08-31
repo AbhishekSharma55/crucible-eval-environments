@@ -1,0 +1,69 @@
+{
+  "latency_s": 1.848,
+  "request": {
+    "max_tokens": 1800,
+    "messages": [
+      {
+        "content": "You author missing pytest regression tests for real bug-fix commits. Return exactly one JSON object with string fields \"path\" and \"content\" and no markdown. The path must be a new file under tests/. The test must fail on the broken parent and pass on the fixed commit. Test externally observable behavior through APIs that already exist at the parent. Do not import, access, or assert the existence of identifiers introduced by the patch. Do not modify source, inspect files at runtime, invoke git, compare versions or source text, use unconditional failures, or weaken or skip the test. Keep the test focused and self-contained using only dependencies visible in the supplied source and metadata.",
+        "role": "system"
+      },
+      {
+        "content": "Linked issue text:\nIssue #554:\nAfter upgrading Tenacity, mypy reports errors like:\n\n```\nerror: Argument 1 to \"before_sleep_log\" has incompatible type \"Logger\"; expected \"LoggerProtocol\"  [arg-type]\n```\n\nI'm using the normal Python logging logger. \nThis should already reproduce the error:\n```python\n  import logging\n  from tenacity.before_sleep import before_sleep_log\n\n  log = logging.getLogger(__name__)\n  before_sleep_log(log, logging.INFO)  # mypy arg-type error\n```\n\nPR title:\nfix: make LoggerProtocol compatible with logging.Logger\n\nPR body:\nRemove the positional-only marker (/) from LoggerProtocol.log().\nlogging.Logger.log() defines msg as a regular parameter, so the\npositional-only constraint caused mypy to reject logging.Logger\nas incompatible with the protocol.\n\nCloses #554\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\nGold patch:\ndiff --git a/tenacity/_utils.py b/tenacity/_utils.py\nindex d828173..6a12678 100644\n--- a/tenacity/_utils.py\n+++ b/tenacity/_utils.py\n@@ -33,7 +33,7 @@ class LoggerProtocol(typing.Protocol):\n     \"\"\"\n \n     def log(\n-        self, level: int, msg: str, /, *args: typing.Any, **kwargs: typing.Any\n+        self, level: int, msg: str, *args: typing.Any, **kwargs: typing.Any\n     ) -> typing.Any: ...\n \n \n\n\nRelevant source files at the broken parent:\n\n--- tenacity/_utils.py ---\n# Copyright 2016 Julien Danjou\n# Copyright 2016 Joshua Harlow\n# Copyright 2013-2014 Ray Holder\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n# http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\nimport contextlib\nimport functools\nimport inspect\nimport sys\nimport typing\nfrom datetime import timedelta\n\n# sys.maxsize:\n# An integer giving the maximum value a variable of type Py_ssize_t can take.\nMAX_WAIT = sys.maxsize / 2\n\n\nclass LoggerProtocol(typing.Protocol):\n    \"\"\"\n    Protocol used by utils expecting a logger (eg: before_log).\n\n    Compatible with logging, structlog, loguru, etc...\n    \"\"\"\n\n    def log(\n        self, level: int, msg: str, /, *args: typing.Any, **kwargs: typing.Any\n    ) -> typing.Any: ...\n\n\ndef find_ordinal(pos_num: int) -> str:\n    # See: https://en.wikipedia.org/wiki/English_numerals#Ordinal_numbers\n\n    if 11 <= (pos_num % 100) <= 13:\n        return \"th\"\n\n    if pos_num == 0:\n        return \"th\"\n    if pos_num == 1:\n        return \"st\"\n    if pos_num == 2:\n        return \"nd\"\n    if pos_num == 3:\n        return \"rd\"\n    if 4 <= pos_num <= 20:\n        return \"th\"\n    return find_ordinal(pos_num % 10)\n\n\ndef to_ordinal(pos_num: int) -> str:\n    return f\"{pos_num}{find_ordinal(pos_num)}\"\n\n\ndef get_callback_name(cb: typing.Callable[..., typing.Any]) -> str:\n    \"\"\"Get a callback fully-qualified name.\n\n    If no name can be produced ``repr(cb)`` is called and returned.\n    \"\"\"\n    segments = []\n    try:\n        segments.append(cb.__qualname__)\n    except AttributeError:\n        with contextlib.suppress(AttributeError):\n            segments.append(cb.__name__)\n    if not segments:\n        return repr(cb)\n    with contextlib.suppress(AttributeError):\n        # When running under sphinx it appears this can be none?\n        if cb.__module__:\n            segments.insert(0, cb.__module__)\n    return \".\".join(segments)\n\n\ntime_unit_type = int | float | timedelta\n\n\ndef to_seconds(time_unit: time_unit_type) -> float:\n    return float(\n        time_unit.total_seconds() if isinstance(time_unit, timedelta) else time_unit\n    )\n\n\ndef is_coroutine_callable(call: typing.Callable[..., typing.Any]) -> bool:\n    if inspect.isclass(call):\n        return False\n    if inspect.iscoroutinefunction(call):\n        return True\n    partial_call = isinstance(call, functools.partial) and call.func\n    dunder_call = partial_call or getattr(call, \"__call__\", None)  # noqa: B004\n    return inspect.iscoroutinefunction(dunder_call)\n\n\ndef wrap_to_async_func(\n    call: typing.Callable[..., typing.Any],\n) -> typing.Callable[..., typing.Awaitable[typing.Any]]:\n    if is_coroutine_callable(call):\n        return call\n\n    async def inner(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:\n        return call(*args, **kwargs)\n\n    return inner\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.375
+  },
+  "request_hash": "971d55a94b8192897902a53d679b2e425ea1f7406e8f92a6831b1f049dc3db8d",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "{\n  \"path\": \"tests/test_logger_protocol.py\",\n  \"content\": \"import logging\\nfrom tenacity.before_sleep import before_sleep_log\\n\\ndef test_logger_protocol_compatible_with_logging_logger():\\n    logger = logging.getLogger(__name__)\\n    before_sleep_log(logger, logging.INFO)\\n\"\n}",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788098513,
+    "id": "gen-1788098513-BclTNhHxyoztwUlZwEx3",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "Parasail",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 80,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.00021112,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.24e-05,
+        "upstream_inference_cost": 0.00021112,
+        "upstream_inference_prompt_cost": 0.00018872
+      },
+      "is_byok": false,
+      "prompt_tokens": 1348,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 1428
+    }
+  },
+  "schema_version": 1
+}

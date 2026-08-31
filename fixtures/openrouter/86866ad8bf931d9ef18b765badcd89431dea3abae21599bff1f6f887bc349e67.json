@@ -1,0 +1,69 @@
+{
+  "latency_s": 4.462,
+  "request": {
+    "max_tokens": 300,
+    "messages": [
+      {
+        "content": "You write software bug reports. Given a pull request title, body, and patch, write a concise problem statement that describes only the externally observable bug or missing behavior. Do not reveal the implementation, new identifiers, exact code, patch syntax, file-and-line locations, or instructions for how to fix it. Return only the problem statement.",
+        "role": "system"
+      },
+      {
+        "content": "PR title:\nRespect enabled=False on the direct-call path\n\nPR body:\n`Retrying(enabled=False)(fn)` and `AsyncRetrying(enabled=False)(fn)` ignore `enabled=False` on the direct-call path \u2014 they run the full retry loop and wrap the original exception in `RetryError`, instead of calling the function once and propagating its exception.\n\nPR #643 added the `enabled=False` short-circuit to the iterator protocols (`__iter__`/`__aiter__`/`__anext__`) but the direct-call protocol (`__call__`) was left behind, since `iter()` itself never consults `enabled`. The fix adds the same short-circuit at the top of each `__call__` (awaiting coroutine callables for the async path).\n\nVerified both ways: old runs the function 5\u00d7 and raises `RetryError` (sync and async); fixed calls once and raises the original `ValueError`, matching the iterator/decorator paths. 154 existing tests green; +4 regression tests (which fail on the unfixed code) \u2192 158 passed.\n\nGold patch (use only to infer the symptom; do not quote or describe the fix):\ndiff --git a/tenacity/__init__.py b/tenacity/__init__.py\nindex 530b63a..e466003 100644\n--- a/tenacity/__init__.py\n+++ b/tenacity/__init__.py\n@@ -538,6 +538,9 @@ class Retrying(BaseRetrying):\n         *args: t.Any,\n         **kwargs: t.Any,\n     ) -> WrappedFnReturnT:\n+        if not self.enabled:\n+            return fn(*args, **kwargs)\n+\n         self.begin()\n \n         retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\ndiff --git a/tenacity/asyncio/__init__.py b/tenacity/asyncio/__init__.py\nindex aa4a756..3292a6c 100644\n--- a/tenacity/asyncio/__init__.py\n+++ b/tenacity/asyncio/__init__.py\n@@ -113,10 +113,15 @@ class AsyncRetrying(BaseRetrying):\n     async def __call__(  # type: ignore[override]\n         self, fn: WrappedFn, *args: t.Any, **kwargs: t.Any\n     ) -> WrappedFnReturnT:\n+        is_async = _utils.is_coroutine_callable(fn)\n+        if not self.enabled:\n+            if is_async:\n+                return await fn(*args, **kwargs)  # type: ignore[no-any-return]\n+            return fn(*args, **kwargs)  # type: ignore[return-value]\n+\n         self.begin()\n \n         retry_state = RetryCallState(retry_object=self, fn=fn, args=args, kwargs=kwargs)\n-        is_async = _utils.is_coroutine_callable(fn)\n         while True:\n             do = await self.iter(retry_state=retry_state)\n             if isinstance(do, DoAttempt):\n\n",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "reasoning": {
+      "enabled": false
+    },
+    "temperature": 0.0
+  },
+  "request_hash": "86866ad8bf931d9ef18b765badcd89431dea3abae21599bff1f6f887bc349e67",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "When `enabled=False` is set, calling a retrying wrapper directly (e.g., `Retrying(enabled=False)(fn)` or `AsyncRetrying(enabled=False)(fn)`) still executes the full retry loop and wraps the original exception in `RetryError`, rather than calling the function once and letting its exception propagate as expected.",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "native_finish_reason": "stop"
+      }
+    ],
+    "created": 1788078330,
+    "id": "gen-1788078330-uKLDvqtnElcP7sgBgPSQ",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "SiliconFlow",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 72,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0001187,
+      "cost_details": {
+        "upstream_inference_completions_cost": 2.016e-05,
+        "upstream_inference_cost": 0.0001187,
+        "upstream_inference_prompt_cost": 9.854e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 758,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 830
+    }
+  },
+  "schema_version": 1
+}
