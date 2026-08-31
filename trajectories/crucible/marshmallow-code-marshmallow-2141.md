@@ -2,7 +2,7 @@
 
 **Role in this export:** failure with a retry
 
-The agent's first full G1-G5 validation failed, it revised the staged test and re-ran the endpoints, spent a second gate call, and still ran out of model turns without passing. This is the clearest example of the execution-feedback loop retrying and not recovering.
+The retry case. The agent staged a test, verified fix-passes/parent-fails at both endpoints, and spent a full G1-G5 call that failed **G4** (`no_gold_changed_line_executed` — the test reproduces the bug but does not execute any line the gold patch changed). It then read three more files, staged revision 2, re-ran both endpoints, and spent a **second** gate call that failed G4 again for the same reason. It staged a third revision and ran it at the fix before exhausting its 16-turn model cap. This is the execution-feedback loop retrying twice and still not recovering — the failure mode the Phase 4 report records as 0/5 G4 recoveries.
 
 ## Run identity
 

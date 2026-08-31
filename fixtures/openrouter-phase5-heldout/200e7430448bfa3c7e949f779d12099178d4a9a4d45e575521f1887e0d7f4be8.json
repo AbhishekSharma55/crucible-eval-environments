@@ -1,0 +1,472 @@
+{
+  "latency_s": 3.575,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: psf/black#5009\nRepository: psf/black\nBroken parent: 148efe4056f4a0b1531aa53206d8763f9deed6f0\nFixed commit: ce030cc0f0e383598db9b97e8060e48b92276f22\n\nLinked issues:\nIssue #4967:\n**Is this related to a problem? Please describe.**\n\n<!-- A clear and concise description of what the problem is.\ne.g. I'm always frustrated when [...] / I wished that [...] -->\n\nThere's no page detailing how to set up Black with Jupyter. There's parts of the docs that mention it, but there's nowhere that says \"hey, Black supports Jupyter notebooks natively, here's how to set up, configure, and use it\"\n\n**Describe the solution you'd like**\n\n<!-- A clear and concise description of what you want to\nhappen or see changed. -->\n\nA new page that has all that information. Most of the Jupyter information should be moved to that page instead of being scattered around or duplicated.\n\nie, right now the installation page says \"if you want to install Jupyter support, do this instead\". That section should be moved to a Jupyer page and removed from the installation page, because if someone wants to install Jupyter support they will also want to know how to use it and I don't think it would make sense to have it in both places\n\n**Describe alternatives you've considered**\n\n<!-- A clear and concise description of any\nalternative solutions or features you've considered. -->\n\n**Additional context**\n\n<!-- Add any other context or screenshots about the issue\nhere. -->\n\n\nPull request title:\ndocs: add dedicated Jupyter Notebooks guide\n\nPull request body:\n## Summary\r\n\r\nAdd a comprehensive guide for using Black with Jupyter Notebooks, consolidating information that was previously scattered across multiple documentation pages.\r\n\r\n## Changes\r\n\r\n- **New file**: `docs/guides/using_black_with_jupyter_notebooks.md` \u2014 a dedicated guide covering:\r\n  - Installation with the `jupyter` extra\r\n  - Basic usage and stdin formatting with `--ipynb`\r\n  - How Black handles notebook cells\r\n  - Cell magics and custom python cell magics (`--python-cell-magics`)\r\n  - Which cells Black skips and why\r\n  - Editor integration (VS Code, JupyterLab)\r\n  - Pre-commit hook configuration (`black-jupyter` hook)\r\n- **Updated**: `docs/guides/index.md` \u2014 added the new guide to the toctree and listing\r\n- **Updated**: `docs/getting_started.md` \u2014 added a cross-reference to the new guide\r\n\r\n## Motivation\r\n\r\nAs described in #4967, there is no single page explaining how to set up, configure, and use Black with Jupyter Notebooks. The Jupyter information is scattered across the installation page, the basics page, and the FAQ. This PR creates a centralized guide that users can find when looking for Jupyter-specific information.\r\n\r\nFixes #4967\r\nCloses #4971\r\nCloses #4985\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml\nindex ec66dc6b..3bc8336d 100644\n--- a/.pre-commit-config.yaml\n+++ b/.pre-commit-config.yaml\n@@ -8,7 +8,7 @@ repos:\n         name: Check pre-commit rev in example\n         language: python\n         entry: python -m scripts.check_pre_commit_rev_in_example\n-        files: '(CHANGES\\.md|source_version_control\\.md)$'\n+        files: '(CHANGES|source_version_control|using_black_with_jupyter_notebooks)\\.md$'\n         additional_dependencies:\n           - beautifulsoup4>=4.14.2\n           - commonmark>=0.9.1\n@@ -18,7 +18,7 @@ repos:\n         name: Check black version in the basics example\n         language: python\n         entry: python -m scripts.check_version_in_basics_example\n-        files: '(CHANGES\\.md|the_basics\\.md)$'\n+        files: '(CHANGES|the_basics)\\.md$'\n         additional_dependencies:\n           - beautifulsoup4>=4.14.2\n           - commonmark>=0.9.1\ndiff --git a/CHANGES.md b/CHANGES.md\nindex fe389392..3b91bcf1 100644\n--- a/CHANGES.md\n+++ b/CHANGES.md\n@@ -70,6 +70,7 @@\n - Expand preview style documentation with detailed examples for `wrap_comprehension_in`,\n   `simplify_power_operator_hugging`, and `wrap_long_dict_values_in_parens` features\n   (#4987)\n+- Add detailed documentation for formatting Jupyter Notebooks (#5009)\n \n ## 26.1.0\n \ndiff --git a/docs/faq.md b/docs/faq.md\nindex e418b015..cb89c154 100644\n--- a/docs/faq.md\n+++ b/docs/faq.md\n@@ -58,24 +58,14 @@ _Black_ is timid about formatting Jupyter Notebooks. Cells containing any of the\n following will not be formatted:\n \n - automagics (e.g. `pip install black`)\n-- non-Python cell magics (e.g. `%%writefile`). These can be added with the flag\n-  `--python-cell-magics`, e.g. `black --python-cell-magics writefile hello.ipynb`.\n-- multiline magics, e.g.:\n+- non-Python cell magics (e.g. `%%writefile`)\n+- multiline magics\n+- code which `IPython`'s `TransformerManager` would transform magics into\n+- invalid syntax\n \n-  ```python\n-  %timeit f(1, \\\n-          2, \\\n-          3)\n-  ```\n-\n-- code which `IPython`'s `TransformerManager` would transform magics into, e.g.:\n-\n-  ```python\n-  get_ipython().system('ls')\n-  ```\n-\n-- invalid syntax, as it can't be safely distinguished from automagics in the absence of\n-  a running `IPython` kernel.\n+See\n+[Using _Black_ with Jupyter Notebooks](guides/using_black_with_jupyter_notebooks.md#cells-that-black-will-skip)\n+for details.\n \n ## Why does Flake8 report warnings?\n \ndiff --git a/docs/getting_started.md b/docs/getting_started.md\nindex 27cbeed1..9fb3240f 100644\n--- a/docs/getting_started.md\n+++ b/docs/getting_started.md\n@@ -17,11 +17,14 @@ Also, you can try out _Black_ online for minimal fuss on the\n ## Installation\n \n _Black_ can be installed by running `pip install black`. It requires Python 3.10+ to\n-run. If you want to format Jupyter Notebooks, install with\n-`pip install \"black[jupyter]\"`.\n+run.\n \n If you use pipx, you can install Black with `pipx install black`.\n \n+If you want to format Jupyter Notebooks, install with `pip install \"black[jupyter]\"`.\n+See the [Jupyter Notebooks guide](./guides/using_black_with_jupyter_notebooks.md) for\n+more details.\n+\n If you can't wait for the latest _hotness_ and want to install from GitHub, use:\n \n `pip install git+https://github.com/psf/black`\ndiff --git a/docs/guides/index.md b/docs/guides/index.md\nindex 127279b5..83a3f361 100644\n--- a/docs/guides/index.md\n+++ b/docs/guides/index.md\n@@ -7,6 +7,7 @@ hidden:\n \n introducing_black_to_your_project\n using_black_with_other_tools\n+using_black_with_jupyter_notebooks\n ```\n \n Wondering how to do something specific? You've found the right place! Listed below are\n@@ -14,3 +15,4 @@ topic specific guides available:\n \n - {doc}`introducing_black_to_your_project`\n - {doc}`using_black_with_other_tools`\n+- {doc}`using_black_with_jupyter_notebooks`\ndiff --git a/docs/guides/using_black_with_jupyter_notebooks.md b/docs/guides/using_black_with_jupyter_notebooks.md\nnew file mode 100644\nindex 00000000..0a253c81\n--- /dev/null\n+++ b/docs/guides/using_black_with_jupyter_notebooks.md\n@@ -0,0 +1,134 @@\n+# Using _Black_ with Jupyter Notebooks\n+\n+_Black_ supports formatting Jupyter Notebooks (`.ipynb` files) natively.\n+\n+## Installation\n+\n+To format Jupyter Notebooks, install _Black_ with the `jupyter` extra:\n+\n+```sh\n+pip install \"black[jupyter]\"\n+```\n+\n+```{note}\n+Without the `jupyter` extra, _Black_ will not be able to format `.ipynb` files.\n+```\n+\n+## Basic usage\n+\n+Once installed, you can format notebooks the same way you format Python files:\n+\n+```sh\n+black notebook.ipynb\n+```\n+\n+You can also format entire directories containing a mix of `.py` and `.ipynb` files:\n+\n+```sh\n+black .\n+```\n+\n+_Black_ will automatically detect Jupyter Notebooks by their `.ipynb` extension and\n+format them accordingly.\n+\n+### Formatting via standard input\n+\n+If you're piping notebook content on standard input, use the `--ipynb` flag to tell\n+_Black_ to treat the input as a Jupyter Notebook:\n+\n+```sh\n+cat notebook.ipynb | black --ipynb -\n+```\n+\n+## What is (and isn't) formatted\n+\n+_Black_ formats the Python code cells in your notebook while preserving:\n+\n+- Markdown cells\n+- Cell outputs\n+- Cell metadata\n+- Notebook metadata\n+\n+Only the source code within Python code cells is reformatted.\n+\n+### Cells that _Black_ will skip\n+\n+_Black_ is cautious about formatting notebook cells. The following cells will **not** be\n+formatted:\n+\n+- **Automagics** \u2014 e.g. `pip install black` (without the `%` prefix)\n+- **Non-Python cell magics** \u2014 e.g.:\n+  ```python\n+  %%writefile script.py\n+  print(\"hello\")\n+  ```\n+- **Multiline magics** \u2014 e.g.:\n+  ```python\n+  %timeit f(1, \\\n+          2, \\\n+          3)\n+  ```\n+- **IPython internal calls** \u2014 code that `IPython`'s `TransformerManager` would\n+  transform, e.g.:\n+  ```python\n+  get_ipython().system('ls')\n+  ```\n+- **Invalid syntax** \u2014 as it cannot be safely distinguished from automagics without a\n+  running IPython kernel.\n+\n+If you notice a cell is not being formatted, it is likely because it contains one of the\n+above constructs.\n+\n+Additionally, _Black_ cannot format Jupyter Notebooks with the `--line-ranges` option.\n+\n+### Cell magics\n+\n+_Black_ understands IPython magics, but is conservative about which cells it will\n+format. By default, _Black_ recognizes standard IPython magics.\n+\n+#### Custom python cell magics\n+\n+If you use custom cell magics that contain Python code, you can tell _Black_ about them\n+using the `--python-cell-magics` flag:\n+\n+```sh\n+black --python-cell-magics writefile notebook.ipynb\n+```\n+\n+This also works in `pyproject.toml`:\n+\n+```toml\n+[tool.black]\n+python-cell-magics = [\"writefile\", \"my_custom_magic\"]\n+```\n+\n+## Integrations\n+\n+### pre-commit\n+\n+Simply replace the `black` hook with `black-jupyter`.\n+\n+```yaml\n+repos:\n+  - repo: https://github.com/psf/black-pre-commit-mirror\n+    rev: 26.1.0\n+    hooks:\n+      - id: black-jupyter\n+        language_version: python3.11\n+```\n+\n+See the [source version control integration](../integrations/source_version_control.md)\n+docs for more examples of using Black with pre-commit.\n+\n+### GitHub Actions\n+\n+Set the `jupyter` option to `true`.\n+\n+```yaml\n+- uses: psf/black@stable\n+  with:\n+    jupyter: true\n+```\n+\n+See the [GitHub Actions integration](../integrations/source_version_control.md) docs for\n+more examples of using Black with GitHub Actions.\ndiff --git a/docs/integrations/github_actions.md b/docs/integrations/github_actions.md\nindex a97e0297..763dc930 100644\n--- a/docs/integrations/github_actions.md\n+++ b/docs/integrations/github_actions.md\n@@ -32,59 +32,74 @@ We recommend the use of the `@stable` tag, but per version tags also exist if yo\n that. Note that the action's version you select is independent of the version of _Black_\n the action will use.\n \n-The version of _Black_ the action will use can be configured via `version` or read from\n-the `pyproject.toml` file. `version` can be any\n-[valid version specifier](https://packaging.python.org/en/latest/glossary/#term-Version-Specifier)\n-or just the version number if you want an exact version. To read the version from the\n-`pyproject.toml` file instead, set `use_pyproject` to `true`. This will first look into\n-the `tool.black.required-version` field, then the `dependency-groups` table, then the\n-`project.dependencies` array and finally the `project.optional-dependencies` table. The\n-action defaults to the latest release available on PyPI. Only versions available from\n-PyPI are supported, so no commit SHAs or branch names.\n+### Versions\n \n-If you want to include Jupyter Notebooks, _Black_ must be installed with the `jupyter`\n-extra. Installing the extra and including Jupyter Notebook files can be configured via\n-`jupyter` (default is `false`).\n+The version of _Black_ the action will use can be configured via `version` or read from\n+the `pyproject.toml` file. The action defaults to the latest release available on PyPI.\n \n-You can also configure the arguments passed to _Black_ via `options` (defaults to\n-`'--check --diff'`) and `src` (default is `'.'`). Please note that the\n-[`--check` flag](labels/exit-code) is required so that the workflow fails if _Black_\n-finds files that need to be formatted.\n+`version` can be any\n+[valid version specifier](https://packaging.python.org/en/latest/glossary/#term-Version-Specifier)\n+or just the version number if you want an exact version.\n \n-Here's an example configuration:\n+If you want to match versions covered by Black's\n+[stability policy](labels/stability-policy), you can use the compatible release operator\n+(`~=`):\n \n ```yaml\n - uses: psf/black@stable\n   with:\n     options: \"--check --verbose\"\n     src: \"./src\"\n-    jupyter: true\n-    version: \"21.5b1\"\n+    version: \"~= 22.0\"\n ```\n \n-If you want to match versions covered by Black's\n-[stability policy](labels/stability-policy), you can use the compatible release operator\n-(`~=`):\n+To read the version from the `pyproject.toml` file instead, set `use_pyproject` to\n+`true`. This will first look into the `tool.black.required-version` field, then the\n+`dependency-groups` table, then the `project.dependencies` array and finally the\n+`project.optional-dependencies` table. Note that this requires Python >= 3.11, so using\n+the setup-python action may be required, for example:\n \n ```yaml\n+- uses: actions/setup-python@v5\n+  with:\n+    python-version: \"3.13\"\n - uses: psf/black@stable\n   with:\n     options: \"--check --verbose\"\n     src: \"./src\"\n-    version: \"~= 22.0\"\n+    use_pyproject: true\n ```\n \n-If you want to read the version from `pyproject.toml`, set `use_pyproject` to `true`.\n-Note that this requires Python >= 3.11, so using the setup-python action may be\n-required, for example:\n+Only versions available from PyPI are supported, so no commit SHAs or branch names.\n+\n+### Jupyter Notebooks\n+\n+If you want to include Jupyter Notebooks, it can be enabled by setting `jupyter` to\n+`true` (default is `false`):\n \n ```yaml\n-- uses: actions/setup-python@v5\n+- uses: psf/black@stable\n   with:\n-    python-version: \"3.13\"\n+    jupyter: true\n+```\n+\n+See the [Jupyter Notebooks guide](../guides/using_black_with_jupyter_notebooks.md) for\n+more details.\n+\n+### CLI Options\n+\n+You can also configure the arguments passed to _Black_ via `options` (defaults to\n+`'--check --diff'`) and `src` (default is `'.'`). Please note that the\n+[`--check` flag](labels/exit-code) is required so that the workflow fails if _Black_\n+finds files that need to be formatted.\n+\n+Here's an example configuration:\n+\n+```yaml\n - uses: psf/black@stable\n   with:\n     options: \"--check --verbose\"\n     src: \"./src\"\n-    use_pyproject: true\n+    jupyter: true\n+    version: \"21.5b1\"\n ```\ndiff --git a/docs/integrations/source_version_control.md b/docs/integrations/source_version_control.md\nindex e3333fd9..a2d74bad 100644\n--- a/docs/integrations/source_version_control.md\n+++ b/docs/integrations/source_version_control.md\n@@ -33,15 +33,10 @@ include Jupyter Notebooks. To use this hook, simply replace the hook's `id: blac\n \n ```yaml\n repos:\n-  # Using this mirror lets us use mypyc-compiled black, which is about 2x faster\n   - repo: https://github.com/psf/black-pre-commit-mirror\n     rev: 26.1.0\n     hooks:\n       - id: black-jupyter\n-        # It is recommended to specify the latest version of Python\n-        # supported by your project here, or alternatively use\n-        # pre-commit's default_language_version, see\n-        # https://pre-commit.com/#top_level-default_language_version\n         language_version: python3.11\n ```\n \n@@ -49,6 +44,9 @@ repos:\n The `black-jupyter` hook became available in version 21.8b0.\n ```\n \n+See the [Jupyter Notebooks guide](../guides/using_black_with_jupyter_notebooks.md) for\n+more details.\n+\n ## Excluding files with pre-commit\n \n When using pre-commit, there's an important distinction in how file exclusions work.\ndiff --git a/docs/usage_and_configuration/the_basics.md b/docs/usage_and_configuration/the_basics.md\nindex 72de5d28..1513ae98 100644\n--- a/docs/usage_and_configuration/the_basics.md\n+++ b/docs/usage_and_configuration/the_basics.md\n@@ -123,7 +123,9 @@ useful when piping source on standard input.\n #### `--python-cell-magics`\n \n When processing Jupyter Notebooks, add the given magic to the list of known python-\n-magics. Useful for formatting cells with custom python magics.\n+magics. Useful for formatting cells with custom python magics. See the\n+[Jupyter Notebooks guide](../guides/using_black_with_jupyter_notebooks.md) for more\n+details.\n \n #### `-x, --skip-source-first-line`\n \n@@ -248,8 +250,8 @@ Each range must be specified as two integers connected by a `-`: `<START>-<END>`\n `<START>` and `<END>` integer indices are 1-based and inclusive on both ends.\n \n _Black_ may still format lines outside of the ranges for multi-line statements.\n-Formatting more than one file or any ipynb files with this option is not supported. This\n-option cannot be specified in the `pyproject.toml` config.\n+Formatting more than one file or any Jupyter Notebooks with this option is not\n+supported. This option cannot be specified in the `pyproject.toml` config.\n \n Example: `black --line-ranges=1-10 --line-ranges=21-30 test.py` will format lines from\n `1` to `10` and `21` to `30`.\ndiff --git a/scripts/check_pre_commit_rev_in_example.py b/scripts/check_pre_commit_rev_in_example.py\nindex f7778e6d..803ffbaa 100644\n--- a/scripts/check_pre_commit_rev_in_example.py\n+++ b/scripts/check_pre_commit_rev_in_example.py\n@@ -17,7 +17,7 @@ import yaml\n from bs4 import BeautifulSoup\n \n \n-def main(changes: str, source_version_control: str) -> None:\n+def main(changes: str, content: str, filename: str) -> None:\n     changes_html = commonmark.commonmark(changes)\n     changes_soup = BeautifulSoup(changes_html, \"html.parser\")\n     headers = changes_soup.find_all(\"h2\")\n@@ -25,20 +25,21 @@ def main(changes: str, source_version_control: str) -> None:\n         header.string for header in headers if header.string != \"Unreleased\"\n     )\n \n-    source_version_control_html = commonmark.commonmark(source_version_control)\n+    source_version_control_html = commonmark.commonmark(content)\n     source_version_control_soup = BeautifulSoup(\n         source_version_control_html, \"html.parser\"\n     )\n-    pre_commit_repos = yaml.safe_load(\n-        source_version_control_soup.find(class_=\"language-yaml\").string  # type: ignore[union-attr, arg-type]\n-    )[\"repos\"]\n+    codeblocks = source_version_control_soup.find_all(class_=\"language-yaml\")\n \n-    for repo in pre_commit_repos:\n-        pre_commit_rev = repo[\"rev\"]\n+    for codeblock in codeblocks:\n+        parsed = yaml.safe_load(codeblock.string)  # type: ignore[arg-type]\n+        if not isinstance(parsed, dict):\n+            return\n+        pre_commit_rev = parsed[\"repos\"][0][\"rev\"]\n         if not pre_commit_rev == latest_tag:\n             print(\n-                \"Please set the rev in ``source_version_control.md`` to be the latest \"\n-                f\"one.\\nExpected {latest_tag}, got {pre_commit_rev}.\\n\"\n+                f\"Please set the rev in ``{filename}`` to be the latest one.\\n\"\n+                f\"Expected {latest_tag}, got {pre_commit_rev}.\\n\"\n             )\n             sys.exit(1)\n \n@@ -50,5 +51,11 @@ if __name__ == \"__main__\":\n         os.path.join(\"docs\", \"integrations\", \"source_version_control.md\"),\n         encoding=\"utf-8\",\n     ) as fd:\n-        source_version_control = fd.read()\n-    main(changes, source_version_control)\n+        content = fd.read()\n+        main(changes, content, \"source_version_control.md\")\n+    with open(\n+        os.path.join(\"docs\", \"guides\", \"using_black_with_jupyter_notebooks.md\"),\n+        encoding=\"utf-8\",\n+    ) as fd:\n+        content = fd.read()\n+        main(changes, content, \"using_black_with_jupyter_notebooks.md\")\n\n\nChanged source paths:\n- scripts/check_pre_commit_rev_in_example.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      },
+      {
+        "content": "\n\nLet me start by understanding the repository structure and finding relevant tests.\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"module_or_path\": \"scripts/check_pre_commit_rev_in_example.py\"}",
+              "name": "list_tests"
+            },
+            "id": "call_73e9815e7a164c2c8e9c6b4b",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window from the closest test or search for a relevant fixture/API before staging a new file.\", \"allowed_new_test_layouts\": [\"tests/**\"], \"ok\": true, \"query\": \"scripts/check_pre_commit_rev_in_example.py\", \"ranked_test_files\": [{\"fixtures\": [], \"opening_excerpt\": \"   1 | # flags: --preview --line-length=79\\n   2 | \\n   3 | [a for graph_path_expression in refined_constraint.condition_as_predicate.variables]\\n   4 | [\\n   5 |     a\\n   6 |     for graph_path_expression in refined_constraint.condition_as_predicate.variables\\n   7 | ]\\n   8 | [\\n   9 |     a\\n  10 |     for graph_path_expression\\n  11 |     in refined_constraint.condition_as_predicate.variables\\n  12 | ]\\n  13 | [\\n  14 |     a\\n  15 |     for graph_path_expression in (\\n  16 |         refined_constraint.condition_as_predicate.variables\\n  17 |     )\\n  18 | ]\\n  19 | \\n  20 | [\\n  21 |     (foobar_very_long_key, foobar_very_long_value)\\n  22 |     for foobar_very_long_key, foobar_very_long_value in foobar_very_long_dictionary.items()\\n  23 | ]\\n  24 | \\n  25 | # Don't split the `in` if it's not too long\\n  26 | lcomp3 = [\\n  27 |     element.split(\\\"\\\\n\\\", 1)[0]\\n  28 |     for element in collection.select_elements()\\n  29 |     # right\\n  30 |     if element is not None\\n  31 | ]\\n  32 | \\n  33 | # Don't remove parens around ternaries\\n  34 | expected = [i for i in (a if b else c)]\\n  35 | \\n  36 | # Nested arrays\\n...[TRUNCATED; use read_file('tests/data/cases/preview_wrap_comprehension_in.py', start, end) for another window]...\", \"path\": \"tests/data/cases/preview_wrap_comprehension_in.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # Test cases from:\\n   2 | # - https://github.com/psf/black/issues/1798\\n   3 | # - https://github.com/psf/black/issues/1499\\n   4 | # - https://github.com/psf/black/issues/1211\\n   5 | # - https://github.com/psf/black/issues/563\\n   6 | \\n   7 | (\\n   8 |     lambda\\n   9 |     # a comment\\n  10 |     : None\\n  11 | )\\n  12 | \\n  13 | (\\n  14 |     lambda:\\n  15 |     # b comment\\n  16 |     None\\n  17 | )\\n  18 | \\n  19 | (\\n  20 |     lambda\\n  21 |     # a comment\\n  22 |     :\\n  23 |     # b comment\\n  24 |     None\\n  25 | )\\n  26 | \\n  27 | [\\n  28 |     x\\n  29 |     # Let's do this\\n  30 |     for\\n  31 |     # OK?\\n  32 |     x\\n  33 |     # Some comment\\n  34 |     # And another\\n  35 |     in\\n  36 |     # One more\\n...[TRUNCATED; use read_file('tests/data/cases/comments_in_blocks.py', start, end) for another window]...\", \"path\": \"tests/data/cases/comments_in_blocks.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | if (\\n   2 |     True\\n   3 |     # sdf\\n   4 | ):\\n   5 |     print(\\\"hw\\\")\\n   6 | \\n   7 | if ((\\n   8 |     True\\n   9 |     # sdf\\n  10 | )):\\n  11 |     print(\\\"hw\\\")\\n  12 | \\n  13 | if ((\\n  14 |     # type: ignore\\n  15 |     True\\n  16 | )):\\n  17 |     print(\\\"hw\\\")\\n  18 | \\n  19 | if ((\\n  20 |     True\\n  21 |     # type: ignore\\n  22 | )):\\n  23 |     print(\\\"hw\\\")\\n  24 | \\n  25 | if (\\n  26 |     # a long comment about\\n  27 |     # the condition below\\n  28 |     (a or b)\\n  29 | ):\\n  30 |     pass\\n  31 | \\n  32 | def return_true():\\n  33 |     return (\\n  34 |         (\\n  35 |             True  # this comment gets removed accidentally\\n  36 |         )\\n...[TRUNCATED; use read_file('tests/data/cases/comments_in_double_parens.py', start, end) for another window]...\", \"path\": \"tests/data/cases/comments_in_double_parens.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # Multiple fmt: skip in multi-part if-clause\\n   2 | class ClassWithALongName:\\n   3 |     Constant1 = 1\\n   4 |     Constant2 = 2\\n   5 |     Constant3 = 3\\n   6 | \\n   7 | \\n   8 | def test():\\n   9 |     if (\\n  10 |         \\\"cond1\\\" == \\\"cond1\\\"\\n  11 |         and \\\"cond2\\\" == \\\"cond2\\\"\\n  12 |         and 1 in (\\n  13 |             ClassWithALongName.Constant1,\\n  14 |             ClassWithALongName.Constant2,\\n  15 |             ClassWithALongName.Constant3, # fmt: skip\\n  16 |         ) # fmt: skip\\n  17 |     ):\\n  18 |         return True\\n  19 |     return False\\n  20 | \\n  21 | \\n  22 | # output\\n  23 | \\n  24 | \\n  25 | # Multiple fmt: skip in multi-part if-clause\\n  26 | class ClassWithALongName:\\n  27 |     Constant1 = 1\\n  28 |     Constant2 = 2\\n  29 |     Constant3 = 3\\n  30 | \\n  31 | \\n  32 | def test():\\n  33 |     if (\\n  34 |         \\\"cond1\\\" == \\\"cond1\\\"\\n  35 |         and \\\"cond2\\\" == \\\"cond2\\\"\\n  36 |         and 1 in (\\n...[TRUNCATED; use read_file('tests/data/cases/fmtskip_multiple_in_clause.py', start, end) for another window]...\", \"path\": \"tests/data/cases/fmtskip_multiple_in_clause.py\", \"test_names\": [\"test\", \"test\"]}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # flags: --minimum-version=3.11\\n   2 | # SEE PEP 758 FOR MORE DETAILS\\n   3 | # remains unchanged\\n   4 | try:\\n   5 |     pass\\n   6 | except:\\n   7 |     pass\\n   8 | \\n   9 | # remains unchanged\\n  10 | try:\\n  11 |     pass\\n  12 | except ValueError:\\n  13 |     pass\\n  14 | \\n  15 | try:\\n  16 |     pass\\n  17 | except* ValueError:\\n  18 |     pass\\n  19 | \\n  20 | # parenthesis are removed\\n  21 | try:\\n  22 |     pass\\n  23 | except (ValueError):\\n  24 |     pass\\n  25 | \\n  26 | try:\\n  27 |     pass\\n  28 | except* (ValueError):\\n  29 |     pass\\n  30 | \\n  31 | # parenthesis are removed\\n  32 | try:\\n  33 |     pass\\n  34 | except (ValueError) as e:\\n  35 |     pass\\n  36 | \\n...[TRUNCATED; use read_file('tests/data/cases/remove_except_types_parens_pre_py314.py', start, end) for another window]...\", \"path\": \"tests/data/cases/remove_except_types_parens_pre_py314.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | # flags: --minimum-version=3.10 --line-length=79\\n   2 | \\n   3 | match 1:\\n   4 |     case _ if (True):\\n   5 |         pass\\n   6 | \\n   7 | \\n   8 | match 1:\\n   9 |     case _ if (\\n  10 |         True\\n  11 |     ):\\n  12 |         pass\\n  13 | \\n  14 | \\n  15 | match 1:\\n  16 |     case _ if (\\n  17 |         # this is a comment\\n  18 |         True\\n  19 |     ):\\n  20 |         pass\\n  21 | \\n  22 | \\n  23 | match 1:\\n  24 |     case _ if (\\n  25 |         True\\n  26 |         # this is a comment\\n  27 |     ):\\n  28 |         pass\\n  29 | \\n  30 | \\n  31 | match 1:\\n  32 |     case _ if (\\n  33 |         True  # this is a comment\\n  34 |     ):\\n  35 |         pass\\n  36 | \\n...[TRUNCATED; use read_file('tests/data/cases/remove_redundant_parens_in_case_guard.py', start, end) for another window]...\", \"path\": \"tests/data/cases/remove_redundant_parens_in_case_guard.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | zero(one,).two(three,).four(five,)\\n   2 | \\n   3 | func1(arg1).func2(arg2,).func3(arg3).func4(arg4,).func5(arg5)\\n   4 | \\n   5 | # Inner one-element tuple shouldn't explode\\n   6 | func1(arg1).func2(arg1, (one_tuple,)).func3(arg3)\\n   7 | \\n   8 | (a, b, c, d,) = func1(arg1) and func2(arg2)\\n   9 | \\n  10 | \\n  11 | # Example from https://github.com/psf/black/issues/3229\\n  12 | def refresh_token(self, device_family, refresh_token, api_key):\\n  13 |     return self.orchestration.refresh_token(\\n  14 |         data={\\n  15 |             \\\"refreshToken\\\": refresh_token,\\n  16 |         },\\n  17 |         api_key=api_key,\\n  18 |     )[\\\"extensions\\\"][\\\"sdk\\\"][\\\"token\\\"]\\n  19 | \\n  20 | \\n  21 | # Edge case where a bug in a working-in-progress version of\\n  22 | # https://github.com/psf/black/pull/3370 causes an infinite recursion.\\n  23 | assert (\\n  24 |     long_module.long_class.long_func().another_func()\\n  25 |     == long_module.long_class.long_func()[\\\"some_key\\\"].another_func(arg1)\\n  26 | )\\n  27 | \\n  28 | # Regression test for https://github.com/psf/black/issues/3414.\\n  29 | assert xxxxxxxxx.xxxxxxxxx.xxxxxxxxx(\\n  30 |     xxxxxxxxx\\n  31 | ).xxxxxxxxxxxxxxxxxx(), (\\n  32 |     \\\"xxx {xxxxxxxxx} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"\\n  33 | )\\n  34 | \\n  35 | \\n  36 | # output\\n...[TRUNCATED; use read_file('tests/data/cases/trailing_commas_in_leading_parts.py', start, end) for another window]...\", \"path\": \"tests/data/cases/trailing_commas_in_leading_parts.py\", \"test_names\": []}, {\"fixtures\": [], \"opening_excerpt\": \"   1 | {\\n   2 |     \\\"is_update\\\": (up := commit.hash in update_hashes)\\n   3 | }\\n   4 | \\n   5 | # output\\n   6 | {\\\"is_update\\\": (up := commit.hash in update_hashes)}\", \"path\": \"tests/data/cases/walrus_in_dict.py\", \"test_names\": []}], \"total_test_python_files\": 257}",
+        "role": "tool",
+        "tool_call_id": "call_73e9815e7a164c2c8e9c6b4b"
+      },
+      {
+        "content": "The changed source path is `scripts/check_pre_commit_rev_in_example.py`. Let me look at the existing tests for this script and understand the test structure",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_pre_commit_rev\"}",
+              "name": "search"
+            },
+            "id": "call_bc3d45e984174e8eb7198050",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:10:        entry: python -m scripts.check_pre_commit_rev_in_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_pre_commit_rev\"}",
+        "role": "tool",
+        "tool_call_id": "call_bc3d45e984174e8eb7198050"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_pre_commit_rev_in_example\"}",
+              "name": "search"
+            },
+            "id": "call_b70c06389d6a47b88bb332c1",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:10:        entry: python -m scripts.check_pre_commit_rev_in_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_pre_commit_rev_in_example\"}",
+        "role": "tool",
+        "tool_call_id": "call_b70c06389d6a47b88bb332c1"
+      },
+      {
+        "content": "Let me look at the script itself and search for any existing tests:\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 65, \"path\": \"scripts/check_pre_commit_rev_in_example.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_c331af7147b545659bba9531",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_version_in_basics\"}",
+              "name": "search"
+            },
+            "id": "call_4ff95bc531c043f286ef41ca",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | \\\"\\\"\\\"\\n   2 | Check that the rev value in the example pre-commit configuration matches\\n   3 | the latest version of Black. This saves us from forgetting to update that\\n   4 | during the release process.\\n   5 | \\n   6 | Why can't we just use `rev: stable` and call it a day? Well pre-commit\\n   7 | won't auto update the hook as you may expect (and for good reasons, some\\n   8 | technical and some pragmatic). Encouraging bad practice is also just\\n   9 | not ideal. xref: https://github.com/psf/black/issues/420\\n  10 | \\\"\\\"\\\"\\n  11 | \\n  12 | import os\\n  13 | import sys\\n  14 | \\n  15 | import commonmark\\n  16 | import yaml\\n  17 | from bs4 import BeautifulSoup\\n  18 | \\n  19 | \\n  20 | def main(changes: str, source_version_control: str) -> None:\\n  21 |     changes_html = commonmark.commonmark(changes)\\n  22 |     changes_soup = BeautifulSoup(changes_html, \\\"html.parser\\\")\\n  23 |     headers = changes_soup.find_all(\\\"h2\\\")\\n  24 |     latest_tag, *_ = (\\n  25 |         header.string for header in headers if header.string != \\\"Unreleased\\\"\\n  26 |     )\\n  27 | \\n  28 |     source_version_control_html = commonmark.commonmark(source_version_control)\\n  29 |     source_version_control_soup = BeautifulSoup(\\n  30 |         source_version_control_html, \\\"html.parser\\\"\\n  31 |     )\\n  32 |     pre_commit_repos = yaml.safe_load(\\n  33 |         source_version_control_soup.find(class_=\\\"language-yaml\\\").string  # type: ignore[union-attr, arg-type]\\n  34 |     )[\\\"repos\\\"]\\n  35 | \\n  36 |     for repo in pre_commit_repos:\\n  37 |         pre_commit_rev = repo[\\\"rev\\\"]\\n  38 |         if not pre_commit_rev == latest_tag:\\n  39 |             print(\\n  40 |                 \\\"Please set the rev in ``source_version_control.md`` to be the latest \\\"\\n  41 |                 f\\\"one.\\\\nExpected {latest_tag}, got {pre_commit_rev}.\\\\n\\\"\\n  42 |             )\\n  43 |             sys.exit(1)\\n  44 | \\n  45 | \\n  46 | if __name__ == \\\"__main__\\\":\\n  47 |     with open(\\\"CHANGES.md\\\", encoding=\\\"utf-8\\\") as fd:\\n  48 |         changes = fd.read()\\n  49 |     with open(\\n  50 |         os.path.join(\\\"docs\\\", \\\"integrations\\\", \\\"source_version_control.md\\\"),\\n  51 |         encoding=\\\"utf-8\\\",\\n  52 |     ) as fd:\\n  53 |         source_version_control = fd.read()\\n  54 |     main(changes, source_version_control)\", \"end\": 54, \"ok\": true, \"path\": \"scripts/check_pre_commit_rev_in_example.py\", \"start\": 1, \"total_lines\": 54}",
+        "role": "tool",
+        "tool_call_id": "call_c331af7147b545659bba9531"
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:20:        entry: python -m scripts.check_version_in_basics_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_version_in_basics\"}",
+        "role": "tool",
+        "tool_call_id": "call_4ff95bc531c043f286ef41ca"
+      },
+      {
+        "content": "Now let me look at the fix version of the script to understand the change",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_pre_commit_rev_in_example\"}",
+              "name": "search"
+            },
+            "id": "call_b90e5360036d4b77bd7210de",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:10:        entry: python -m scripts.check_pre_commit_rev_in_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_pre_commit_rev_in_example\"}",
+        "role": "tool",
+        "tool_call_id": "call_b90e5360036d4b77bd7210de"
+      },
+      {
+        "content": "Let me look at the test directory structure to find existing tests for scripts",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"test.*check_pre_commit\"}",
+              "name": "search"
+            },
+            "id": "call_f13bf8bac83d4eb38cbe7290",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"No parent-side matches; try a less specific API or behavior term.\", \"match_count_returned\": 0, \"matches\": [], \"more_matches\": null, \"ok\": true, \"pattern\": \"test.*check_pre_commit\"}",
+        "role": "tool",
+        "tool_call_id": "call_f13bf8bac83d4eb38cbe7290"
+      },
+      {
+        "content": "\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_version_in_basics_example\"}",
+              "name": "search"
+            },
+            "id": "call_a98ce1fef467412685fcc186",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:20:        entry: python -m scripts.check_version_in_basics_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_version_in_basics_example\"}",
+        "role": "tool",
+        "tool_call_id": "call_a98ce1fef467412685fcc186"
+      },
+      {
+        "content": "Let me look at the test directory structure\n\n",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"def test.*check\"}",
+              "name": "search"
+            },
+            "id": "call_44e8775b78824340b4100839",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 4, \"matches\": [\"tests/test_black.py:1079:    def test_check_diff_use_together(self) -> None:\", \"tests/test_black.py:1488:    def test_spellcheck_pyproject_toml(self) -> None:\", \"tests/test_black.py:1840:    def test_code_option_check(self) -> None:\", \"tests/test_black.py:1846:    def test_code_option_check_changed(self) -> None:\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"def test.*check\"}",
+        "role": "tool",
+        "tool_call_id": "call_44e8775b78824340b4100839"
+      },
+      {
+        "content": "Let me look at the test file structure to understand how tests are organized",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 50, \"path\": \"tests/test_black.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_d7b4e7f1f4d5465ab6f7bc76",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | #!/usr/bin/env python3\\n   2 | \\n   3 | import asyncio\\n   4 | import inspect\\n   5 | import io\\n   6 | import itertools\\n   7 | import logging\\n   8 | import multiprocessing\\n   9 | import os\\n  10 | import re\\n  11 | import sys\\n  12 | import textwrap\\n  13 | import types\\n  14 | from collections.abc import Callable, Iterator, Sequence\\n  15 | from concurrent.futures import ThreadPoolExecutor\\n  16 | from contextlib import contextmanager, redirect_stderr\\n  17 | from dataclasses import fields, replace\\n  18 | from importlib.metadata import version as imp_version\\n  19 | from io import BytesIO\\n  20 | from pathlib import Path, WindowsPath\\n  21 | from platform import system\\n  22 | from tempfile import NamedTemporaryFile, TemporaryDirectory\\n  23 | from typing import Any, TypeVar\\n  24 | from unittest.mock import MagicMock, patch\\n  25 | \\n  26 | import click\\n  27 | import pytest\\n  28 | from click import unstyle\\n  29 | from click.testing import CliRunner\\n  30 | from packaging.version import Version\\n  31 | from pathspec import GitIgnoreSpec\\n  32 | \\n  33 | import black\\n  34 | import black.files\\n  35 | from black import Feature, TargetVersion\\n  36 | from black import re_compile_maybe_verbose as compile_pattern\\n  37 | from black.cache import FileData, get_cache_dir, get_cache_file\\n  38 | from black.debug import DebugVisitor\\n  39 | from black.mode import Mode, Preview\\n  40 | from black.output import color_diff, diff\\n  41 | from black.parsing import ASTSafetyError\\n  42 | from black.report import Report\\n  43 | from black.strings import lines_with_leading_tabs_expanded\\n  44 | \\n  45 | # Import other test classes\\n  46 | from tests.util import (\\n  47 |     DATA_DIR,\\n  48 |     DEFAULT_MODE,\\n  49 |     DETERMINISTIC_HEADER,\\n  50 |     PROJECT_ROOT,\\n...[WINDOWED READ; 3204 later lines omitted]...\", \"end\": 50, \"ok\": true, \"path\": \"tests/test_black.py\", \"start\": 1, \"total_lines\": 3254}",
+        "role": "tool",
+        "tool_call_id": "call_d7b4e7f1f4d5465ab6f7bc76"
+      },
+      {
+        "content": "Let me look at the fix version of the script to understand the change better",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 65, \"path\": \"scripts/check_pre_commit_rev_in_example.py\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_caaa244bbc794868a83c9668",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | \\\"\\\"\\\"\\n   2 | Check that the rev value in the example pre-commit configuration matches\\n   3 | the latest version of Black. This saves us from forgetting to update that\\n   4 | during the release process.\\n   5 | \\n   6 | Why can't we just use `rev: stable` and call it a day? Well pre-commit\\n   7 | won't auto update the hook as you may expect (and for good reasons, some\\n   8 | technical and some pragmatic). Encouraging bad practice is also just\\n   9 | not ideal. xref: https://github.com/psf/black/issues/420\\n  10 | \\\"\\\"\\\"\\n  11 | \\n  12 | import os\\n  13 | import sys\\n  14 | \\n  15 | import commonmark\\n  16 | import yaml\\n  17 | from bs4 import BeautifulSoup\\n  18 | \\n  19 | \\n  20 | def main(changes: str, source_version_control: str) -> None:\\n  21 |     changes_html = commonmark.commonmark(changes)\\n  22 |     changes_soup = BeautifulSoup(changes_html, \\\"html.parser\\\")\\n  23 |     headers = changes_soup.find_all(\\\"h2\\\")\\n  24 |     latest_tag, *_ = (\\n  25 |         header.string for header in headers if header.string != \\\"Unreleased\\\"\\n  26 |     )\\n  27 | \\n  28 |     source_version_control_html = commonmark.commonmark(source_version_control)\\n  29 |     source_version_control_soup = BeautifulSoup(\\n  30 |         source_version_control_html, \\\"html.parser\\\"\\n  31 |     )\\n  32 |     pre_commit_repos = yaml.safe_load(\\n  33 |         source_version_control_soup.find(class_=\\\"language-yaml\\\").string  # type: ignore[union-attr, arg-type]\\n  34 |     )[\\\"repos\\\"]\\n  35 | \\n  36 |     for repo in pre_commit_repos:\\n  37 |         pre_commit_rev = repo[\\\"rev\\\"]\\n  38 |         if not pre_commit_rev == latest_tag:\\n  39 |             print(\\n  40 |                 \\\"Please set the rev in ``source_version_control.md`` to be the latest \\\"\\n  41 |                 f\\\"one.\\\\nExpected {latest_tag}, got {pre_commit_rev}.\\\\n\\\"\\n  42 |             )\\n  43 |             sys.exit(1)\\n  44 | \\n  45 | \\n  46 | if __name__ == \\\"__main__\\\":\\n  47 |     with open(\\\"CHANGES.md\\\", encoding=\\\"utf-8\\\") as fd:\\n  48 |         changes = fd.read()\\n  49 |     with open(\\n  50 |         os.path.join(\\\"docs\\\", \\\"integrations\\\", \\\"source_version_control.md\\\"),\\n  51 |         encoding=\\\"utf-8\\\",\\n  52 |     ) as fd:\\n  53 |         source_version_control = fd.read()\\n  54 |     main(changes, source_version_control)\", \"end\": 54, \"ok\": true, \"path\": \"scripts/check_pre_commit_rev_in_example.py\", \"start\": 1, \"total_lines\": 54}",
+        "role": "tool",
+        "tool_call_id": "call_caaa244bbc794868a83c9668"
+      },
+      {
+        "content": "Now I understand the change. The fix modifies `main()` to accept a `content` and `filename` parameter instead of just `source_version_control`, and it now iterates over all YAML code blocks (not just the first one). It also now processes both `source_version_control.md` and the new `using_black_with_jupyter_notebooks.md` file.\n\nThe key behavioral change is:\n1. **Parent**: `main(changes, source_version_control)` - takes a single markdown string, finds the first YAML code block, parses it, and checks the rev.\n2. **Fix**: `main(changes, content, filename)` - takes content and a filename, iterates over ALL YAML code blocks, and for each one that parses as a dict with repos, checks the rev.\n\nThe bug is that the parent version only checks the first YAML code block in `source_version_control.md`. The new `using_black_with_jupyter_notebooks.md` file also contains a pre-commit YAML example that needs to be checked. But more importantly, the parent version would fail if there are multiple YAML code blocks in a file (it only finds the first one).\n\nLet me look at the actual files to understand what YAML blocks",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"end\": 60, \"path\": \"docs/integrations/source_version_control.md\", \"start\": 1}",
+              "name": "read_file"
+            },
+            "id": "call_af84c285fdc8472ca1e4bf2c",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"content\": \"   1 | # Version control integration\\n   2 | \\n   3 | Use [pre-commit](https://pre-commit.com/). Once you\\n   4 | [have it installed](https://pre-commit.com/#install), add this to the\\n   5 | `.pre-commit-config.yaml` in your repository:\\n   6 | \\n   7 | ```yaml\\n   8 | repos:\\n   9 |   # Using this mirror lets us use mypyc-compiled black, which is about 2x faster\\n  10 |   - repo: https://github.com/psf/black-pre-commit-mirror\\n  11 |     rev: 26.1.0\\n  12 |     hooks:\\n  13 |       - id: black\\n  14 |         # It is recommended to specify the latest version of Python\\n  15 |         # supported by your project here, or alternatively use\\n  16 |         # pre-commit's default_language_version, see\\n  17 |         # https://pre-commit.com/#top_level-default_language_version\\n  18 |         language_version: python3.11\\n  19 | ```\\n  20 | \\n  21 | Feel free to switch out the `rev` value to a different version of Black.\\n  22 | \\n  23 | Note if you'd like to use a specific commit in `rev`, you'll need to swap the repo\\n  24 | specified from the mirror to https://github.com/psf/black. We discourage the use of\\n  25 | branches or other mutable refs since the hook [won't auto update as you may\\n  26 | expect][pre-commit-mutable-rev].\\n  27 | \\n  28 | ## Jupyter Notebooks\\n  29 | \\n  30 | There is an alternate hook `black-jupyter` that expands the targets of `black` to\\n  31 | include Jupyter Notebooks. To use this hook, simply replace the hook's `id: black` with\\n  32 | `id: black-jupyter` in the `.pre-commit-config.yaml`:\\n  33 | \\n  34 | ```yaml\\n  35 | repos:\\n  36 |   # Using this mirror lets us use mypyc-compiled black, which is about 2x faster\\n  37 |   - repo: https://github.com/psf/black-pre-commit-mirror\\n  38 |     rev: 26.1.0\\n  39 |     hooks:\\n  40 |       - id: black-jupyter\\n  41 |         # It is recommended to specify the latest version of Python\\n  42 |         # supported by your project here, or alternatively use\\n  43 |         # pre-commit's default_language_version, see\\n  44 |         # https://pre-commit.com/#top_level-default_language_version\\n  45 |         language_version: python3.11\\n  46 | ```\\n  47 | \\n  48 | ```{note}\\n  49 | The `black-jupyter` hook became available in version 21.8b0.\\n  50 | ```\\n  51 | \\n  52 | ## Excluding files with pre-commit\\n  53 | \\n  54 | When using pre-commit, there's an important distinction in how file exclusions work.\\n  55 | Pre-commit passes files directly to Black via the command line, rather than letting\\n  56 | Black discover files recursively. This means Black's `--exclude` option won't work as\\n  57 | expected because it only applies to files discovered during recursive directory\\n  58 | traversal.\\n  59 | \\n  60 | To exclude files when using pre-commit, you have two options:\\n...[WINDOWED READ; 44 later lines omitted]...\", \"end\": 60, \"ok\": true, \"path\": \"docs/integrations/source_version_control.md\", \"start\": 1, \"total_lines\": 104}",
+        "role": "tool",
+        "tool_call_id": "call_af84c285fdc8472ca1e4bf2c"
+      },
+      {
+        "content": "Now I see the issue clearly. The `source_version_control.md` file has **two** YAML code blocks (lines 7-19 and lines 34-46). The parent version of `main()` only finds the first one via `find(class_=\"language-yaml\")` (which returns the first match). The fix iterates over all YAML code blocks.\n\nLet me also look at the `check_version_in_basics_example.py` to understand the pattern better",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"pattern\": \"check_version_in_basics_example\"}",
+              "name": "search"
+            },
+            "id": "call_c65477888b534d9dade761d4",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "{\"action\": \"Read a focused window around a relevant match.\", \"match_count_returned\": 1, \"matches\": [\".pre-commit-config.yaml:20:        entry: python -m scripts.check_version_in_basics_example\"], \"more_matches\": null, \"ok\": true, \"pattern\": \"check_version_in_basics_example\"}",
+        "role": "tool",
+        "tool_call_id": "call_c65477888b534d9dade761d4"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 708041476,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "200e7430448bfa3c7e949f779d12099178d4a9a4d45e575521f1887e0d7f4be8",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "\n\n",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"end\": 60, \"path\": \"scripts/check_version_in_basics_example.py\", \"start\": 1}",
+                "name": "read_file"
+              },
+              "id": "call_494ddf7130434e7c85cac620",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788177538,
+    "id": "gen-1788177538-ZFFD9Y8ZxGywhUeJWqFG",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 86,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.0003022705084,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.5240232e-05,
+        "upstream_inference_cost": 0.0003022705084,
+        "upstream_inference_prompt_cost": 0.0002870302764
+      },
+      "is_byok": false,
+      "prompt_tokens": 14913,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 14592,
+        "video_tokens": 0
+      },
+      "total_tokens": 14999
+    }
+  },
+  "schema_version": 1
+}

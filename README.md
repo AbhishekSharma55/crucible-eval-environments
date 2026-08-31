@@ -50,10 +50,33 @@ Tracking every one of B2's 58 failures through the agent: **11 recovered, 7 of
 B2's passes lost, net +4.** The recoveries are concentrated exactly where the
 design predicted — 5 of 24 broken tests and 4 of 9 misplaced ones.
 
-Held-out repositories (`psf/black`, `PyCQA/flake8`), closed since Phase 1 and
-opened once: B0 0/16, B1 **0/16**, B2 3/16 (18.75%), agent *pending*. B1 collapsing
-from 16.25% to zero is the sharpest signal in the project that the development
-repositories were the easier ones.
+### Held-out
+
+`psf/black` and `PyCQA/flake8` were separated in the first hour and opened once,
+at the end. All four arms, one pass, unchanged agent, zero selective reruns.
+
+| | Development | Held-out | Drop |
+|---|---:|---:|---:|
+| B0 | 0/80 (0.00%) | 0/16 (0.00%) | 0.00 pp |
+| B1 | 13/80 (16.25%) | **0/16 (0.00%)** | 16.25 pp |
+| B2 | 22/80 (27.50%) | 3/16 (18.75%) | 8.75 pp |
+| **Crucible agent** | 26/80 (32.50%) | **5/16 (31.25%)** | **1.25 pp** |
+
+**The agent degrades least, and its lead over B2 is larger on held-out (+12.5 pp)
+than on development (+5.0 pp).** It does not show the overfitting signature.
+
+That is the reward-hacking check, and it is worth being precise about what it
+does and does not show. At n=16 the differences are not statistically
+established: treating each arm's development rate as the null, P(X ≤ observed) is
+0.059 for B1, 0.320 for B2 and 0.576 for the agent. So this run does **not**
+demonstrate a dev/held-out gap for any arm. What it demonstrates is the *absence
+of a large one* for the agent — which is the claim worth making, and the weaker
+of the two.
+
+Separately: **zero of the accepted held-out tests carried a gaming flag.** Six
+intermediate revisions were flagged and all six were read by hand — two were
+genuine evasion attempts, four false positives, and every one was abandoned by
+the agent before validation, in cases that went on to fail.
 
 Full breakdown in [`research/phase-4-report.md`](research/phase-4-report.md) and
 [`research/phase-5-report.md`](research/phase-5-report.md).
@@ -130,9 +153,11 @@ batch-invariant. What is promised instead:
 3. Bounded live variance — k rollouts with intervals for the `--live` path.
 4. Full trajectories for every claim.
 
-Total API spend to produce every number in this repository: **$0.4156** through
-Phase 3. Exact figures are API-reported, not estimated. Full setup and commands
-in [`REPRODUCE.md`](REPRODUCE.md).
+Total API spend to produce every number in this repository: **$1.8080**, across
+3,688 unique requests and 43.4M tokens. Figures are API-reported rather than
+estimated, and deduplicated — 80 request hashes are shared between the Phase 4
+agent run and the Phase 5 re-run, so they are charged once. Full accounting and
+commands in [`REPRODUCE.md`](REPRODUCE.md).
 
 ## How this differs from SWE-bench
 

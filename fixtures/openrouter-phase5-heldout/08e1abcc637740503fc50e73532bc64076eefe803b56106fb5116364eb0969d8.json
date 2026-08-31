@@ -1,0 +1,227 @@
+{
+  "latency_s": 3.026,
+  "request": {
+    "max_tokens": 2200,
+    "messages": [
+      {
+        "content": "You are a single test-authoring agent. Your only goal is to write one genuine\npytest regression test for the supplied bug-fix commit. The test must fail at\nthe broken parent, pass at the fix, exercise behavior changed by the fix, and\navoid collateral changes.\n\nWork empirically. First inspect nearby tests, fixtures, and parent-side source.\nStage a test, run it at the fix, and use the actual failure output to repair it.\nThen run it at the parent. If it passes there, tighten the assertion so it\nreproduces the reported bug. Use `check_gates` only when the staged test is a\nplausible regression test; at most five gate checks are available. A passing\ngate check ends the case automatically.\n\nUse only the provided tools. `write_test` can stage one new test file; it cannot\nedit repository source or existing tests. Reads and searches always inspect the\nbroken parent checkout. Read small windows instead of trying to reconstruct\nwhole files. Prefer existing public APIs and repository fixtures over mocks of\nimplementation details.\n\nDo not game the transition. In particular, do not inspect source files, git\nhistory, package versions, commit identifiers, environment markers, or the\npresence of new symbols at test runtime. Do not use unconditional failures,\nintentional import/collection errors, skips, xfails, timing races, or assertions\nwhose only purpose is to distinguish the two checkouts. The parent failure must\ndemonstrate the issue's externally observable behavior, and the fix pass must\ndemonstrate its correction. APIs used by the test must already exist at the\nparent unless the issue is explicitly about a newly supported input to an\nexisting API.\n\nTool errors are written to help you recover. Follow their suggested next action.\nLong tool output ends with an explicit truncation marker; narrow the query or\nread another window rather than assuming omitted text is absent.\n\nWhen you have a credible staged test, call `check_gates`. Do not merely describe\na test in prose. If you cannot produce a credible test within the limits, state\nthe blocker briefly and stop; never fabricate a passing result.",
+        "role": "system"
+      },
+      {
+        "content": "Author a missing regression test for this case.\n\nCase: psf/black#4610\nRepository: psf/black\nBroken parent: e97cf5bdbc87df9d978c3c1944dafa76f23ef567\nFixed commit: 27a3085e4711d0438a0b655a05748ecb6529f515\n\nLinked issues:\nIssue #4609:\nWhen working in a project where some paths are not blacked yet, you may configure file discovery and run something like:\n\n`black .`\n\nOnce you have this, you may need to integrate black in your editor, and some plugins end up piping from stdin:\n\n`stdin | black - --stdin-filename \"$FILEPATH\"`\n\nThe problem is the integration will fail when trying to format a file being excluded by force-exclude directive.\n\nYou can check other tools like ruff output unformatted stdin in this case:\n\nhttps://github.com/astral-sh/ruff/pull/8596\n\nSo they can have editor integrations such as:\n\nhttps://github.com/JoshHayes/emacs-ruff-format/blob/main/ruff-format.el#L43\n\nWhere they just pipe the content of the buffer to their cli\n\n\nPull request title:\nWrite unchanged content to stdout when excluding formating from stdin\n\nPull request body:\n<!-- Hello! Thanks for submitting a PR. To help make things go a bit more\r\n     smoothly we would appreciate that you go through this template. -->\r\n\r\n### Description\r\n\r\n<!-- Good things to put here include: reasoning for the change (please link\r\n     any relevant issues!), any noteworthy (or hacky) choices to be aware of,\r\n     or what the problem resolved here looked like ... we won't mind a ranty\r\n     story :) -->\r\n\r\nThis change tries to fix https://github.com/psf/black/issues/4609, so you can use black piping stdin and expect the new content in the output, formatted or not. This is the way other formatters such as ruff or clang-format works too.\r\n\r\nI'm not really sure if this is the best place to output the content, feel free to modify or make any suggestion.\r\n\r\n### Checklist - did you ...\r\n\r\n<!-- If any of the following items aren't relevant for your contribution\r\n     please still tick them so we know you've gone through the checklist.\r\n\r\n    All user-facing changes should get an entry. Otherwise, signal to us\r\n    this should get the magical label to silence the CHANGELOG entry check.\r\n    Tests are required for bugfixes and new features. Documentation changes\r\n    are necessary for formatting and most enhancement changes. -->\r\n\r\n- [ ] Add an entry in `CHANGES.md` if necessary?\r\n- [ ] Add / update tests if necessary?\r\n- [ ] Add new / update outdated documentation?\r\n\r\n<!-- Just as a reminder, everyone in all psf/black spaces including PRs\r\n     must follow the PSF Code of Conduct (link below).\r\n\r\n     Finally, once again thanks for your time and effort. If you have any\r\n     feedback in regards to your experience contributing here, please\r\n     let us know!\r\n\r\n     Helpful links:\r\n\r\n      PSF COC: https://www.python.org/psf/conduct/\r\n      Contributing docs: https://black.readthedocs.io/en/latest/contributing/index.html\r\n      Chat on Python Discord: https://discord.gg/RtVdv86PrH -->\r\n\n\nGold source patch (the behavior change to exercise; do not copy new identifiers\ninto a parent-side missing-symbol test):\ndiff --git a/CHANGES.md b/CHANGES.md\nindex 262d42e3..cb71e3f4 100644\n--- a/CHANGES.md\n+++ b/CHANGES.md\n@@ -45,6 +45,9 @@\n \n <!-- Changes to Black's terminal output and error messages -->\n \n+- Write unchanged content to stdout when excluding formating from stdin using pipes\n+  (#4610)\n+\n ### _Blackd_\n \n <!-- Changes to blackd -->\ndiff --git a/src/black/__init__.py b/src/black/__init__.py\nindex 79541df2..c88aa4ef 100644\n--- a/src/black/__init__.py\n+++ b/src/black/__init__.py\n@@ -11,7 +11,6 @@ from collections.abc import (\n     Iterator,\n     MutableMapping,\n     Sequence,\n-    Sized,\n )\n from contextlib import contextmanager\n from dataclasses import replace\n@@ -681,13 +680,12 @@ def main(  # noqa: C901\n         except GitWildMatchPatternError:\n             ctx.exit(1)\n \n-        path_empty(\n-            sources,\n-            \"No Python files are present to be formatted. Nothing to do \ud83d\ude34\",\n-            quiet,\n-            verbose,\n-            ctx,\n-        )\n+        if not sources:\n+            if verbose or not quiet:\n+                out(\"No Python files are present to be formatted. Nothing to do \ud83d\ude34\")\n+            if \"-\" in src:\n+                sys.stdout.write(sys.stdin.read())\n+            ctx.exit(0)\n \n         if len(sources) == 1:\n             reformat_one(\n@@ -820,18 +818,6 @@ def get_sources(\n     return sources\n \n \n-def path_empty(\n-    src: Sized, msg: str, quiet: bool, verbose: bool, ctx: click.Context\n-) -> None:\n-    \"\"\"\n-    Exit if there is no `src` provided for formatting\n-    \"\"\"\n-    if not src:\n-        if verbose or not quiet:\n-            out(msg)\n-        ctx.exit(0)\n-\n-\n def reformat_code(\n     content: str,\n     fast: bool,\n\n\nChanged source paths:\n- src/black/__init__.py\n\nBegin by calling `list_tests` for the most relevant module or path. Inspect\nparent-side conventions and fixtures before staging the test.",
+        "role": "user"
+      }
+    ],
+    "model": "deepseek/deepseek-v4-flash",
+    "parallel_tool_calls": false,
+    "reasoning": {
+      "enabled": false
+    },
+    "seed": 1795947031,
+    "temperature": 0.2,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "function": {
+          "description": "Find parent-checkout tests and fixtures relevant to a module or repository path. Returns allowed test layouts, ranked test files, test names, and short convention excerpts. Start here before authoring.",
+          "name": "list_tests",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "module_or_path": {
+                "description": "A changed module, dotted module name, source path, or behavior term, for example src/flask/app.py or flask.app.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_or_path"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Read a numbered window from one parent-checkout file. The inclusive window is capped at 160 lines; request another window when output is explicitly truncated.",
+          "name": "read_file",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "description": "Last one-based line to return, inclusive.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "description": "Repository-relative path at the broken parent.",
+                "type": "string"
+              },
+              "start": {
+                "description": "First one-based line to return.",
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Search tracked text in the parent checkout with a regular expression. Returns bounded path:line matches. Narrow the pattern if output is truncated.",
+          "name": "search",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "description": "A non-empty extended regular expression, preferably a symbol, fixture, error phrase, or API name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Stage exactly one new pytest file. Replaces the previously staged candidate. Rejects unsafe paths, paths outside this repository's configured test layout, and existing files; it cannot edit source or existing tests.",
+          "name": "write_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "Complete pytest source for the new file.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repository-relative path for one new test file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the currently staged test once in a fresh isolated checkout at parent or fix. Returns exit code, per-test status, and actionable bounded failure output. Run fix first, repair failures, then confirm parent fails for the intended assertion.",
+          "name": "run_test",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "endpoint": {
+                "description": "Checkout to test.",
+                "enum": [
+                  "parent",
+                  "fix"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run the complete G1-G5 verifier on the staged test and return structured per-gate evidence plus a suggested repair. This is expensive validation signal and is hard-capped at five calls per case.",
+          "name": "check_gates",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "request_hash": "08e1abcc637740503fc50e73532bc64076eefe803b56106fb5116364eb0969d8",
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "content": "\n\nI'll start by exploring the repository structure and existing tests to understand the",
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"module_or_path\": \"src/black/__init__.py\"}",
+                "name": "list_tests"
+              },
+              "id": "call_b68d37a1fb76441082d93729",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"module_or_path\": \"black\"}",
+                "name": "list_tests"
+              },
+              "id": "call_d7f9e87b70a6403390391fa3",
+              "index": 1,
+              "type": "function"
+            }
+          ]
+        },
+        "native_finish_reason": "tool_calls"
+      }
+    ],
+    "created": 1788177180,
+    "id": "gen-1788177180-x6XSm92O9POtjdvGDPMq",
+    "model": "deepseek/deepseek-v4-flash",
+    "object": "chat.completion",
+    "provider": "StreamLake",
+    "service_tier": null,
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 103,
+      "completion_tokens_details": {
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 0
+      },
+      "cost": 0.000257223218,
+      "cost_details": {
+        "upstream_inference_completions_cost": 1.8252836e-05,
+        "upstream_inference_cost": 0.000257223218,
+        "upstream_inference_prompt_cost": 0.000238970382
+      },
+      "is_byok": false,
+      "prompt_tokens": 2697,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 2800
+    }
+  },
+  "schema_version": 1
+}

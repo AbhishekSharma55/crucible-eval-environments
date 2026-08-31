@@ -2,7 +2,7 @@
 
 **Role in this export:** clean success
 
-A straightforward pass: the agent located the behavior, staged one test, ran it at both endpoints, and passed all five gates on its first and only full validation call.
+A straightforward pass with no revision and no wasted gate call. The agent read the diff region, searched for the existing test conventions, staged one test, confirmed it passes at the fix and fails at the parent with the expected AttributeError, and spent its single full G1-G5 validation to pass all five gates.
 
 ## Run identity
 

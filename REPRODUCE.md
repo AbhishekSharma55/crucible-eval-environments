@@ -61,8 +61,16 @@ are excluded and noted in the phase reports.
 | 1 and 1b — corpus and baseline | $0 (no model calls) |
 | 2 — the removed experiment | $0.0862 |
 | 3 — verifier and baselines | $0.3294 |
-| 4 — agent, including the clean re-run | $0.8026 |
-| **Total** | **$1.2182** + the held-out run |
+| 4 — agent, first run | $0.8026 |
+| 5 — clean 80-case re-run, new requests only | $0.4080 |
+| 5 — held-out evaluation, all four arms | $0.1818 |
+| **Total** | **$1.8080** |
+
+The total is deduplicated. Model calls are hash-addressed, and 80 request hashes are shared
+between the Phase 4 agent run and the Phase 5 clean re-run — the identical opening call of each
+development case — so they are charged once, to Phase 4. Summing the three fixture directories
+without deduplication gives $1.8298. Full accounting is in
+[`research/phase-5-report.md`](research/phase-5-report.md).
 
 Wall clock for the expensive steps: the full dev validation over 3,073 candidates
 took 53 minutes on 3 workers; the Phase 4 agent arm took roughly 2¼ hours.

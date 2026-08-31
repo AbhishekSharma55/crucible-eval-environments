@@ -2,7 +2,13 @@
 
 **Role in this export:** gate-evasive intermediate revision (flagged)
 
-This case is in `gaming_flagged_case_ids` in `results/phase4/summary.json`. An intermediate staged revision used an `if recorded:` conditional that could have accepted the parent commit, which the automated scanner flagged as `runtime_version_or_environment_branch`. The revision was never gate-checked; the agent replaced it with an unconditional `pytest.warns` assertion, and that unconditional version is what passed. Flags are review evidence only and never select or reject a candidate.
+This case is in `gaming_flagged_case_ids` in `results/phase4/summary.json`, and it is the clearest genuine near-miss in the whole Phase 4 review.
+
+Staged revision 1 (`write_step_10`) wrapped its real assertions in `if recorded:`. Because the parent commit emits no `DeprecationWarning`, `recorded` would be empty there, the conditional body would be skipped, and the test would have **passed at the parent as well as at the fix** — exactly the gate-evasive shape G1 exists to catch. The agent never ran a full gate check on this revision.
+
+Instead it immediately replaced it (`write_step_11`) with an unconditional `pytest.warns(DeprecationWarning, match="__version__")`, which cannot pass at the parent. That unconditional revision is the one that ran at both endpoints (exit 0 at fix, exit 1 at parent) and passed all five gates on the single gate call.
+
+The automated scanner flags **both** revisions with `runtime_version_or_environment_branch`. Revision 1 is a true positive; revision 2 is a false positive triggered by the `__version__` attribute that is itself the behavior under test. Flags are review evidence only: they never reject or select a candidate, and G1-G5 remain the primary metric. Both revisions were read manually and are reproduced in full below.
 
 ## Run identity
 

@@ -37,7 +37,8 @@ fixed code.
 | 5 | **Execution-grounded agent** | B2's failures are dominated by tests that break at both endpoints (24/58) or that never reproduce the bug (17/58) — both visible in a single test run. Gave the agent repo inspection plus the ability to run its test, read the failure, and revise. Capped at the same 5 gate checks B2 gets, so neither side buys accuracy with compute. | [`phase-4-report.md`](research/phase-4-report.md) · `agents/phase4-system.md` | **23 / 80 (28.75%)** vs B2 27.5% | 1.18× B2 | Kept, but the result was contaminated — see row 6. |
 | 6 | **Measurement repair** | Row 5's run had 13 infrastructure failures, 12 of them connection resets clustered in Click during a network outage. Re-ran the **entire** 80-case arm on a stable connection. Nothing about the agent, its prompt, or the gates changed — verified by matching instruction SHA-256, seed, model, temperature and limits. | `results/phase4/summary-run2.json` · run 1 retained at `summary-run1.json` | **26 / 80 (32.5%)**, infrastructure failures 13 → 3 | $0.43 | Kept. Both runs ship. Zero selective reruns. |
 | 7 | **Multi-agent split** | Planned ablation separating authoring from verification. | — | not run | — | **Cut for time.** Recorded here rather than quietly dropped. The Phase 2 removal below is the substantive negative result. |
-| Final | | Execution-grounded single agent, 5 gate checks, unchanged from row 5. | `results/phase5/` | dev **32.5%** · held-out *pending* | *pending* | The loop's contribution is real but bounded by step budget — see below. |
+| 8 | **Held-out evaluation** | Open `PyCQA/flake8` and `psf/black` for the first time and run all four arms on the entire verified held-out pool (n=16), unchanged agent, unchanged gates, k=1, zero selective reruns. | [`phase-5-report.md`](research/phase-5-report.md) · `results/phase5/heldout/` | B0 **0/16** · B1 **0/16** · B2 **3/16 (18.75%)** · agent **5/16 (31.25%)** | $0.182 | Kept. The agent's dev→held-out drop is **1.25 points**, against B2's 8.75 and B1's 16.25. |
+| Final | | Execution-grounded single agent, 5 gate checks, unchanged from row 5. | `results/phase5/` | dev **32.5%** · held-out **31.25%** | **$1.808** total | The loop's contribution is real but bounded by step budget — see below. It does not appear to be overfitted to the development repositories. |
 
 ---
 
@@ -156,9 +157,11 @@ far above a *correctly implemented* standard method it gets.
   verified byte-integrity of the boundary. They are evaluated once, at the end.
 - **Every model call is hash-cached.** Replay is the default and hard-fails on a
   miss, so all reported numbers reproduce offline with no API key.
-- **Total spend: $1.2182 through Phase 4**, plus the held-out run. Every figure is
-  API-reported, not estimated. Provider failures that returned no usage object are
-  excluded and noted.
+- **Total spend: $1.8080**, 3,688 unique requests, 43.4M tokens. API-reported, not
+  estimated, and deduplicated: 80 request hashes are shared between the Phase 4
+  agent run and the Phase 5 clean re-run, charged once. Summing the fixture
+  directories naively gives $1.8298. Provider failures that returned no usage
+  object are excluded and noted.
 - The 2019 cutoff excluding 12 pre-2019 candidates was fixed **before** any
   generated output was inspected.
 - **The Phase 2 leakage detector was never validated against human labels.** The
