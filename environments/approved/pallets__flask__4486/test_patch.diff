@@ -1,0 +1,44 @@
+diff --git a/tests/test_session_deletion_httponly.py b/tests/test_session_deletion_httponly.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_session_deletion_httponly.py
+@@ -0,0 +1,38 @@
++import flask
++
++
++def test_session_deletion_cookie_httponly(app, client):
++    """Test that the session deletion cookie includes the HttpOnly flag
++    when SESSION_COOKIE_HTTPONLY is True (the default)."""
++    app.config.update(
++        SERVER_NAME="www.example.com:8080",
++        APPLICATION_ROOT="/test",
++        SESSION_COOKIE_DOMAIN=".example.com",
++        SESSION_COOKIE_HTTPONLY=True,
++        SESSION_COOKIE_SECURE=True,
++        SESSION_COOKIE_SAMESITE="Lax",
++        SESSION_COOKIE_PATH="/",
++    )
++
++    @app.route("/")
++    def index():
++        flask.session["testing"] = 42
++        return "Hello World"
++
++    @app.route("/clear")
++    def clear():
++        flask.session.pop("testing", None)
++        return "Goodbye World"
++
++    # First request sets the session
++    client.get("/", "http://www.example.com:8080/test/")
++
++    # Second request clears the session, triggering a deletion cookie
++    rv = client.get("/clear", "http://www.example.com:8080/test/")
++    cookie = rv.headers["set-cookie"].lower()
++    assert "session=;" in cookie
++    assert "domain=.example.com" in cookie
++    assert "path=/" in cookie
++    assert "secure" in cookie
++    assert "samesite" in cookie
++    assert "httponly" in cookie
+\ No newline at end of file

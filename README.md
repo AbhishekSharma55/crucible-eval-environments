@@ -175,8 +175,31 @@ reviewer identity and a UTC timestamp in `environments/approvals.jsonl`.
 That gate is not decoration. The five gates prove mechanical facts — fails before,
 passes after, touches the changed lines, breaks nothing else. They cannot tell you
 whether a test captures *the behaviour the issue describes* or merely something
-the fix happened to alter. Eight of the twenty-six accepted development tests
-carry a gaming flag. A machine can raise that flag; only a person can settle it.
+the fix happened to alter.
+
+### What the review actually found
+
+**8 of the 31 environments were rejected by a human**, with reasons recorded in
+`environments/approvals.jsonl`. Every one had already passed all five gates.
+
+Three of the eight failed the same way, and it is the clearest illustration of the
+gates' limit. When the fix deprecates something, the agent writes a test asserting
+a `DeprecationWarning` fires — `click#1737`, `flask#4342`, `flask#4998`. That test
+passes every gate honestly: the warning genuinely does not exist at the parent, it
+does at the fix, and it touches the changed lines. It also tests the
+*announcement* rather than any behaviour. No mechanical check catches this.
+
+The rest split between tests asserting an internal field instead of the
+user-visible symptom (`flake8#1328` asserts `indent_size_str` rather than the E111
+message the issue is about; `black#4541` asserts a constant's type rather than the
+performance problem it was reported for) and tests unrelated to their issue —
+`black#4447` is reported as dropped characters on M1 and tested by blocking Python
+3.12.5, which is the mitigation the PR chose, not the bug.
+
+A 26% human rejection rate on tests that passed every automated gate is the
+strongest evidence in this project that the verifier is necessary and not
+sufficient. It is also why the export refuses to promote anything a person has not
+looked at.
 
 ## Reproducing this
 

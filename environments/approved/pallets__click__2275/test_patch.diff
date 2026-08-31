@@ -1,0 +1,26 @@
+diff --git a/tests/test_shell_completion_dot.py b/tests/test_shell_completion_dot.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_shell_completion_dot.py
+@@ -0,0 +1,20 @@
++import pytest
++
++import click
++from click.core import Command, Group
++
++
++@pytest.fixture()
++def _patch_for_completion(monkeypatch):
++    monkeypatch.setattr(
++        "click.shell_completion.BashComplete._check_version", lambda self: True
++    )
++
++
++@pytest.mark.usefixtures("_patch_for_completion")
++def test_complete_var_dot_in_prog_name(runner):
++    """A dot in the program name should be replaced with an underscore
++    when constructing the completion environment variable name."""
++    cli = Group("example.py", commands=[Command("a"), Command("b")])
++    result = runner.invoke(cli, env={"_EXAMPLE_PY_COMPLETE": "bash_source"})
++    assert "_EXAMPLE_PY_COMPLETE=bash_complete" in result.output
+\ No newline at end of file

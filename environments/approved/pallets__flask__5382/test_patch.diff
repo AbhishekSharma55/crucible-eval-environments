@@ -1,0 +1,42 @@
+diff --git a/tests/test_json_tag_no_object_hook.py b/tests/test_json_tag_no_object_hook.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_json_tag_no_object_hook.py
+@@ -0,0 +1,36 @@
++from unittest.mock import patch
++
++import json as _json
++import pytest
++
++from flask.json.tag import TaggedJSONSerializer
++
++
++def test_loads_without_object_hook():
++    """Test that TaggedJSONSerializer.loads works correctly even when the
++    underlying JSON provider does not support object_hook.
++
++    Some JSON providers (e.g. orjson, ujson) ignore the object_hook
++    parameter. The tagged JSON serializer must still untag the data
++    correctly in that case.
++    """
++    s = TaggedJSONSerializer()
++
++    # Serialize data that uses tags (tuple, bytes, etc.)
++    data = {"key": (1, 2, 3), "bytes": b"test"}
++    dumped = s.dumps(data)
++
++    # Simulate a JSON provider that ignores object_hook by patching
++    # flask.json.loads to use json.loads without object_hook.
++    original_loads = _json.loads
++
++    def loads_no_hook(s, **kwargs):
++        # Remove object_hook if present, simulating providers that
++        # don't support it.
++        kwargs.pop("object_hook", None)
++        return original_loads(s, **kwargs)
++
++    with patch("flask.json.tag.loads", loads_no_hook):
++        result = s.loads(dumped)
++
++    assert result == data
+\ No newline at end of file
