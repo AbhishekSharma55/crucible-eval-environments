@@ -1,5 +1,13 @@
 # Crucible
 
+> **Demo video: https://youtu.be/jzGw95NPXpk**
+>
+> The video URL recorded in the HackerEarth submission form
+> (`youtu.be/TVY44Vkv6Pg`) is dead. I re-cut the video shortly before the
+> deadline, uploaded the new version, and removed the old one — and the
+> submission window closed before the form update saved. The link above is the
+> correct and only video. Same content, same numbers.
+
 Manufactures verifiable evaluation environments for AI coding agents out of real
 bug fixes, by writing the regression test the original fix never shipped.
 
