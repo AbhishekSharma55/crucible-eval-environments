@@ -1,7 +1,26 @@
 PYTHON ?= python3
 IMAGE ?= crucible-sandbox:phase1
 
-.PHONY: sandbox probe harvest split validate-candidates validate-rescue sample baselines review-set review-labels review-metrics solvability-set solvability verify-split phase3-sandbox validate-b sample-b baselines-b replay-b agent-c replay-c report-c test
+.PHONY: demo sandbox probe harvest split validate-candidates validate-rescue sample baselines review-set review-labels review-metrics solvability-set solvability verify-split phase3-sandbox validate-b sample-b baselines-b replay-b agent-c replay-c report-c test
+
+# Offline reproduction. No API key, no GitHub token, no network, no Docker.
+# Rebuilds the candidate corpus from committed snapshots, re-verifies the
+# dev/held-out boundary, and prints the published results table.
+demo:
+	@echo "==> [1/3] Rebuilding candidate corpus from committed API snapshots"
+	@echo "          GITHUB_TOKEN unset, no network"
+	@env -u GITHUB_TOKEN $(PYTHON) -m scripts.harvest > /tmp/crucible-harvest.json
+	@$(PYTHON) -c "import json;d=json.load(open('/tmp/crucible-harvest.json'));print(f\"          {d['total_candidates']} candidates, {d['accepted_candidates']} accepted, {d['rejected_candidates']} rejected\")"
+	@echo ""
+	@echo "==> [2/3] Verifying the dev/held-out boundary"
+	@$(PYTHON) -m scripts.verify_split
+	@echo ""
+	@echo "==> [3/3] Published results, from committed runs"
+	@echo "          OPENROUTER_API_KEY unset, replay only"
+	@env -u OPENROUTER_API_KEY $(PYTHON) -m scripts.report_phase4 > /dev/null
+	@env -u OPENROUTER_API_KEY $(PYTHON) -m scripts.show_results
+	@echo "Reproduced with no key, no network and no spend."
+	@echo "Full walkthrough: REPRODUCE.md"
 
 sandbox:
 	docker build --pull --no-cache --progress=plain -t $(IMAGE) .

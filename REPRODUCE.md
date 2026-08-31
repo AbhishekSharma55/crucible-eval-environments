@@ -17,7 +17,13 @@ number.
 No host Python packages are needed for the corpus commands. Development
 dependencies for the test suite are in `requirements-dev.txt`.
 
-Disk: roughly 3 GB for the sandbox image and cached git mirrors.
+Disk: the clone is about 290 MB, and the sandbox image plus cached git mirrors
+add roughly 3 GB.
+
+Most of the clone is `fixtures/` — 167 MB of recorded model responses. That is
+the price of the offline path: because every call is committed, you can reproduce
+every published number with no API key and no spend. It seemed a fair trade to
+make the reviewer's cost a slow clone rather than a credit card.
 
 ## The short path
 
